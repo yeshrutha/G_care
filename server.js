@@ -1,11 +1,11 @@
 import http from 'node:http';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.API_PORT || 8787);
-const DATA_DIR = path.join(__dirname, 'data');
+const PORT = Number(process.env.PORT || 8787);
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'db.json');
 
 const seedData = {
@@ -96,12 +96,70 @@ function notFound(res) {
   sendJson(res, 404, { error: 'Route not found' });
 }
 
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.eot': 'application/vnd.ms-fontobject',
+};
+
+async function serveStatic(req, res, pathName) {
+  const distDir = path.join(__dirname, 'dist');
+  let targetPath = path.join(distDir, pathName);
+
+  // Prevent directory traversal
+  if (!targetPath.startsWith(distDir)) {
+    res.writeHead(403);
+    return res.end('Forbidden');
+  }
+
+  try {
+    const stats = await stat(targetPath);
+    if (stats.isDirectory()) {
+      targetPath = path.join(targetPath, 'index.html');
+    }
+  } catch {
+    // Fallback for SPA (Single Page Application) routing: serve index.html
+    targetPath = path.join(distDir, 'index.html');
+  }
+
+  try {
+    const data = await readFile(targetPath);
+    const ext = path.extname(targetPath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Cache-Control': ext === '.html' ? 'no-store, no-cache, must-revalidate, proxy-revalidate' : 'public, max-age=31536000, immutable',
+    });
+    res.end(data);
+  } catch (err) {
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end(`Internal Server Error: ${err.message}`);
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'OPTIONS') return sendJson(res, 204, {});
 
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     const pathName = url.pathname;
+
+    if (req.method === 'GET' && !pathName.startsWith('/api')) {
+      return serveStatic(req, res, pathName);
+    }
 
     if (req.method === 'GET' && pathName === '/api/health') {
       return sendJson(res, 200, { ok: true, service: 'GuardianCare API' });
