@@ -44,6 +44,8 @@ import {
 import { useAppStore } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 
+const API_BASE = '/api';
+
 interface WatchSimulatorProps {
   buttonClassName?: string;
   buttonVariant?: 'default' | 'ghost' | 'outline' | 'secondary';
@@ -244,9 +246,13 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
 }) => {
   const demoElders = useAppStore((state) => state.demoElders);
   const demoVitals = useAppStore((state) => state.demoVitals);
+  const addCaretakerAlert = useAppStore((state) => state.addAlert);
   const guardianReminders = useGuardianStore((state) => state.reminders);
   const verifyReminder = useGuardianStore((state) => state.verifyReminder);
   const guardianUser = useGuardianStore((state) => state.guardianUser);
+  const addGuardianAlert = useGuardianStore((state) => state.addGuardianAlert);
+  const setGuardianReminders = useGuardianStore((state) => state.setReminders);
+
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
   const responseTimeoutRef = useRef<number | null>(null);
   const alarmTimeoutRef = useRef<number | null>(null);
@@ -281,9 +287,62 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
   const [assistantLanguage, setAssistantLanguage] = useState<SupportedLanguage>(profileLanguage);
   const languageConfig = getLanguageConfig(assistantLanguage);
 
+  useEffect(() => {
+    if (!open) return;
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.permission !== 'denied' && Notification.requestPermission();
+    }
+
+    fetch('/api/dashboard-data')
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
+      .then((data: { medications?: any[]; alarms?: any[] }) => {
+        const medReminders = (data.medications || []).map(med => {
+          const dosage = `${med.dose_amount}${med.dose_unit}`;
+          return med.times.map((time: string, idx: number) => ({
+            id: `med-${med.id}-${idx}`,
+            elderId: med.elder_id,
+            elderName: demoElders.find((elder) => elder.id === med.elder_id)?.full_name || activeElder.full_name,
+            type: 'medication' as const,
+            title: `${med.brand_name} ${dosage}`,
+            time: time,
+            repeat: 'daily' as const,
+            verified: false,
+            pillName: med.brand_name,
+            dosage: dosage,
+            photo: med.photo || '',
+            createdAt: new Date().toISOString(),
+          }));
+        }).flat();
+
+        const alarmReminders = (data.alarms || [])
+          .filter(alarm => alarm.type !== 'medication')
+          .map(alarm => ({
+            id: `alarm-${alarm.id}`,
+            elderId: alarm.elderId,
+            elderName: demoElders.find((elder) => elder.id === alarm.elderId)?.full_name || activeElder.full_name,
+            type: alarm.type,
+            title: alarm.title,
+            time: alarm.time,
+            repeat: 'daily' as const,
+            verified: false,
+            createdAt: new Date().toISOString(),
+          }));
+
+        setGuardianReminders([...medReminders, ...alarmReminders]);
+      })
+      .catch((err) => {
+        console.error('Failed to sync PWA watch reminders:', err);
+      });
+  }, [activeElder.full_name, demoElders, open, setGuardianReminders]);
+
   const activeReminder = reminders.find((reminder) => reminder.id === activeReminderId) || null;
   const activeGuardianAlarm =
     guardianReminders.find((reminder) => reminder.id === activeGuardianAlarmId) || null;
+  const activeGuardianAlarmElderName =
+    activeGuardianAlarm?.elderName ||
+    demoElders.find((elder) => elder.id === activeGuardianAlarm?.elderId)?.full_name ||
+    activeElder.full_name;
   const alarmCopy = WATCH_ALARM_COPY[assistantLanguage];
   const alarmLanguageConfig = getLanguageConfig(profileLanguage);
   const upcomingReminders = reminders
@@ -335,11 +394,50 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     verifyReminder(activeGuardianAlarm.id);
     setActiveGuardianAlarmId(null);
     window.speechSynthesis?.cancel();
+    
+    const medicationName = activeGuardianAlarm.pillName || activeGuardianAlarm.title || 'medicine';
+    const messageText = `${activeGuardianAlarmElderName} has taken ${medicationName}.`;
     toast({
-      title: activeGuardianAlarm.title,
-      description: alarmCopy.dismissed,
+      title: "Medication Confirmed",
+      description: messageText,
     });
-  }, [activeGuardianAlarm, alarmCopy.dismissed, currentTime, verifyReminder]);
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification("Medication Confirmed", {
+        body: messageText,
+        icon: '/logo.svg'
+      });
+    }
+    
+    addGuardianAlert({
+      id: `ga-accept-${Date.now()}`,
+      type: 'medicine_missed',
+      severity: 'info',
+      message: `✅ Taken — ${messageText}`,
+      time: new Date().toISOString(),
+      acknowledged: true,
+      elderName: activeGuardianAlarmElderName,
+    });
+
+    const caretakerAlert = {
+      id: `watch-med-taken-${Date.now()}`,
+      elder_name: activeGuardianAlarmElderName,
+      type: 'med_taken',
+      severity: 'info',
+      message: `${activeGuardianAlarmElderName} has taken ${medicationName}. Watch response: Yes.`,
+      time: new Date().toISOString(),
+      resolved: false,
+    } as const;
+
+    addCaretakerAlert(caretakerAlert);
+    void fetch(`${API_BASE}/alerts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(caretakerAlert),
+    }).catch(() => {
+      // The live caretaker alert is already in the local store.
+    });
+  }, [activeGuardianAlarm, activeGuardianAlarmElderName, currentTime, verifyReminder, addGuardianAlert, addCaretakerAlert]);
 
   const snoozeGuardianAlarm = useCallback(() => {
     if (!activeGuardianAlarm) {
@@ -347,15 +445,60 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     }
 
     stopAlertLoop('medicine');
-    const snoozeUntil = Date.now() + SNOOZE_MS;
-    setSnoozedGuardianAlarms((current) => ({ ...current, [activeGuardianAlarm.id]: snoozeUntil }));
+    const alarmKey = getReminderAlarmKey(activeGuardianAlarm, currentTime);
+    setDismissedGuardianAlarms((current) => ({ ...current, [alarmKey]: true }));
+    setSnoozedGuardianAlarms((current) => {
+      const next = { ...current };
+      delete next[activeGuardianAlarm.id];
+      return next;
+    });
     setActiveGuardianAlarmId(null);
     window.speechSynthesis?.cancel();
+    
+    const medicationName = activeGuardianAlarm.pillName || activeGuardianAlarm.title || 'medicine';
+    const messageText = `${activeGuardianAlarmElderName} has missed ${medicationName}. Tablet was not taken.`;
     toast({
-      title: activeGuardianAlarm.title,
-      description: alarmCopy.snoozed,
+      title: "Tablet Missed",
+      description: messageText,
+      variant: "default",
     });
-  }, [activeGuardianAlarm, alarmCopy.snoozed]);
+
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification("Tablet Missed", {
+        body: messageText,
+        icon: '/logo.svg'
+      });
+    }
+    
+    addGuardianAlert({
+      id: `ga-reject-${Date.now()}`,
+      type: 'medicine_missed',
+      severity: 'warning',
+      message: `❌ Snoozed/Rejected — ${messageText}`,
+      time: new Date().toISOString(),
+      acknowledged: false,
+      elderName: activeGuardianAlarmElderName,
+    });
+
+    const caretakerAlert = {
+      id: `watch-med-rejected-${Date.now()}`,
+      elder_name: activeGuardianAlarmElderName,
+      type: 'missed_med',
+      severity: 'warning',
+      message: `${activeGuardianAlarmElderName} has missed ${medicationName}. Watch response: No.`,
+      time: new Date().toISOString(),
+      resolved: false,
+    } as const;
+
+    addCaretakerAlert(caretakerAlert);
+    void fetch(`${API_BASE}/alerts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(caretakerAlert),
+    }).catch(() => {
+      // The live caretaker alert is already in the local store.
+    });
+  }, [activeGuardianAlarm, activeGuardianAlarmElderName, currentTime, addGuardianAlert, addCaretakerAlert]);
 
   const startResponseOverlay = (text: string, language: SupportedLanguage) => {
     setAssistantLanguage(language);

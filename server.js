@@ -63,10 +63,15 @@ async function readDb() {
 
   try {
     const raw = await readFile(DATA_FILE, 'utf8');
-    return JSON.parse(raw);
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data.alerts)) {
+      data.alerts = [];
+    }
+    return data;
   } catch {
-    await writeDb(seedData);
-    return structuredClone(seedData);
+    const data = { ...seedData, alerts: [] };
+    await writeDb(data);
+    return structuredClone(data);
   }
 }
 
@@ -165,11 +170,31 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, service: 'GuardianCare API' });
     }
 
+    const db = await readDb();
+
     if (req.method === 'GET' && pathName === '/api/dashboard-data') {
-      return sendJson(res, 200, await readDb());
+      return sendJson(res, 200, db);
     }
 
-    const db = await readDb();
+    if (req.method === 'GET' && pathName === '/api/alerts') {
+      return sendJson(res, 200, db.alerts || []);
+    }
+
+    if (req.method === 'POST' && pathName === '/api/alerts') {
+      const alert = await readJsonBody(req);
+      const saved = { ...alert, id: alert.id || `ga-${Date.now()}` };
+      db.alerts = [saved, ...(db.alerts || [])].slice(0, 100);
+      await writeDb(db);
+      return sendJson(res, 201, saved);
+    }
+
+    if (req.method === 'PUT' && pathName.startsWith('/api/alerts/')) {
+      const id = decodeURIComponent(pathName.split('/').pop() || '');
+      const updates = await readJsonBody(req);
+      db.alerts = (db.alerts || []).map((item) => item.id === id ? { ...item, ...updates } : item);
+      await writeDb(db);
+      return sendJson(res, 200, db.alerts.find((item) => item.id === id));
+    }
 
     if (req.method === 'POST' && pathName === '/api/medications') {
       const medication = await readJsonBody(req);

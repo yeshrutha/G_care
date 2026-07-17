@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -18,6 +18,29 @@ import { triggerAlert } from '@/lib/audioAlerts';
 import { DEMO_VITALS, DEMO_MEDICATIONS, DEMO_HR_HISTORY, DEMO_MOOD_HISTORY, DEMO_ELDERS } from '@/lib/demoData';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { ArrowLeft, Heart, Pill, Bell, Smile, ShieldAlert, MapPin, Watch, FileText, Volume2, Check, Plus, AlertTriangle, CheckCircle, Pencil, Trash2 } from 'lucide-react';
+
+const API_BASE = '/api';
+
+const getSeedMedications = () => DEMO_MEDICATIONS.map((med) => ({
+  id: med.id,
+  elder_id: med.elder_id,
+  brand_name: med.brand_name,
+  generic_name: med.generic_name,
+  category: med.category,
+  dose_amount: med.dose_amount,
+  dose_unit: med.dose_unit,
+  frequency: med.frequency,
+  times: med.times,
+  instructions: med.instructions,
+  photo: med.photo_url,
+  photo_url: med.photo_url,
+  pronunciation_en: med.pronunciation_en,
+  pronunciation_kn: med.pronunciation_kn,
+  pronunciation_hi: med.pronunciation_hi,
+  pronunciation_ta: med.pronunciation_ta,
+  pill_description: med.pill_description,
+  active: med.active,
+}));
 
 interface ElderAlert {
   id: string;
@@ -75,7 +98,7 @@ const ElderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { demoVitals } = useAppStore();
+  const { demoVitals, medications: sharedMedications, setMedications } = useAppStore();
   const [moodRecorded, setMoodRecorded] = useState(false);
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [elderAlerts, setElderAlerts] = useState<ElderAlert[]>(INITIAL_ALERTS);
@@ -92,7 +115,29 @@ const ElderDetail: React.FC = () => {
 
   const elder = DEMO_ELDERS.find(e => e.id === id) || DEMO_ELDERS[0];
   const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
-  const medications = DEMO_MEDICATIONS.filter(m => m.elder_id === elder.id);
+  const medications = (sharedMedications.length ? sharedMedications : getSeedMedications())
+    .filter(m => m.elder_id === elder.id);
+
+  useEffect(() => {
+    let ignore = false;
+
+    fetch(`${API_BASE}/dashboard-data`)
+      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
+      .then((data: { medications?: ReturnType<typeof getSeedMedications> }) => {
+        if (!ignore && Array.isArray(data.medications)) {
+          setMedications(data.medications);
+        }
+      })
+      .catch(() => {
+        if (!ignore && sharedMedications.length === 0) {
+          setMedications(getSeedMedications());
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [setMedications, sharedMedications.length]);
 
   const chartData = useMemo(() => DEMO_HR_HISTORY.map(d => ({
     ...d,

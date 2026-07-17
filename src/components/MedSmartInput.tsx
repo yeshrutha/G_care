@@ -12,7 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import Webcam from 'react-webcam';
 import { toast } from '@/hooks/use-toast';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
+import { useAppStore, type Medication } from '@/store';
 import { formatTime12Hour, from12HourParts, to12HourParts, type TimeParts12Hour } from '@/lib/timeFormat';
+
+const API_BASE = '/api';
 
 const MEDICATIONS_DB = [
   { brand_name: 'Glucophage', generic_name: 'Metformin HCl', category: 'Antidiabetic', typical_dose: 500, dose_unit: 'mg', pronunciation_en: 'Met-FOR-min', pronunciation_kn: 'ಮೆಟ್-ಫಾರ್-ಮಿನ್', pronunciation_hi: 'मेट-फॉर-मिन', pronunciation_ta: 'மெட்-ஃபார்-மின்', pill_description: 'Small white oval tablet' },
@@ -37,6 +40,7 @@ interface Props {
 export const MedSmartInput: React.FC<Props> = ({ elderId, trigger, onSave }) => {
   const { t } = useTranslation();
   const addReminder = useGuardianStore((state) => state.addReminder);
+  const setMedications = useAppStore((state) => state.setMedications);
   const [open, setOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const webcamRef = useRef<Webcam>(null);
@@ -121,10 +125,41 @@ export const MedSmartInput: React.FC<Props> = ({ elderId, trigger, onSave }) => 
     const medicationName = brandName || searchQuery || genericName || 'Medication';
     const dosage = [doseAmount, doseUnit].filter(Boolean).join(' ');
     const createdAt = new Date().toISOString();
+    const medicationId = `med-${Date.now()}`;
+    const medication: Medication = {
+      id: medicationId,
+      elder_id: elderId,
+      brand_name: medicationName,
+      generic_name: genericName || medicationName,
+      category: category || 'General',
+      dose_amount: Number(doseAmount) || 0,
+      dose_unit: doseUnit,
+      frequency,
+      times,
+      instructions,
+      photo: photoUrl || '',
+      photo_url: photoUrl || '',
+      pronunciation_en: pronEn || medicationName,
+      pronunciation_kn: pronKn,
+      pronunciation_hi: pronHi,
+      pronunciation_ta: pronTa,
+      pill_description: pillDescription || specialNote,
+      active: true,
+    };
+
+    setMedications((current) => [medication, ...current]);
+    void fetch(`${API_BASE}/medications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(medication),
+    }).catch(() => {
+      // Keep the in-app medication list updated even when the local API is off.
+    });
 
     times.forEach((time, index) => {
       const reminder: Reminder = {
-        id: `med-${Date.now()}-${index}`,
+        id: `${medicationId}-${index}`,
+        elderId,
         type: 'medication',
         title: dosage ? `${medicationName} ${dosage}` : medicationName,
         time,

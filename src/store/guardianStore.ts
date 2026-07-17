@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 export interface Reminder {
   id: string;
+  elderId?: string;
+  elderName?: string;
   type: 'medication' | 'food' | 'activity' | 'appointment';
   title: string;
   time: string;
@@ -70,6 +72,7 @@ interface GuardianStore {
   removeReminder: (id: string) => void;
   updateReminder: (id: string, r: Partial<Reminder>) => void;
   verifyReminder: (id: string) => void;
+  setReminders: (reminders: Reminder[]) => void;
   alerts: GuardianAlert[];
   addGuardianAlert: (a: GuardianAlert) => void;
   acknowledgeAlert: (id: string) => void;
@@ -160,6 +163,7 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
   verifyReminder: (id) => set((s) => ({
     reminders: s.reminders.map(r => r.id === id ? { ...r, verified: true } : r),
   })),
+  setReminders: (reminders) => set({ reminders }),
   alerts: [
     {
       id: 'ga-1', type: 'medicine_missed', severity: 'warning',

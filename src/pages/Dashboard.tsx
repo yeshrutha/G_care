@@ -17,26 +17,14 @@ import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { useAppStore, type DemoElder, type DemoVitals } from '@/store';
+import { useAppStore, type DemoElder, type DemoVitals, type Medication } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
 type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports';
 
-type DashboardMedication = {
-  id: string;
-  elder_id: string;
-  brand_name: string;
-  generic_name: string;
-  category: string;
-  dose_amount: number;
-  dose_unit: string;
-  frequency: string;
-  times: string[];
-  instructions: string;
-  photo?: string;
-};
+type DashboardMedication = Medication;
 
 type DashboardAlarm = {
   id: string;
@@ -58,6 +46,27 @@ type CareReport = {
 };
 
 const API_BASE = '/api';
+
+const getSeedMedications = (): DashboardMedication[] => DEMO_MEDICATIONS.map((med) => ({
+  id: med.id,
+  elder_id: med.elder_id,
+  brand_name: med.brand_name,
+  generic_name: med.generic_name,
+  category: med.category,
+  dose_amount: med.dose_amount,
+  dose_unit: med.dose_unit,
+  frequency: med.frequency,
+  times: med.times,
+  instructions: med.instructions,
+  photo: med.photo_url,
+  photo_url: med.photo_url,
+  pronunciation_en: med.pronunciation_en,
+  pronunciation_kn: med.pronunciation_kn,
+  pronunciation_hi: med.pronunciation_hi,
+  pronunciation_ta: med.pronunciation_ta,
+  pill_description: med.pill_description,
+  active: med.active,
+}));
 
 const NAV = [
   { icon: LayoutDashboard, label: 'nav.dashboard', section: 'dashboard' },
@@ -171,10 +180,29 @@ const getCareRecommendation = (elder: DemoElder, vitals?: DemoVitals) => {
   return 'Vitals are inside personal range. Keep routine monitoring active.';
 };
 
+const getAlertCardClass = (severity: string) => {
+  if (severity === 'critical') return 'border-gw-red/40 bg-gw-red/5';
+  if (severity === 'info') return 'border-gw-green/40 bg-gw-green/5';
+  return 'border-gw-amber/40 bg-gw-amber/5';
+};
+
+const getAlertBadgeClass = (alert: { resolved: boolean; severity: string }) => {
+  if (alert.resolved) return 'border-gw-green/30 text-gw-green';
+  if (alert.severity === 'info') return 'border-gw-green/30 text-gw-green';
+  if (alert.severity === 'critical') return 'border-gw-red/30 text-gw-red';
+  return 'border-gw-amber/30 text-gw-amber';
+};
+
+const getAlertLabel = (alert: { resolved: boolean; severity: string }) => {
+  if (alert.resolved) return 'Resolved';
+  if (alert.severity === 'info') return 'Info';
+  return alert.severity;
+};
+
 const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { demoMode, setDemoMode, authUser, setAuthUser, demoElders, setDemoElders, demoVitals, setDemoVitals, activeAlerts, addAlert, setDemoStep, demoStep } = useAppStore();
+  const { demoMode, setDemoMode, authUser, setAuthUser, demoElders, setDemoElders, demoVitals, setDemoVitals, activeAlerts, setActiveAlerts, addAlert, medications, setMedications, setDemoStep, demoStep } = useAppStore();
   const addGuardianReminder = useGuardianStore((state) => state.addReminder);
   const guardianUser = useGuardianStore((state) => state.guardianUser);
   const setGuardianUser = useGuardianStore((state) => state.setGuardianUser);
@@ -194,19 +222,6 @@ const Dashboard: React.FC = () => {
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [deleteAlarmId, setDeleteAlarmId] = useState<string | null>(null);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  const [medications, setMedications] = useState<DashboardMedication[]>(DEMO_MEDICATIONS.map((med) => ({
-    id: med.id,
-    elder_id: med.elder_id,
-    brand_name: med.brand_name,
-    generic_name: med.generic_name,
-    category: med.category,
-    dose_amount: med.dose_amount,
-    dose_unit: med.dose_unit,
-    frequency: med.frequency,
-    times: med.times,
-    instructions: med.instructions,
-    photo: med.photo_url,
-  })));
   const [alarms, setAlarms] = useState<DashboardAlarm[]>([
     { id: 'alarm-1', time: '08:00', title: 'Morning medicines', elderId: 'elder-1', status: 'Due soon', type: 'medication', notes: 'Morning medication reminder' },
     { id: 'alarm-2', time: '08:30', title: 'Breakfast reminder', elderId: 'elder-1', status: 'Scheduled', type: 'food', notes: 'Breakfast reminder' },
@@ -234,24 +249,63 @@ const Dashboard: React.FC = () => {
     notes: '',
   });
 
+  const elders = demoElders.length > 0 ? demoElders : DEMO_ELDERS;
+  const setReminders = useGuardianStore((state) => state.setReminders);
+
+  useEffect(() => {
+    const medReminders = medications.map(med => {
+      const dosage = `${med.dose_amount}${med.dose_unit}`;
+      return med.times.map((time, idx) => ({
+        id: `med-${med.id}-${idx}`,
+        elderId: med.elder_id,
+        elderName: elders.find((elder) => elder.id === med.elder_id)?.full_name || 'Registered elder',
+        type: 'medication' as const,
+        title: `${med.brand_name} ${dosage}`,
+        time: time,
+        repeat: 'daily' as const,
+        verified: false,
+        pillName: med.brand_name,
+        dosage: dosage,
+        photo: med.photo || '',
+        createdAt: new Date().toISOString(),
+      }));
+    }).flat();
+
+    const alarmReminders = alarms.filter(alarm => alarm.type !== 'medication').map(alarm => ({
+      id: `alarm-${alarm.id}`,
+      elderId: alarm.elderId,
+      elderName: elders.find((elder) => elder.id === alarm.elderId)?.full_name || 'Registered elder',
+      type: alarm.type,
+      title: alarm.title,
+      time: alarm.time,
+      repeat: 'daily' as const,
+      verified: false,
+      createdAt: new Date().toISOString(),
+    }));
+
+    setReminders([...medReminders, ...alarmReminders]);
+  }, [medications, alarms, elders, setReminders]);
+
   // Initialize demo data
   useEffect(() => {
     if (!authUser) {
       setAuthUser({ id: '1', name: 'Demo Caretaker', role: 'caretaker', email: 'demo@guardianwatch.in' });
     }
     if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
+    if (medications.length === 0) setMedications(getSeedMedications());
     Object.entries(DEMO_VITALS).forEach(([id, v]) => setDemoVitals(id, v));
-  }, []);
+  }, [authUser, demoElders.length, medications.length, setAuthUser, setDemoElders, setDemoVitals, setMedications]);
 
   useEffect(() => {
     let ignore = false;
 
     fetch(`${API_BASE}/dashboard-data`)
       .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
-      .then((data: { medications?: DashboardMedication[]; alarms?: DashboardAlarm[] }) => {
+      .then((data: { medications?: DashboardMedication[]; alarms?: DashboardAlarm[]; alerts?: typeof activeAlerts }) => {
         if (ignore) return;
         if (Array.isArray(data.medications)) setMedications(data.medications);
         if (Array.isArray(data.alarms)) setAlarms(data.alarms);
+        if (Array.isArray(data.alerts)) setActiveAlerts(data.alerts);
       })
       .catch(() => {
         // Keep demo seed data when the local backend is not running.
@@ -260,7 +314,7 @@ const Dashboard: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [setActiveAlerts, setMedications]);
 
   // Demo mode scripted timeline
   useEffect(() => {
@@ -300,7 +354,6 @@ const Dashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [demoVitals]);
 
-  const elders = demoElders.length > 0 ? demoElders : DEMO_ELDERS;
   const sparkData = useMemo(() => Array.from({ length: 30 }, (_, i) => ({ v: 65 + Math.sin(i / 4) * 5 + Math.random() * 3 })), []);
 
   const unresolvedCount = activeAlerts.filter(a => !a.resolved).length;
@@ -421,6 +474,8 @@ const Dashboard: React.FC = () => {
       const dosage = `${savedMedication.dose_amount}${savedMedication.dose_unit}`;
       const reminder: Reminder = {
         id: `dash-${savedMedication.id}`,
+        elderId: savedMedication.elder_id,
+        elderName: selectedElder?.full_name || 'Registered elder',
         type: 'medication',
         title: `${savedMedication.brand_name} ${dosage}`,
         time: savedMedication.times[0] || '08:00',
@@ -1215,7 +1270,7 @@ const Dashboard: React.FC = () => {
                     <CardContent className="p-6 text-sm text-muted-foreground">No active alerts right now. Turn on demo mode to simulate events.</CardContent>
                   </Card>
                 ) : activeAlerts.map((alert) => (
-                  <Card key={alert.id} className={`rounded-xl shadow-sm ${alert.severity === 'critical' ? 'border-gw-red/40 bg-gw-red/5' : 'border-gw-amber/40 bg-gw-amber/5'}`}>
+                  <Card key={alert.id} className={`rounded-xl shadow-sm ${getAlertCardClass(alert.severity)}`}>
                     <CardContent className="p-5">
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -1223,8 +1278,8 @@ const Dashboard: React.FC = () => {
                           <p className="mt-1 text-sm text-muted-foreground">{alert.message}</p>
                           {alert.location && <p className="mt-2 text-xs text-muted-foreground">{alert.location}</p>}
                         </div>
-                        <Badge variant="outline" className={alert.resolved ? 'border-gw-green/30 text-gw-green' : 'border-gw-red/30 text-gw-red'}>
-                          {alert.resolved ? 'Resolved' : alert.severity}
+                        <Badge variant="outline" className={getAlertBadgeClass(alert)}>
+                          {getAlertLabel(alert)}
                         </Badge>
                       </div>
                     </CardContent>
