@@ -9,7 +9,7 @@ import { GuardianLogo } from '@/components/GuardianLogo';
 import { useAppStore } from '@/store';
 import { DEMO_ELDERS, DEMO_VITALS, DEMO_HR_HISTORY, DEMO_MEDICATIONS } from '@/lib/demoData';
 import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import { ArrowLeft, Video, FileText, LogOut } from 'lucide-react';
+import { ArrowLeft, FileText, LogOut } from 'lucide-react';
 import { useState } from 'react';
 
 const DoctorPortal: React.FC = () => {
@@ -74,9 +74,6 @@ const DoctorPortal: React.FC = () => {
               <h1 className="font-display text-2xl text-foreground">{selectedElder.full_name}</h1>
               <p className="text-sm text-muted-foreground">Age {selectedElder.age} · {selectedElder.medical_conditions.join(', ')}</p>
             </div>
-            <Button className="bg-teal hover:bg-teal/90 text-primary-foreground">
-              <Video className="h-4 w-4 mr-2" /> Start Video Call
-            </Button>
           </div>
 
           <Card className="rounded-xl">
