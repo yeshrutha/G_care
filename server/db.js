@@ -190,12 +190,44 @@ if (DATABASE_URL) {
 export async function initDb() {
   if (!usePostgres) {
     await mkdir(DATA_DIR, { recursive: true });
+    let data;
     try {
-      await readFile(DATA_FILE, 'utf8');
+      const raw = await readFile(DATA_FILE, 'utf8');
+      data = JSON.parse(raw);
     } catch {
-      const seed = await createSeedDb();
-      await writeFile(DATA_FILE, JSON.stringify(seed, null, 2));
+      data = await createSeedDb();
+      await writeFile(DATA_FILE, JSON.stringify(data, null, 2));
       console.log('Local fallback JSON DB seeded.');
+      return;
+    }
+
+    const seed = await createSeedDb();
+    let changed = false;
+    if (!Array.isArray(data.users)) data.users = [];
+    
+    for (const seedUser of seed.users) {
+      if (!data.users.some(u => u.email === seedUser.email)) {
+        data.users.push(seedUser);
+        changed = true;
+      }
+    }
+
+    if (!Array.isArray(data.elders) || data.elders.length === 0) {
+      data.elders = seed.elders;
+      changed = true;
+    }
+    if (!Array.isArray(data.medications) || data.medications.length === 0) {
+      data.medications = seed.medications;
+      changed = true;
+    }
+    if (!Array.isArray(data.alarms) || data.alarms.length === 0) {
+      data.alarms = seed.alarms;
+      changed = true;
+    }
+
+    if (changed) {
+      await writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+      console.log('Local fallback JSON DB updated with demo seeds.');
     }
     return;
   }
