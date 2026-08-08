@@ -103,6 +103,14 @@ const clinicalNoteSchema = z.object({
   note: z.string().min(1).max(5000),
 });
 
+const reportSchema = z.object({
+  elderId: z.string().min(1),
+  title: z.string().min(1).max(255),
+  description: z.string().max(5000).optional().default(''),
+  category: z.string().min(1).max(100).default('General'),
+  fileUrl: z.string().max(500).optional().default(''),
+});
+
 function parseBody(schema, body, res, req) {
   const result = schema.safeParse(body);
   if (!result.success) {
@@ -153,6 +161,14 @@ export async function handleRequest(req, res, pathName) {
 
   if (pathName.startsWith('/api/clinical-notes')) {
     return handleClinicalNotes(req, res, pathName, user);
+  }
+
+  if (pathName.startsWith('/api/reports')) {
+    return handleReports(req, res, pathName, user);
+  }
+
+  if (pathName.startsWith('/api/care-team')) {
+    return handleCareTeam(req, res, pathName, user);
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);
@@ -498,6 +514,55 @@ async function handleClinicalNotes(req, res, pathName, user) {
     const limit = Number(url.searchParams.get('limit') || 50);
     const notes = await dbService.getClinicalNotes(elderId, limit);
     return sendJson(res, 200, notes, req);
+  }
+
+  return sendJson(res, 404, { error: 'Route not found' }, req);
+}
+
+async function handleReports(req, res, pathName, user) {
+  if (req.method === 'POST' && pathName === '/api/reports') {
+    if (!requireRole(user, ['doctor'], res, req)) return;
+
+    const parsed = parseBody(reportSchema, await readJsonBody(req), res, req);
+    if (!parsed) return;
+
+    const owns = await dbService.userOwnsElder(user, parsed.elderId);
+    if (!owns) {
+      return sendJson(res, 403, { error: 'Not allowed to add clinical reports for this patient' }, req);
+    }
+
+    const saved = await dbService.createReport(user, parsed.elderId, parsed.title, parsed.description, parsed.category, parsed.fileUrl);
+    await dbService.addAuditLog(user, 'add_clinical_report', 'report', saved.id, { elderId: saved.elderId });
+    return sendJson(res, 201, saved, req);
+  }
+
+  if (req.method === 'GET' && pathName === '/api/reports') {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const elderId = url.searchParams.get('elderId');
+    if (!elderId) return sendJson(res, 400, { error: 'elderId parameter is required' }, req);
+
+    const owns = await dbService.userOwnsElder(user, elderId);
+    if (!owns) return sendJson(res, 403, { error: 'Not allowed to view reports for this elder' }, req);
+
+    const limit = Number(url.searchParams.get('limit') || 50);
+    const reports = await dbService.getReports(elderId, limit);
+    return sendJson(res, 200, reports, req);
+  }
+
+  return sendJson(res, 404, { error: 'Route not found' }, req);
+}
+
+async function handleCareTeam(req, res, pathName, user) {
+  if (req.method === 'GET' && pathName === '/api/care-team') {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const elderId = url.searchParams.get('elderId');
+    if (!elderId) return sendJson(res, 400, { error: 'elderId parameter is required' }, req);
+
+    const owns = await dbService.userOwnsElder(user, elderId);
+    if (!owns) return sendJson(res, 403, { error: 'Not allowed to view care team for this elder' }, req);
+
+    const team = await dbService.getCareTeam(elderId);
+    return sendJson(res, 200, team, req);
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);

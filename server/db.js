@@ -160,6 +160,7 @@ export async function createSeedDb() {
     revokedTokens: [],
     vitalsReadings: [],
     clinicalNotes: [],
+    reports: [],
   };
 }
 
@@ -307,6 +308,20 @@ export async function initDb() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS reports (
+        id VARCHAR(100) PRIMARY KEY,
+        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
+        doctor_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
+        doctor_name VARCHAR(255),
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        file_url TEXT,
+        category VARCHAR(100),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS alerts (
         id VARCHAR(100) PRIMARY KEY,
         elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
@@ -407,6 +422,7 @@ export async function readDb() {
     data.revokedTokens = Array.isArray(data.revokedTokens) ? data.revokedTokens : [];
     data.vitalsReadings = Array.isArray(data.vitalsReadings) ? data.vitalsReadings : [];
     data.clinicalNotes = Array.isArray(data.clinicalNotes) ? data.clinicalNotes : [];
+    data.reports = Array.isArray(data.reports) ? data.reports : [];
     return data;
   } catch {
     const data = await createSeedDb();
@@ -1122,6 +1138,93 @@ export const dbService = {
       return fileDb.clinicalNotes
         .filter((n) => n.elderId === elderId)
         .slice(0, limit);
+    }
+  },
+
+  createReport: async (doctor, elderId, title, description, category, fileUrl) => {
+    const id = `rep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const saved = {
+      id,
+      elderId,
+      doctorId: doctor.id,
+      doctorName: doctor.name,
+      title,
+      description: description || '',
+      category: category || 'General',
+      fileUrl: fileUrl || '',
+      createdAt: new Date().toISOString(),
+    };
+
+    if (usePostgres) {
+      await pool.query(
+        'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.createdAt]
+      );
+      return saved;
+    } else {
+      const fileDb = await readDb();
+      fileDb.reports = fileDb.reports || [];
+      fileDb.reports.unshift(saved);
+      await writeDb(fileDb);
+      return saved;
+    }
+  },
+
+  getReports: async (elderId, limit = 50) => {
+    if (usePostgres) {
+      const { rows } = await pool.query(
+        'SELECT * FROM reports WHERE elder_id = $1 ORDER BY created_at DESC LIMIT $2',
+        [elderId, limit]
+      );
+      return rows.map((r) => ({
+        id: r.id,
+        elderId: r.elder_id,
+        doctorId: r.doctor_id,
+        doctorName: r.doctor_name,
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        fileUrl: r.file_url,
+        createdAt: r.created_at ? r.created_at.toISOString() : null,
+      }));
+    } else {
+      const fileDb = await readDb();
+      fileDb.reports = fileDb.reports || [];
+      return fileDb.reports
+        .filter((r) => r.elderId === elderId)
+        .slice(0, limit);
+    }
+  },
+
+  getCareTeam: async (elderId) => {
+    if (usePostgres) {
+      const { rows } = await pool.query(
+        `SELECT u.id, u.name, u.email, u.phone, u.profile 
+         FROM users u
+         JOIN user_elders ue ON u.id = ue.user_id
+         WHERE ue.elder_id = $1 AND u.role = 'doctor'`,
+        [elderId]
+      );
+      return rows.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
+        specialization: u.profile?.specialization || 'Clinical Specialist',
+        hospital: u.profile?.hospital || 'GuardianCare Partner Clinic',
+      }));
+    } else {
+      const fileDb = await readDb();
+      return fileDb.users
+        .filter((u) => u.role === 'doctor' && u.assignedElderIds?.includes(elderId))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          phone: u.phone,
+          specialization: u.profile?.specialization || 'Clinical Specialist',
+          hospital: u.profile?.hospital || 'GuardianCare Partner Clinic',
+        }));
     }
   },
 
