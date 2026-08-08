@@ -8,8 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { GuardianLogo } from '@/components/GuardianLogo';
-import { useAppStore } from '@/store';
-import { useGuardianStore } from '@/store/guardianStore';
+import { ApiError } from '@/lib/api';
+import { useAuthStore } from '@/store/authStore';
 import { Eye, EyeOff, Heart, Languages, Zap, Shield } from 'lucide-react';
 
 type Role = 'caretaker' | 'doctor' | 'guardian';
@@ -28,8 +28,7 @@ const COUNTRY_CODES = [
 const Login: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const setAuthUser = useAppStore((s) => s.setAuthUser);
-  const { setGuardianUser } = useGuardianStore();
+  const { login, register, loading } = useAuthStore();
 
   const [isSignup, setIsSignup] = useState(false);
   const [role, setRole] = useState<Role>('caretaker');
@@ -40,6 +39,8 @@ const Login: React.FC = () => {
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [elderName, setElderName] = useState('');
+  const [hospital, setHospital] = useState('');
+  const [specialization, setSpecialization] = useState('');
   const [error, setError] = useState('');
 
   const getRedirect = (r: Role) => {
@@ -48,35 +49,35 @@ const Login: React.FC = () => {
     return '/dashboard';
   };
 
-  const fullPhone = `${countryCode} ${phoneNumber}`;
+  const fullPhone = phoneNumber ? `${countryCode} ${phoneNumber}` : '';
 
-  const handleLogin = (e: React.FormEvent) => {
+  const submitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) { setError('Please fill in all fields'); return; }
+    setError('');
 
-    if (role === 'guardian') {
-      setGuardianUser({
-        name: name || 'Guardian User',
-        email,
-        phone: fullPhone,
-        elderName: elderName || 'Registered elder',
-      });
-    } else {
-      setAuthUser({ id: '1', name: name || 'Demo User', role, email });
+    try {
+      const user = isSignup
+        ? await register({
+            email,
+            password,
+            name,
+            role,
+            phone: fullPhone,
+            elderName: role === 'guardian' ? elderName : undefined,
+            hospital: role === 'doctor' ? hospital : undefined,
+            specialization: role === 'doctor' ? specialization : undefined,
+          })
+        : await login(email, password);
+
+      if (user.role !== role) {
+        setError(`This account is registered as ${user.role}. Switch role tab or use the correct portal.`);
+        return;
+      }
+
+      navigate(getRedirect(user.role));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Authentication failed');
     }
-    navigate(getRedirect(role));
-  };
-
-  const handleSignup = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name || !email || !password) { setError('Please fill in all fields'); return; }
-
-    if (role === 'guardian') {
-      setGuardianUser({ name, email, phone: fullPhone, elderName: elderName || '' });
-    } else {
-      setAuthUser({ id: '1', name, role, email });
-    }
-    navigate(getRedirect(role));
   };
 
   return (
@@ -141,7 +142,7 @@ const Login: React.FC = () => {
             <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
           )}
 
-          <form onSubmit={isSignup ? handleSignup : handleLogin} className="space-y-4">
+          <form onSubmit={submitAuth} className="space-y-4">
             {isSignup && (
               <div>
                 <Label htmlFor="name">{t('login.full_name')}</Label>
@@ -211,11 +212,11 @@ const Login: React.FC = () => {
                 </div>
                 <div>
                   <Label htmlFor="hospital">{t('login.hospital')}</Label>
-                  <Input id="hospital" className="mt-1" />
+                  <Input id="hospital" className="mt-1" value={hospital} onChange={(e) => setHospital(e.target.value)} />
                 </div>
                 <div>
                   <Label htmlFor="spec">{t('login.specialization')}</Label>
-                  <Input id="spec" className="mt-1" />
+                  <Input id="spec" className="mt-1" value={specialization} onChange={(e) => setSpecialization(e.target.value)} />
                 </div>
               </>
             )}
@@ -258,7 +259,7 @@ const Login: React.FC = () => {
               </div>
             )}
 
-            <Button type="submit" className="w-full h-11 bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg">
+            <Button type="submit" disabled={loading} className="w-full h-11 bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg">
               {isSignup
                 ? (role === 'doctor' ? t('login.request_access') : t('login.create_account'))
                 : t('login.login_btn')}

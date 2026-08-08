@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,31 +6,107 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { GuardianLogo } from '@/components/GuardianLogo';
-import { useAppStore } from '@/store';
+import { useAppStore, type DemoElder, type Medication } from '@/store';
+import { useAuthStore } from '@/store/authStore';
+import { apiFetch } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_VITALS, DEMO_HR_HISTORY, DEMO_MEDICATIONS } from '@/lib/demoData';
 import { ComposedChart, Line, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { ArrowLeft, Video, FileText, LogOut } from 'lucide-react';
-import { useState } from 'react';
 
 const DoctorPortal: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { authUser, setAuthUser } = useAppStore();
+  const { demoMode, setDemoMode } = useAppStore();
+  const { user: authUser, logout } = useAuthStore();
+  const [elders, setElders] = useState<DemoElder[]>(DEMO_ELDERS);
+  const [medications, setMedications] = useState<Medication[]>(DEMO_MEDICATIONS);
   const [selectedElder, setSelectedElder] = useState(DEMO_ELDERS[0]);
   const [clinicalNote, setClinicalNote] = useState('');
+  const [notesList, setNotesList] = useState<any[]>([]);
+  const [vitalsHistory, setVitalsHistory] = useState<any[]>([]);
 
-  React.useEffect(() => {
-    if (!authUser) {
-      setAuthUser({ id: '2', name: 'Dr. Ramesh Kumar', role: 'doctor', email: 'dr.ramesh@apollo.in' });
+  const handleSaveNote = async () => {
+    if (!clinicalNote.trim() || !selectedElder?.id) return;
+    try {
+      const saved = await apiFetch<any>('/clinical-notes', {
+        method: 'POST',
+        body: JSON.stringify({
+          elderId: selectedElder.id,
+          note: clinicalNote,
+        }),
+      });
+      setNotesList((prev) => [saved, ...prev]);
+      setClinicalNote('');
+      toast({ title: 'Success', description: 'Clinical note saved successfully' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Failed to save note', variant: 'destructive' });
     }
-  }, []);
+  };
+
+  useEffect(() => {
+    if (demoMode) return;
+    let ignore = false;
+    apiFetch<{ elders?: DemoElder[]; medications?: Medication[] }>('/dashboard-data')
+      .then((data) => {
+        if (ignore) return;
+        const nextElders = Array.isArray(data.elders) && data.elders.length > 0 ? data.elders : DEMO_ELDERS;
+        setElders(nextElders);
+        setSelectedElder((current) => nextElders.find((elder) => elder.id === current.id) || nextElders[0]);
+        if (Array.isArray(data.medications)) setMedications(data.medications);
+      })
+      .catch(() => {
+        setElders(DEMO_ELDERS);
+        setMedications(DEMO_MEDICATIONS);
+      });
+
+    return () => { ignore = true; };
+  }, [demoMode]);
+
+  useEffect(() => {
+    if (!selectedElder?.id) return;
+    let ignore = false;
+
+    // Fetch clinical notes
+    apiFetch<any[]>(`/clinical-notes?elderId=${selectedElder.id}`)
+      .then((data) => {
+        if (ignore) return;
+        setNotesList(data);
+      })
+      .catch(() => {
+        if (ignore) return;
+        setNotesList([
+          { id: '1', note: 'Patient showing good response to current antihypertensive regimen. BP trend improving.', doctorName: 'Dr. Ramesh Kumar', createdAt: new Date(Date.now() - 36000000).toISOString() }
+        ]);
+      });
+
+    // Fetch vitals history
+    apiFetch<any[]>(`/vitals?elderId=${selectedElder.id}&limit=20`)
+      .then((data) => {
+        if (ignore) return;
+        setVitalsHistory(data);
+      })
+      .catch(() => {
+        if (ignore) return;
+        setVitalsHistory([]);
+      });
+
+    return () => { ignore = true; };
+  }, [selectedElder?.id]);
 
   const vitals = DEMO_VITALS[selectedElder.id];
-  const meds = DEMO_MEDICATIONS.filter(m => m.elder_id === selectedElder.id);
-  const chartData = DEMO_HR_HISTORY.map(d => ({
-    ...d,
-    time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  }));
+  const meds = medications.filter(m => m.elder_id === selectedElder.id);
+  const chartData = vitalsHistory.length > 0
+    ? vitalsHistory.map(d => ({
+        hr: d.heart_rate,
+        spo2: d.spo2,
+        stress: d.stress,
+        time: d.timestamp ? new Date(d.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+      })).reverse()
+    : DEMO_HR_HISTORY.map(d => ({
+        ...d,
+        time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }));
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -136,14 +212,18 @@ const DoctorPortal: React.FC = () => {
             <CardContent>
               <Textarea placeholder="Add clinical notes..." value={clinicalNote} onChange={e => setClinicalNote(e.target.value)}
                 className="min-h-[100px] mb-3" />
-              <Button className="bg-teal hover:bg-teal/90 text-primary-foreground">
+              <Button onClick={handleSaveNote} className="bg-teal hover:bg-teal/90 text-primary-foreground">
                 <FileText className="h-4 w-4 mr-2" /> Save Note
               </Button>
               <div className="mt-6 space-y-3">
-                <div className="p-3 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground">March 28, 2025 — Dr. Ramesh Kumar</p>
-                  <p className="text-sm text-foreground mt-1">Patient showing good response to current antihypertensive regimen. BP trend improving.</p>
-                </div>
+                {notesList.map((noteItem) => (
+                  <div key={noteItem.id} className="p-3 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(noteItem.createdAt || noteItem.created_at || Date.now()).toLocaleDateString()} — {noteItem.doctorName || noteItem.doctor_name || 'Dr. Ramesh Kumar'}
+                    </p>
+                    <p className="text-sm text-foreground mt-1">{noteItem.note}</p>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

@@ -17,8 +17,10 @@ import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { useAppStore, type DemoElder, type DemoVitals, type Medication } from '@/store';
+import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
+import { useAuthStore } from '@/store/authStore';
+import { apiFetch } from '@/lib/api';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
@@ -249,6 +251,55 @@ const Dashboard: React.FC = () => {
     notes: '',
   });
 
+  const [logVitalsOpen, setLogVitalsOpen] = useState(false);
+  const [vitalsForm, setVitalsForm] = useState({
+    elderId: '',
+    heart_rate: 72,
+    systolic_bp: 120,
+    diastolic_bp: 80,
+    spo2: 98,
+    stress: 20,
+    hydration: 80,
+    breathing_rate: 16,
+    skin_temp: 36.6,
+    source: 'manual' as const,
+  });
+
+  const handleLogVitals = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vitalsForm.elderId) {
+      toast({ title: 'Error', description: 'Please select a patient', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      await apiFetch<any>('/vitals', {
+        method: 'POST',
+        body: JSON.stringify(vitalsForm),
+      });
+
+      // Update local state so it updates the charts/cards in real-time
+      setDemoVitals(vitalsForm.elderId, {
+        heart_rate: vitalsForm.heart_rate,
+        systolic_bp: vitalsForm.systolic_bp,
+        diastolic_bp: vitalsForm.diastolic_bp,
+        spo2: vitalsForm.spo2,
+        stress: vitalsForm.stress,
+        hydration: vitalsForm.hydration,
+        breathing_rate: vitalsForm.breathing_rate,
+        skin_temp: vitalsForm.skin_temp,
+        shiver_detected: false,
+        panic_detected: false,
+        fall_detected: false,
+      });
+
+      toast({ title: 'Success', description: 'Vitals logged successfully' });
+      setLogVitalsOpen(false);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Failed to log vitals', variant: 'destructive' });
+    }
+  };
+
   const elders = demoElders.length > 0 ? demoElders : DEMO_ELDERS;
   const setReminders = useGuardianStore((state) => state.setReminders);
 
@@ -286,35 +337,41 @@ const Dashboard: React.FC = () => {
     setReminders([...medReminders, ...alarmReminders]);
   }, [medications, alarms, elders, setReminders]);
 
-  // Initialize demo data
+  // Initialize demo data if demoMode is enabled
   useEffect(() => {
-    if (!authUser) {
-      setAuthUser({ id: '1', name: 'Demo Caretaker', role: 'caretaker', email: 'demo@guardianwatch.in' });
+    if (demoMode) {
+      if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
+      if (medications.length === 0) setMedications(getSeedMedications());
+      Object.entries(DEMO_VITALS).forEach(([id, v]) => setDemoVitals(id, v));
     }
-    if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
-    if (medications.length === 0) setMedications(getSeedMedications());
-    Object.entries(DEMO_VITALS).forEach(([id, v]) => setDemoVitals(id, v));
-  }, [authUser, demoElders.length, medications.length, setAuthUser, setDemoElders, setDemoVitals, setMedications]);
+  }, [demoMode, demoElders.length, medications.length, setDemoElders, setDemoVitals, setMedications]);
 
   useEffect(() => {
+    if (demoMode) return;
+
     let ignore = false;
 
-    fetch(`${API_BASE}/dashboard-data`)
-      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
-      .then((data: { medications?: DashboardMedication[]; alarms?: DashboardAlarm[]; alerts?: typeof activeAlerts }) => {
+    apiFetch<DashboardPayload>('/dashboard-data')
+      .then((data) => {
         if (ignore) return;
+        if (Array.isArray(data.elders)) {
+          setDemoElders(data.elders);
+        }
         if (Array.isArray(data.medications)) setMedications(data.medications);
         if (Array.isArray(data.alarms)) setAlarms(data.alarms);
         if (Array.isArray(data.alerts)) setActiveAlerts(data.alerts);
+        if (data.vitals) {
+          Object.entries(data.vitals).forEach(([id, v]) => setDemoVitals(id, v));
+        }
       })
       .catch(() => {
-        // Keep demo seed data when the local backend is not running.
+        // Safe empty state when API has errors
       });
 
     return () => {
       ignore = true;
     };
-  }, [setActiveAlerts, setMedications]);
+  }, [demoMode, setActiveAlerts, setMedications]);
 
   // Demo mode scripted timeline
   useEffect(() => {
@@ -1359,12 +1416,105 @@ const Dashboard: React.FC = () => {
           <>
           <div className="flex items-center justify-between">
             <h2 className="font-display text-xl text-foreground">{t('nav.elders')}</h2>
-            <Dialog open={addElderOpen} onOpenChange={setAddElderOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg">
-                  <Plus className="h-4 w-4 mr-1" /> {t('dashboard.add_elder')}
-                </Button>
-              </DialogTrigger>
+            <div className="flex gap-2">
+              {!demoMode && (
+                <Dialog open={logVitalsOpen} onOpenChange={(open) => {
+                  setLogVitalsOpen(open);
+                  if (open && demoElders.length > 0 && !vitalsForm.elderId) {
+                    setVitalsForm(prev => ({ ...prev, elderId: demoElders[0].id }));
+                  }
+                }}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="border-teal text-teal hover:bg-teal/10 rounded-lg">
+                      <Activity className="h-4 w-4 mr-1" /> Log Vitals
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                    <DialogHeader>
+                      <DialogTitle className="font-display">Log Patient Vitals</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleLogVitals} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="vitals-elder">Select Patient *</Label>
+                        <Select value={vitalsForm.elderId} onValueChange={(val) => setVitalsForm({ ...vitalsForm, elderId: val })}>
+                          <SelectTrigger id="vitals-elder"><SelectValue placeholder="Choose a patient" /></SelectTrigger>
+                          <SelectContent>
+                            {demoElders.map((e) => (
+                              <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-hr">Heart Rate (bpm)</Label>
+                          <Input id="vitals-hr" type="number" min="0" max="300" value={vitalsForm.heart_rate}
+                            onChange={e => setVitalsForm({ ...vitalsForm, heart_rate: Number(e.target.value) })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-spo2">Oxygen SpO2 (%)</Label>
+                          <Input id="vitals-spo2" type="number" min="0" max="100" value={vitalsForm.spo2}
+                            onChange={e => setVitalsForm({ ...vitalsForm, spo2: Number(e.target.value) })} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-sbp">Systolic BP (mmHg)</Label>
+                          <Input id="vitals-sbp" type="number" min="0" max="300" value={vitalsForm.systolic_bp}
+                            onChange={e => setVitalsForm({ ...vitalsForm, systolic_bp: Number(e.target.value) })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-dbp">Diastolic BP (mmHg)</Label>
+                          <Input id="vitals-dbp" type="number" min="0" max="200" value={vitalsForm.diastolic_bp}
+                            onChange={e => setVitalsForm({ ...vitalsForm, diastolic_bp: Number(e.target.value) })} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-stress">Stress (0-100)</Label>
+                          <Input id="vitals-stress" type="number" min="0" max="100" value={vitalsForm.stress}
+                            onChange={e => setVitalsForm({ ...vitalsForm, stress: Number(e.target.value) })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-hydration">Hydration (0-100)</Label>
+                          <Input id="vitals-hydration" type="number" min="0" max="100" value={vitalsForm.hydration}
+                            onChange={e => setVitalsForm({ ...vitalsForm, hydration: Number(e.target.value) })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-temp">Temp (°C)</Label>
+                          <Input id="vitals-temp" type="number" step="0.1" min="0" max="50" value={vitalsForm.skin_temp}
+                            onChange={e => setVitalsForm({ ...vitalsForm, skin_temp: Number(e.target.value) })} />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-br">Breathing Rate</Label>
+                          <Input id="vitals-br" type="number" min="0" max="100" value={vitalsForm.breathing_rate}
+                            onChange={e => setVitalsForm({ ...vitalsForm, breathing_rate: Number(e.target.value) })} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="vitals-src">Source</Label>
+                          <Select value={vitalsForm.source} onValueChange={(val) => setVitalsForm({ ...vitalsForm, source: val as any })}>
+                            <SelectTrigger id="vitals-src"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="manual">Manual Entry</SelectItem>
+                              <SelectItem value="device">Device Integration</SelectItem>
+                              <SelectItem value="simulator">Watch Simulator</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Button type="submit" className="w-full bg-teal hover:bg-teal/90 text-primary-foreground mt-4">Save Vitals</Button>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+              )}
+              <Dialog open={addElderOpen} onOpenChange={setAddElderOpen}>
+                <DialogTrigger asChild>
+                  <Button className="bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg">
+                    <Plus className="h-4 w-4 mr-1" /> {t('dashboard.add_elder')}
+                  </Button>
+                </DialogTrigger>
               <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle className="font-display">Add New Elder Profile</DialogTitle>
@@ -1460,6 +1610,7 @@ const Dashboard: React.FC = () => {
               </DialogContent>
             </Dialog>
           </div>
+        </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {elders.map((elder) => {

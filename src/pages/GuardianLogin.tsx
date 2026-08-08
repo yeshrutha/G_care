@@ -7,35 +7,47 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GuardianLogo } from '@/components/GuardianLogo';
 import { Shield, Eye, EyeOff, Heart, Activity, Bell } from 'lucide-react';
-import { useGuardianStore } from '@/store/guardianStore';
+import { ApiError } from '@/lib/api';
+import { useAuthStore } from '@/store/authStore';
 
 const GuardianLogin: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { setGuardianUser } = useGuardianStore();
+  const { login, register, loading } = useAuthStore();
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', name: '', phone: '', elderName: '' });
   const [isSignup, setIsSignup] = useState(false);
   const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
-      setError('Please fill in all fields');
-      return;
+    setError('');
+
+    try {
+      const user = isSignup
+        ? await register({
+            email: form.email,
+            password: form.password,
+            name: form.name,
+            role: 'guardian',
+            phone: form.phone,
+            elderName: form.elderName,
+          })
+        : await login(form.email, form.password);
+
+      if (user.role !== 'guardian') {
+        setError('This account is not a guardian account. Use the main login page.');
+        return;
+      }
+
+      navigate('/guardian/dashboard');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Authentication failed');
     }
-    setGuardianUser({
-      name: form.name || 'Guardian User',
-      email: form.email,
-      phone: form.phone || '+91 98765 43210',
-      elderName: form.elderName || 'Registered elder',
-    });
-    navigate('/guardian/dashboard');
   };
 
   return (
     <div className="min-h-screen flex">
-      {/* Left Panel */}
       <div className="hidden lg:flex w-[45%] bg-gradient-to-br from-navy to-[hsl(215,60%,25%)] flex-col justify-center items-center p-12 text-primary-foreground relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           {Array.from({ length: 20 }).map((_, i) => (
@@ -71,7 +83,6 @@ const GuardianLogin: React.FC = () => {
         </div>
       </div>
 
-      {/* Right Panel */}
       <div className="flex-1 flex items-center justify-center p-6 bg-background">
         <Card className="w-full max-w-md rounded-2xl shadow-lg border-border">
           <CardContent className="p-8 space-y-6">
@@ -83,13 +94,14 @@ const GuardianLogin: React.FC = () => {
               <p className="text-sm text-muted-foreground">
                 {isSignup ? 'Set up your guardian monitoring account' : 'Sign in to monitor your loved ones'}
               </p>
+              <p className="text-xs text-muted-foreground">Demo: guardian@example.com / Demo1234!</p>
             </div>
 
             {error && (
               <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
             )}
 
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               {isSignup && (
                 <>
                   <div className="space-y-2">
@@ -128,7 +140,7 @@ const GuardianLogin: React.FC = () => {
                 </div>
               </div>
 
-              <Button type="submit" className="w-full h-12 bg-teal hover:bg-teal/90 text-primary-foreground rounded-xl text-base font-semibold">
+              <Button type="submit" disabled={loading} className="w-full h-12 bg-teal hover:bg-teal/90 text-primary-foreground rounded-xl text-base font-semibold">
                 {isSignup ? 'Create Account' : 'Sign In'}
               </Button>
             </form>

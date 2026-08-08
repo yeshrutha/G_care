@@ -1,12 +1,20 @@
+databases:
+  - name: g-care-db
+    plan: free
+
 services:
   - type: web
     name: g-care
     env: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --legacy-peer-deps && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
         value: production
-      - key: MONGODB_URI
-        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: g-care-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true

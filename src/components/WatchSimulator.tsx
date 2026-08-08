@@ -445,47 +445,44 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     }
 
     stopAlertLoop('medicine');
-    const alarmKey = getReminderAlarmKey(activeGuardianAlarm, currentTime);
-    setDismissedGuardianAlarms((current) => ({ ...current, [alarmKey]: true }));
-    setSnoozedGuardianAlarms((current) => {
-      const next = { ...current };
-      delete next[activeGuardianAlarm.id];
-      return next;
-    });
+    setSnoozedGuardianAlarms((current) => ({
+      ...current,
+      [activeGuardianAlarm.id]: Date.now() + SNOOZE_MS,
+    }));
     setActiveGuardianAlarmId(null);
     window.speechSynthesis?.cancel();
     
     const medicationName = activeGuardianAlarm.pillName || activeGuardianAlarm.title || 'medicine';
-    const messageText = `${activeGuardianAlarmElderName} has missed ${medicationName}. Tablet was not taken.`;
+    const messageText = `${activeGuardianAlarmElderName} has snoozed ${medicationName}. Reminder will repeat in 2 minutes.`;
     toast({
-      title: "Tablet Missed",
+      title: "Tablet Snoozed",
       description: messageText,
       variant: "default",
     });
 
     if ('Notification' in window && Notification.permission === 'granted') {
-      new Notification("Tablet Missed", {
+      new Notification("Tablet Snoozed", {
         body: messageText,
         icon: '/logo.svg'
       });
     }
     
     addGuardianAlert({
-      id: `ga-reject-${Date.now()}`,
+      id: `ga-snooze-${Date.now()}`,
       type: 'medicine_missed',
       severity: 'warning',
-      message: `❌ Snoozed/Rejected — ${messageText}`,
+      message: `⏳ Snoozed — ${messageText}`,
       time: new Date().toISOString(),
       acknowledged: false,
       elderName: activeGuardianAlarmElderName,
     });
 
     const caretakerAlert = {
-      id: `watch-med-rejected-${Date.now()}`,
+      id: `watch-med-snoozed-${Date.now()}`,
       elder_name: activeGuardianAlarmElderName,
       type: 'missed_med',
       severity: 'warning',
-      message: `${activeGuardianAlarmElderName} has missed ${medicationName}. Watch response: No.`,
+      message: `${activeGuardianAlarmElderName} has snoozed ${medicationName}. Watch response: No.`,
       time: new Date().toISOString(),
       resolved: false,
     } as const;

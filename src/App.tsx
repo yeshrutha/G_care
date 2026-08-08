@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import React, { Suspense } from "react";
 
 const Landing = React.lazy(() => import("./pages/Landing"));
@@ -31,12 +32,12 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/elder/:id" element={<ElderDetail />} />
-            <Route path="/doctor" element={<DoctorPortal />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/dashboard" element={<ProtectedRoute allowedRoles={["caretaker"]}><Dashboard /></ProtectedRoute>} />
+            <Route path="/elder/:id" element={<ProtectedRoute allowedRoles={["caretaker", "doctor"]}><ElderDetail /></ProtectedRoute>} />
+            <Route path="/doctor" element={<ProtectedRoute allowedRoles={["doctor"]}><DoctorPortal /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute allowedRoles={["caretaker", "guardian", "doctor"]}><Settings /></ProtectedRoute>} />
             <Route path="/guardian" element={<GuardianLogin />} />
-            <Route path="/guardian/dashboard" element={<GuardianDashboard />} />
+            <Route path="/guardian/dashboard" element={<ProtectedRoute allowedRoles={["guardian"]}><GuardianDashboard /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
