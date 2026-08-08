@@ -104,3 +104,11 @@
     50% { opacity: 0.4; }
   }
 }
+
+/* Hide native Edge and Chrome eye icons inside password inputs */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+  display: none !important;
+}
