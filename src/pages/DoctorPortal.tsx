@@ -637,7 +637,6 @@ const DoctorPortal: React.FC = () => {
                 {activeSection === 'dashboard' ? 'Overview of all monitored patient profiles.' : 'Manage details for ' + SECTION_TITLES[activeSection]}
               </p>
             </div>
-            
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 border border-gw-purple/30 bg-gw-purple/5 px-3 py-1.5 rounded-lg">
                 <span className="text-xs text-muted-foreground">{t('dashboard.demo_mode')}</span>
