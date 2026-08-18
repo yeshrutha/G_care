@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { LayoutDashboard, Users, Pill, Bell, ShieldAlert, FileText, Stethoscope, Settings, LogOut, Plus, Activity, Battery, Wifi, Bluetooth, X, Brain, TrendingUp, CheckCircle2, PhoneCall, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { LayoutDashboard, Users, Pill, Bell, ShieldAlert, FileText, Stethoscope, Settings, LogOut, Plus, Activity, Battery, Wifi, Bluetooth, X, Brain, TrendingUp, CheckCircle2, PhoneCall, MapPin, Pencil, Trash2, User, Clipboard } from 'lucide-react';
 import { GuardianLogo } from '@/components/GuardianLogo';
 import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
@@ -24,7 +24,7 @@ import { apiFetch } from '@/lib/api';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
-type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports';
+type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports' | 'doctor';
 
 type DashboardMedication = Medication;
 
@@ -77,7 +77,7 @@ const NAV = [
   { icon: Bell, label: 'nav.alarms', section: 'alarms' },
   { icon: ShieldAlert, label: 'nav.alerts', section: 'alerts', badge: true },
   { icon: FileText, label: 'nav.reports', section: 'reports' },
-  { icon: Stethoscope, label: 'nav.doctor', path: '/doctor' },
+  { icon: Stethoscope, label: 'nav.doctor', section: 'doctor' },
   { icon: Settings, label: 'nav.settings', path: '/settings' },
 ] satisfies Array<{
   icon: React.ElementType;
@@ -94,6 +94,7 @@ const SECTION_TITLES: Record<DashboardSection, string> = {
   alarms: 'Alarms',
   alerts: 'Alerts',
   reports: 'Reports',
+  doctor: 'Doctor Portal Overview',
 };
 
 const CARE_REPORTS: CareReport[] = [
@@ -224,6 +225,11 @@ const Dashboard: React.FC = () => {
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [deleteAlarmId, setDeleteAlarmId] = useState<string | null>(null);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [selectedElderIdForDoctor, setSelectedElderIdForDoctor] = useState<string>('');
+  const [doctorReports, setDoctorReports] = useState<any[]>([]);
+  const [doctorNotes, setDoctorNotes] = useState<any[]>([]);
+  const [doctorCareTeam, setDoctorCareTeam] = useState<any[]>([]);
+  const [loadingDoctorData, setLoadingDoctorData] = useState(false);
   const [alarms, setAlarms] = useState<DashboardAlarm[]>([
     { id: 'alarm-1', time: '08:00', title: 'Morning medicines', elderId: 'elder-1', status: 'Due soon', type: 'medication', notes: 'Morning medication reminder' },
     { id: 'alarm-2', time: '08:30', title: 'Breakfast reminder', elderId: 'elder-1', status: 'Scheduled', type: 'food', notes: 'Breakfast reminder' },
@@ -410,6 +416,46 @@ const Dashboard: React.FC = () => {
     }, 5000);
     return () => clearInterval(interval);
   }, [demoVitals]);
+
+  // Set default selected patient for Caretaker Doctor Portal
+  useEffect(() => {
+    if (activeSection === 'doctor' && !selectedElderIdForDoctor && demoElders.length > 0) {
+      setSelectedElderIdForDoctor(demoElders[0].id);
+    }
+  }, [activeSection, demoElders, selectedElderIdForDoctor]);
+
+  // Fetch reports, notes, and care team for selected patient in Caretaker Doctor Portal
+  useEffect(() => {
+    if (activeSection !== 'doctor' || !selectedElderIdForDoctor) return;
+
+    if (demoMode) {
+      setDoctorReports([
+        { id: 'rep-1', title: 'Complete Blood Count (CBC)', category: 'Lab Report', description: 'Hemoglobin levels normal. WBC and Platelets inside limits.', doctorName: 'Dr. Ramesh Kumar', createdAt: new Date(Date.now() - 172800000).toISOString() }
+      ]);
+      setDoctorNotes([
+        { id: 'note-1', note: 'Patient showing good response to current antihypertensive regimen. BP trend improving.', doctorName: 'Dr. Ramesh Kumar', createdAt: new Date(Date.now() - 36000000).toISOString() }
+      ]);
+      setDoctorCareTeam([
+        { id: 'doc-1', name: 'Dr. Ramesh Kumar', specialization: 'Cardiologist', hospital: 'Apollo Hospitals', email: 'dr.ramesh@apollo.in', phone: '+91 98765 43211' }
+      ]);
+      setLoadingDoctorData(false);
+      return;
+    }
+
+    setLoadingDoctorData(true);
+    Promise.all([
+      apiFetch<any[]>(`/reports?elderId=${selectedElderIdForDoctor}`).catch(() => []),
+      apiFetch<any[]>(`/clinical-notes?elderId=${selectedElderIdForDoctor}`).catch(() => []),
+      apiFetch<any[]>(`/care-team?elderId=${selectedElderIdForDoctor}`).catch(() => [])
+    ]).then(([reports, notes, team]) => {
+      setDoctorReports(reports);
+      setDoctorNotes(notes);
+      setDoctorCareTeam(team);
+      setLoadingDoctorData(false);
+    }).catch(() => {
+      setLoadingDoctorData(false);
+    });
+  }, [activeSection, selectedElderIdForDoctor, demoMode]);
 
   const sparkData = useMemo(() => Array.from({ length: 30 }, (_, i) => ({ v: 65 + Math.sin(i / 4) * 5 + Math.random() * 3 })), []);
 
@@ -1410,6 +1456,183 @@ const Dashboard: React.FC = () => {
               </Dialog>
             </section>
           )}
+
+          {activeSection === 'doctor' && (() => {
+            const selectedElderForDoctor = demoElders.find(e => e.id === selectedElderIdForDoctor);
+            const elderAppointments = alarms.filter(a => a.elderId === selectedElderIdForDoctor && a.type === 'appointment');
+            return (
+              <section className="space-y-6">
+                {/* Dropdown and Clinical Profile */}
+                <Card className="rounded-xl border border-border shadow-sm">
+                  <CardContent className="p-6">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h2 className="font-semibold text-lg text-foreground">Select Patient</h2>
+                        <p className="text-sm text-muted-foreground">View doctor updates, clinical reports, and recommendations for a patient.</p>
+                      </div>
+                      <div className="w-full md:w-64">
+                        <Select value={selectedElderIdForDoctor} onValueChange={setSelectedElderIdForDoctor}>
+                          <SelectTrigger><SelectValue placeholder="Select patient..." /></SelectTrigger>
+                          <SelectContent>
+                            {demoElders.map((elder) => (
+                              <SelectItem key={elder.id} value={elder.id}>{elder.full_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Selected Elder Quick Summary */}
+                    {selectedElderForDoctor && (
+                      <div className="mt-6 pt-6 border-t border-border grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-muted-foreground block text-xs">Patient Name</span>
+                          <span className="font-medium text-foreground">{selectedElderForDoctor.full_name}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-xs">Age</span>
+                          <span className="font-medium text-foreground">{selectedElderForDoctor.age} years</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-xs">Primary Conditions</span>
+                          <span className="font-medium text-foreground">{selectedElderForDoctor.medical_conditions.join(', ') || 'None'}</span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground block text-xs">Language Preference</span>
+                          <span className="font-medium text-foreground uppercase">{selectedElderForDoctor.language_pref}</span>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {loadingDoctorData ? (
+                  <div className="py-12 flex items-center justify-center">
+                    <div className="w-8 h-8 border-2 border-teal border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : selectedElderForDoctor ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Left Column: Recommendations & Medical Reports */}
+                    <div className="lg:col-span-2 space-y-6">
+                      
+                      {/* Clinical Recommendations */}
+                      <Card className="rounded-xl border border-border shadow-sm">
+                        <CardHeader className="flex flex-row items-center gap-2">
+                          <Clipboard className="h-5 w-5 text-teal" />
+                          <CardTitle className="text-base font-semibold">Doctor Recommendations & Notes</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {doctorNotes.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No clinical notes or recommendations logged by the doctor yet.</p>
+                          ) : (
+                            <div className="space-y-4">
+                              {doctorNotes.map((note) => (
+                                <div key={note.id} className="p-4 bg-muted/40 rounded-xl border border-border/60 text-sm space-y-2">
+                                  <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span className="font-medium text-teal">{note.doctorName || 'Dr. Ramesh Kumar'}</span>
+                                    <span>{new Date(note.createdAt || note.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                  <p className="text-foreground leading-relaxed font-medium">{note.note}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Medical Reports */}
+                      <Card className="rounded-xl border border-border shadow-sm">
+                        <CardHeader className="flex flex-row items-center gap-2">
+                          <FileText className="h-5 w-5 text-teal" />
+                          <CardTitle className="text-base font-semibold">Medical Records & Uploaded Reports</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {doctorReports.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No medical reports found for this patient.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {doctorReports.map((report) => (
+                                <div key={report.id} className="p-4 bg-muted/30 border border-border/60 rounded-xl flex items-center justify-between gap-3 text-sm">
+                                  <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <Badge className="bg-secondary text-teal hover:bg-secondary/80 text-[10px] border-0">{report.category}</Badge>
+                                      <span className="text-xs text-muted-foreground">{new Date(report.createdAt || report.created_at).toLocaleDateString()}</span>
+                                    </div>
+                                    <h4 className="font-medium text-foreground">{report.title}</h4>
+                                    {report.description && <p className="text-xs text-muted-foreground line-clamp-1">{report.description}</p>}
+                                  </div>
+                                  {report.fileUrl && (
+                                    <a href={`/api/files/${report.fileUrl}`} target="_blank" rel="noreferrer" className="text-xs text-teal font-medium hover:underline flex items-center gap-1">
+                                      View Report
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Right Column: Care Team & Appointments */}
+                    <div className="space-y-6">
+                      {/* Care Team Directory */}
+                      <Card className="rounded-xl border border-border shadow-sm">
+                        <CardHeader className="flex flex-row items-center gap-2">
+                          <User className="h-5 w-5 text-teal" />
+                          <CardTitle className="text-base font-semibold">Assigned Care Team</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {doctorCareTeam.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-4">No care team assigned to this patient.</p>
+                          ) : (
+                            doctorCareTeam.map((doc) => (
+                              <div key={doc.id} className="p-4 bg-secondary/15 rounded-xl border border-teal/10 space-y-1.5 text-sm">
+                                <p className="font-semibold text-teal">{doc.name}</p>
+                                <p className="text-xs text-foreground font-medium">{doc.specialization}</p>
+                                <p className="text-[11px] text-muted-foreground">{doc.hospital}</p>
+                                <div className="pt-2 border-t border-teal/10 mt-2 flex flex-col gap-0.5 text-[11px] text-muted-foreground">
+                                  <span>Email: {doc.email}</span>
+                                  <span>Phone: {doc.phone}</span>
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Appointments / Alarms */}
+                      <Card className="rounded-xl border border-border shadow-sm">
+                        <CardHeader className="flex flex-row items-center gap-2">
+                          <Bell className="h-5 w-5 text-teal" />
+                          <CardTitle className="text-base font-semibold">Upcoming Appointments</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {elderAppointments.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-4">No doctor appointments scheduled.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {elderAppointments.map((app) => (
+                                <div key={app.id} className="p-3 bg-muted/40 rounded-xl border border-border/60 text-xs space-y-1">
+                                  <div className="flex justify-between font-medium">
+                                    <span className="text-foreground">{app.title}</span>
+                                    <span className="text-teal font-semibold">{app.time}</span>
+                                  </div>
+                                  {app.notes && <p className="text-muted-foreground">{app.notes}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-center text-sm text-muted-foreground py-12">No patient profiles found to display clinical workspace details.</p>
+                )}
+              </section>
+            );
+          })()}
 
           {/* Elder grid */}
           {(activeSection === 'dashboard' || activeSection === 'elders') && (
