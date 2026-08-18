@@ -1460,6 +1460,68 @@ const Dashboard: React.FC = () => {
           {activeSection === 'doctor' && (() => {
             const selectedElderForDoctor = demoElders.find(e => e.id === selectedElderIdForDoctor);
             const elderAppointments = alarms.filter(a => a.elderId === selectedElderIdForDoctor && a.type === 'appointment');
+
+            // Aggregate notifications/events requiring attention
+            const feedItems: any[] = [];
+            if (selectedElderForDoctor) {
+              // 1. Vitals/Health alerts
+              const patientAlerts = activeAlerts.filter(a => a.elder_name === selectedElderForDoctor.full_name);
+              patientAlerts.forEach(alert => {
+                feedItems.push({
+                  id: `alert-${alert.id}`,
+                  type: 'alert',
+                  title: alert.type === 'sos' ? 'Emergency SOS Triggered' : 'Abnormal Vitals Alert',
+                  description: alert.message,
+                  time: alert.time || new Date().toISOString(),
+                  why: 'Wearable reported critical vitals or SOS button pressed.',
+                  status: alert.resolved ? 'Reviewed' : 'Action Required',
+                });
+              });
+
+              // 2. New Medical Reports
+              doctorReports.forEach(report => {
+                feedItems.push({
+                  id: `report-${report.id}`,
+                  type: 'report',
+                  title: `New Report Uploaded: ${report.title}`,
+                  description: report.description || `Medical report under category ${report.category} uploaded.`,
+                  time: report.createdAt || report.created_at || new Date().toISOString(),
+                  why: 'Awaiting doctor clinical assessment and review.',
+                  status: 'Pending Review',
+                });
+              });
+
+              // 3. Clinical Notes
+              doctorNotes.forEach(note => {
+                feedItems.push({
+                  id: `note-${note.id}`,
+                  type: 'note',
+                  title: `Clinical Update from ${note.doctorName || 'Dr. Ramesh Kumar'}`,
+                  description: note.note,
+                  time: note.createdAt || note.created_at || new Date().toISOString(),
+                  why: 'Clinical guidance published for the patient care plan.',
+                  status: 'Reviewed',
+                });
+              });
+
+              // 4. Appointments
+              elderAppointments.forEach(app => {
+                feedItems.push({
+                  id: `app-${app.id}`,
+                  type: 'appointment',
+                  title: `Upcoming Consultation: ${app.title}`,
+                  description: app.notes || 'Scheduled appointment check-in.',
+                  time: new Date().toISOString(),
+                  timeLabel: app.time,
+                  why: 'Routine or follow-up check-in scheduled with clinical team.',
+                  status: 'Scheduled',
+                });
+              });
+            }
+
+            // Sort by time descending
+            feedItems.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
             return (
               <section className="space-y-6">
                 {/* Dropdown and Clinical Profile */}
@@ -1514,6 +1576,62 @@ const Dashboard: React.FC = () => {
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Left Column: Recommendations & Medical Reports */}
                     <div className="lg:col-span-2 space-y-6">
+
+                      {/* Doctor Attention & Notifications Feed */}
+                      <Card className="rounded-xl border border-border shadow-sm">
+                        <CardHeader className="flex flex-row items-center gap-2">
+                          <ShieldAlert className="h-5 w-5 text-teal" />
+                          <CardTitle className="text-base font-semibold">Doctor Attention & Notifications</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          {feedItems.length === 0 ? (
+                            <p className="text-sm text-muted-foreground text-center py-6">No clinical alerts or notifications requiring attention.</p>
+                          ) : (
+                            <div className="space-y-4">
+                              {feedItems.map((item) => {
+                                const statusColors = 
+                                  item.status === 'Action Required' ? 'border-gw-red/30 bg-gw-red/5 text-gw-red' :
+                                  item.status === 'Pending Review' ? 'border-gw-amber/30 bg-gw-amber/5 text-gw-amber' :
+                                  item.status === 'Reviewed' ? 'border-gw-green/30 bg-gw-green/5 text-gw-green' :
+                                  'border-teal/30 bg-teal/5 text-teal';
+
+                                return (
+                                  <div key={item.id} className="p-4 border border-border/60 rounded-xl space-y-3 bg-muted/20 text-sm">
+                                    <div className="flex justify-between items-start gap-2">
+                                      <div className="space-y-0.5">
+                                        <h4 className="font-semibold text-foreground flex items-center gap-2">
+                                          {item.type === 'alert' && <ShieldAlert className="h-4 w-4 text-gw-red" />}
+                                          {item.type === 'report' && <FileText className="h-4 w-4 text-gw-amber" />}
+                                          {item.type === 'note' && <Clipboard className="h-4 w-4 text-teal" />}
+                                          {item.type === 'appointment' && <Bell className="h-4 w-4 text-teal" />}
+                                          {item.title}
+                                        </h4>
+                                        <p className="text-xs text-muted-foreground">
+                                          {item.timeLabel || new Date(item.time).toLocaleString()}
+                                        </p>
+                                      </div>
+                                      <Badge className={`border ${statusColors} hover:bg-transparent font-medium py-0.5 px-2 text-[10px] bg-transparent`}>
+                                        {item.status}
+                                      </Badge>
+                                    </div>
+                                    <p className="text-foreground font-medium">{item.description}</p>
+                                    <div className="pt-2 border-t border-border/40 text-xs text-muted-foreground space-y-1">
+                                      <div>
+                                        <span className="font-semibold text-foreground">Patient: </span>
+                                        {selectedElderForDoctor.full_name}
+                                      </div>
+                                      <div>
+                                        <span className="font-semibold text-foreground">Why it requires attention: </span>
+                                        {item.why}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
                       
                       {/* Clinical Recommendations */}
                       <Card className="rounded-xl border border-border shadow-sm">
