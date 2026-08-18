@@ -114,7 +114,7 @@ const DoctorPortal: React.FC = () => {
   const [btConnecting, setBtConnecting] = useState(false);
   const [btConnected, setBtConnected] = useState(false);
   const [btDeviceId, setBtDeviceId] = useState('');
-  const [activeSection, setActiveSection] = useState<DashboardSection>('dashboard');
+  const [activeSection, setActiveSection] = useState<DashboardSection>('reports');
   const [addMedicationOpen, setAddMedicationOpen] = useState(false);
   const [editingMedicationId, setEditingMedicationId] = useState<string | null>(null);
   const [deleteMedicationId, setDeleteMedicationId] = useState<string | null>(null);
