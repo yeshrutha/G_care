@@ -11,6 +11,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GuardianLogo } from '@/components/GuardianLogo';
 import { useGuardianStore, type EmergencyContact, type GuardianUser } from '@/store/guardianStore';
+import { Switch } from '@/components/ui/switch';
+import { useAppStore } from '@/store';
+import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
+import { triggerAlert } from '@/lib/audioAlerts';
 import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2 } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
 import LogsTab from '@/components/guardian/LogsTab';
@@ -52,6 +56,47 @@ const GuardianDashboard: React.FC = () => {
   }, []);
 
   const unresolvedAlerts = alerts.filter(a => !a.acknowledged).length;
+
+  const demoMode = useAppStore((s) => s.demoMode);
+  const setDemoMode = useAppStore((s) => s.setDemoMode);
+  const [demoEmergency, setDemoEmergency] = useState<DemoEmergencyEvent | null>(getDemoEmergency());
+
+  useEffect(() => {
+    return subscribeToDemoEmergency((event) => {
+      if (!demoMode) {
+        setDemoEmergency(null);
+      } else {
+        setDemoEmergency(event);
+      }
+    });
+  }, [demoMode]);
+
+  const { addGuardianAlert } = useGuardianStore();
+
+  useEffect(() => {
+    if (demoMode && demoEmergency) {
+      const exists = alerts.some((a) => a.id === 'demo-sos-usha');
+      if (!exists) {
+        addGuardianAlert({
+          id: 'demo-sos-usha',
+          type: 'sos',
+          severity: 'critical',
+          message: `🚨 EMERGENCY — SOS button pressed on watch for Usha. Fall detected. Location: ${demoEmergency.location}`,
+          time: demoEmergency.detectedAt,
+          acknowledged: false,
+          elderName: demoEmergency.elderName,
+        });
+        triggerAlert('sos');
+      }
+    } else {
+      const exists = alerts.some((a) => a.id === 'demo-sos-usha');
+      if (exists) {
+        useGuardianStore.setState((s) => ({
+          alerts: s.alerts.filter((a) => a.id !== 'demo-sos-usha'),
+        }));
+      }
+    }
+  }, [demoMode, demoEmergency, alerts, addGuardianAlert]);
 
   const openProfileEditor = () => {
     setProfileForm({
@@ -121,6 +166,10 @@ const GuardianDashboard: React.FC = () => {
           <span className="hidden md:inline font-display text-lg text-foreground">Guardian Portal</span>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
+            <span className="text-xs text-muted-foreground">Demo Mode</span>
+            <Switch checked={demoMode} onCheckedChange={setDemoMode} />
+          </div>
           <Badge variant="outline" className="text-xs border-teal/30 text-teal">
             Elder: {guardianUser?.elderName || 'Registered elder'}
           </Badge>
@@ -255,6 +304,42 @@ const GuardianDashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 p-4 lg:p-6 max-w-6xl mx-auto w-full">
+        {demoMode && demoEmergency && (
+          <Card className="rounded-xl border-2 border-destructive bg-destructive/5 shadow-lg mb-6 animate-pulse-border p-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="h-8 w-8 text-destructive flex-shrink-0 mt-0.5 animate-bounce" />
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-destructive text-lg">🚨 CRITICAL EMERGENCY: Fall + SOS</h3>
+                  <Badge className="bg-destructive text-primary-foreground border-0">CRITICAL</Badge>
+                </div>
+                <p className="text-sm text-foreground mt-2">
+                  <strong>Elder:</strong> {demoEmergency.elderName}
+                </p>
+                <p className="text-sm text-foreground mt-1">
+                  <strong>Event:</strong> Fall Detected & SOS Activated
+                </p>
+                <p className="text-sm text-foreground mt-1">
+                  <strong>Simulated Vitals:</strong> Heart Rate: {demoEmergency.heartRate} BPM | SpO₂: {demoEmergency.spo2}%
+                </p>
+                <p className="text-sm text-foreground mt-1">
+                  <strong>Location:</strong> {demoEmergency.location}
+                </p>
+                <p className="text-sm text-foreground mt-1">
+                  <strong>Time:</strong> {new Date(demoEmergency.detectedAt).toLocaleTimeString()}
+                </p>
+                <div className="mt-3 p-3 bg-card rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground">Doctor Action Status</p>
+                  <p className="text-sm font-semibold text-foreground mt-0.5">
+                    {demoEmergency.appointmentStatus === 'confirmed'
+                      ? `Appointment Confirmed with ${demoEmergency.doctorName} at ${demoEmergency.hospitalName}`
+                      : `Appointment requested with ${demoEmergency.doctorName} (${demoEmergency.hospitalName}) - pending doctor confirmation`}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-muted rounded-xl mb-6 flex-wrap h-auto gap-1 p-1">
             {TAB_CONFIG.map(tab => (

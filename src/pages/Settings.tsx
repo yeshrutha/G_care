@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { useAppStore } from '@/store';
 import { useGuardianStore, type GuardianUser } from '@/store/guardianStore';
+import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/hooks/use-toast';
 import { ArrowLeft, User, Bell, Phone, Globe, Shield } from 'lucide-react';
 
@@ -19,62 +20,142 @@ const Settings: React.FC = () => {
   const navigate = useNavigate();
   const { authUser, setAuthUser } = useAppStore();
   const { guardianUser, setGuardianUser } = useGuardianStore();
+  const { user } = useAuthStore();
+
+  const isDoctor = user?.role === 'doctor';
+  const isCaretaker = user?.role === 'caretaker';
+  const isGuardian = user?.role === 'guardian' || (!isDoctor && !isCaretaker);
+
   const [profileForm, setProfileForm] = useState<GuardianUser>({
-    name: guardianUser?.name || authUser?.name || 'Guardian User',
-    email: guardianUser?.email || authUser?.email || 'guardian@example.com',
-    phone: guardianUser?.phone || '+91 98765 43210',
-    elderName: guardianUser?.elderName || 'Registered elder',
-    elderAge: guardianUser?.elderAge || '',
-    elderLanguage: guardianUser?.elderLanguage || '',
-    elderConditions: guardianUser?.elderConditions || '',
-    elderPhone: guardianUser?.elderPhone || '',
-    elderAddress: guardianUser?.elderAddress || '',
-    emergencyContacts: guardianUser?.emergencyContacts || [],
+    name: '',
+    email: '',
+    phone: '',
+    elderName: '',
+    elderAge: '',
+    elderLanguage: '',
+    elderConditions: '',
+    elderPhone: '',
+    elderAddress: '',
+    emergencyContacts: [],
   });
 
   useEffect(() => {
-    setProfileForm({
-      name: guardianUser?.name || authUser?.name || 'Guardian User',
-      email: guardianUser?.email || authUser?.email || 'guardian@example.com',
-      phone: guardianUser?.phone || '+91 98765 43210',
-      elderName: guardianUser?.elderName || 'Registered elder',
-      elderAge: guardianUser?.elderAge || '',
-      elderLanguage: guardianUser?.elderLanguage || '',
-      elderConditions: guardianUser?.elderConditions || '',
-      elderPhone: guardianUser?.elderPhone || '',
-      elderAddress: guardianUser?.elderAddress || '',
-      emergencyContacts: guardianUser?.emergencyContacts || [],
-    });
-  }, [authUser, guardianUser]);
-
-  const saveProfile = () => {
-    const nextGuardianUser: GuardianUser = {
-      ...profileForm,
-      name: profileForm.name.trim() || 'Guardian User',
-      email: profileForm.email.trim() || 'guardian@example.com',
-      phone: profileForm.phone.trim() || '+91 98765 43210',
-      elderName: profileForm.elderName.trim() || 'Registered elder',
-    };
-
-    setGuardianUser(nextGuardianUser);
-    if (authUser) {
-      setAuthUser({
-        ...authUser,
-        name: nextGuardianUser.name,
-        email: nextGuardianUser.email,
+    if (isDoctor) {
+      setProfileForm({
+        name: user?.name || 'Dr. Ramesh Kumar',
+        email: user?.email || 'dr.ramesh@apollo.in',
+        phone: user?.phone || '+91 98765 12345',
+        elderName: '',
+        elderAge: '',
+        elderLanguage: '',
+        elderConditions: '',
+        elderPhone: '',
+        elderAddress: '',
+        emergencyContacts: [],
+      });
+    } else if (isCaretaker) {
+      setProfileForm({
+        name: user?.name || 'Caregiver User',
+        email: user?.email || 'caregiver@gcare.in',
+        phone: user?.phone || '+91 98765 54321',
+        elderName: '',
+        elderAge: '',
+        elderLanguage: '',
+        elderConditions: '',
+        elderPhone: '',
+        elderAddress: '',
+        emergencyContacts: [],
+      });
+    } else {
+      setProfileForm({
+        name: guardianUser?.name || user?.name || 'Guardian User',
+        email: guardianUser?.email || user?.email || 'guardian@example.com',
+        phone: guardianUser?.phone || user?.phone || '+91 98765 43210',
+        elderName: guardianUser?.elderName || 'Usha',
+        elderAge: guardianUser?.elderAge || '78',
+        elderLanguage: guardianUser?.elderLanguage || 'Kannada',
+        elderConditions: guardianUser?.elderConditions || 'Hypertension, Diabetes',
+        elderPhone: guardianUser?.elderPhone || '+91 98765 00000',
+        elderAddress: guardianUser?.elderAddress || 'Sadashivanagar, Bangalore',
+        emergencyContacts: guardianUser?.emergencyContacts || [],
       });
     }
+  }, [user, guardianUser, isDoctor, isCaretaker]);
 
-    toast({
-      title: 'Profile updated',
-      description: 'Your guardian profile changes have been saved.',
-    });
+  const saveProfile = () => {
+    if (isDoctor || isCaretaker) {
+      if (user) {
+        useAuthStore.setState({
+          user: {
+            ...user,
+            name: profileForm.name.trim(),
+            email: profileForm.email.trim(),
+            phone: profileForm.phone.trim(),
+          }
+        });
+      }
+      toast({
+        title: 'Profile updated',
+        description: 'Your profile changes have been saved.',
+      });
+    } else {
+      const nextGuardianUser: GuardianUser = {
+        ...guardianUser,
+        name: profileForm.name.trim() || 'Guardian User',
+        email: profileForm.email.trim() || 'guardian@example.com',
+        phone: profileForm.phone.trim() || '+91 98765 43210',
+        elderName: profileForm.elderName.trim() || 'Registered elder',
+        elderAge: profileForm.elderAge,
+        elderLanguage: profileForm.elderLanguage,
+        elderConditions: profileForm.elderConditions,
+        elderPhone: profileForm.elderPhone,
+        elderAddress: profileForm.elderAddress,
+      };
+
+      setGuardianUser(nextGuardianUser);
+      if (user) {
+        useAuthStore.setState({
+          user: {
+            ...user,
+            name: nextGuardianUser.name,
+            email: nextGuardianUser.email,
+            phone: nextGuardianUser.phone,
+            profile: {
+              ...user.profile,
+              elderName: nextGuardianUser.elderName,
+              elderAge: nextGuardianUser.elderAge,
+              elderLanguage: nextGuardianUser.elderLanguage,
+              elderConditions: nextGuardianUser.elderConditions,
+              elderPhone: nextGuardianUser.elderPhone,
+              elderAddress: nextGuardianUser.elderAddress,
+            }
+          }
+        });
+      }
+
+      toast({
+        title: 'Profile updated',
+        description: 'Your guardian profile changes have been saved.',
+      });
+    }
+  };
+
+  const handleBackNavigation = () => {
+    if (user?.role === 'doctor') {
+      navigate('/doctor');
+    } else if (user?.role === 'guardian') {
+      navigate('/guardian/dashboard');
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
       <div className="sticky top-0 z-40 bg-card border-b border-border px-6 py-3 flex items-center gap-4">
-        <button onClick={() => navigate('/dashboard')}><ArrowLeft className="h-5 w-5 text-muted-foreground" /></button>
+        <button onClick={handleBackNavigation}>
+          <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+        </button>
         <h1 className="font-display text-2xl text-foreground">{t('nav.settings')}</h1>
       </div>
 
@@ -83,7 +164,9 @@ const Settings: React.FC = () => {
           <TabsList className="w-full">
             <TabsTrigger value="profile" className="gap-1.5"><User className="h-3.5 w-3.5" /> {t('settings.profile')}</TabsTrigger>
             <TabsTrigger value="notifications" className="gap-1.5"><Bell className="h-3.5 w-3.5" /> {t('settings.notifications')}</TabsTrigger>
-            <TabsTrigger value="contacts" className="gap-1.5"><Phone className="h-3.5 w-3.5" /> {t('settings.emergency_contacts')}</TabsTrigger>
+            {isGuardian && (
+              <TabsTrigger value="contacts" className="gap-1.5"><Phone className="h-3.5 w-3.5" /> {t('settings.emergency_contacts')}</TabsTrigger>
+            )}
             <TabsTrigger value="language" className="gap-1.5"><Globe className="h-3.5 w-3.5" /> {t('settings.language_accessibility')}</TabsTrigger>
             <TabsTrigger value="security" className="gap-1.5"><Shield className="h-3.5 w-3.5" /> {t('settings.security')}</TabsTrigger>
           </TabsList>
@@ -110,30 +193,35 @@ const Settings: React.FC = () => {
                     <Label>Phone</Label>
                     <Input value={profileForm.phone} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} />
                   </div>
-                  <div>
-                    <Label>Elder Name</Label>
-                    <Input value={profileForm.elderName} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderName: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Elder Age</Label>
-                    <Input type="number" value={profileForm.elderAge || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAge: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Preferred Language</Label>
-                    <Input value={profileForm.elderLanguage || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderLanguage: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Elder Phone</Label>
-                    <Input value={profileForm.elderPhone || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderPhone: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Medical Conditions</Label>
-                    <Input value={profileForm.elderConditions || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderConditions: e.target.value })} />
-                  </div>
-                  <div className="md:col-span-2">
-                    <Label>Address</Label>
-                    <Textarea value={profileForm.elderAddress || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAddress: e.target.value })} />
-                  </div>
+                  
+                  {isGuardian && (
+                    <>
+                      <div>
+                        <Label>Elder Name</Label>
+                        <Input value={profileForm.elderName} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderName: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label>Elder Age</Label>
+                        <Input type="number" value={profileForm.elderAge || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAge: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label>Preferred Language</Label>
+                        <Input value={profileForm.elderLanguage || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderLanguage: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label>Elder Phone</Label>
+                        <Input value={profileForm.elderPhone || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderPhone: e.target.value })} />
+                      </div>
+                      <div>
+                        <Label>Medical Conditions</Label>
+                        <Input value={profileForm.elderConditions || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderConditions: e.target.value })} />
+                      </div>
+                      <div className="md:col-span-2">
+                        <Label>Address</Label>
+                        <Textarea value={profileForm.elderAddress || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAddress: e.target.value })} />
+                      </div>
+                    </>
+                  )}
                 </div>
                 <Button className="bg-teal hover:bg-teal/90 text-primary-foreground" onClick={saveProfile}>Save Changes</Button>
               </CardContent>
@@ -156,25 +244,27 @@ const Settings: React.FC = () => {
             </Card>
           </TabsContent>
 
-          <TabsContent value="contacts" className="mt-6">
-            <Card className="rounded-xl">
-              <CardContent className="p-6 space-y-4">
-                {[
-                  { name: 'Priya Sharma', phone: '+91 98765 43210', rel: 'Daughter' },
-                  { name: 'Dr. Ramesh Kumar', phone: '+91 98765 12345', rel: 'Doctor' },
-                ].map((c, i) => (
-                  <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{c.name}</p>
-                      <p className="text-xs text-muted-foreground">{c.phone} · {c.rel}</p>
+          {isGuardian && (
+            <TabsContent value="contacts" className="mt-6">
+              <Card className="rounded-xl">
+                <CardContent className="p-6 space-y-4">
+                  {[
+                    { name: 'Priya Sharma', phone: '+91 98765 43210', rel: 'Daughter' },
+                    { name: 'Dr. Ramesh Kumar', phone: '+91 98765 12345', rel: 'Doctor' },
+                  ].map((c, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{c.name}</p>
+                        <p className="text-xs text-muted-foreground">{c.phone} · {c.rel}</p>
+                      </div>
+                      <Button size="sm" variant="outline">Test Alert</Button>
                     </div>
-                    <Button size="sm" variant="outline">Test Alert</Button>
-                  </div>
-                ))}
-                <Button variant="outline" className="w-full border-dashed">+ Add Contact</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                  ))}
+                  <Button variant="outline" className="w-full border-dashed">+ Add Contact</Button>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
 
           <TabsContent value="language" className="mt-6 space-y-4">
             <Card className="rounded-xl">

@@ -24,6 +24,7 @@ import { apiFetch } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 
 type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports' | 'doctor';
 
@@ -210,6 +211,18 @@ const Dashboard: React.FC = () => {
   const addGuardianReminder = useGuardianStore((state) => state.addReminder);
   const guardianUser = useGuardianStore((state) => state.guardianUser);
   const setGuardianUser = useGuardianStore((state) => state.setGuardianUser);
+
+  const [demoEmergency, setDemoEmergency] = useState<DemoEmergencyEvent | null>(getDemoEmergency());
+
+  useEffect(() => {
+    return subscribeToDemoEmergency((event) => {
+      if (!demoMode) {
+        setDemoEmergency(null);
+      } else {
+        setDemoEmergency(event);
+      }
+    });
+  }, [demoMode]);
 
   const [addElderOpen, setAddElderOpen] = useState(false);
   const [newElder, setNewElder] = useState({
@@ -836,7 +849,46 @@ const Dashboard: React.FC = () => {
 
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
           {/* Emergency Banner */}
-          <AlertBanner />
+          {demoMode && demoEmergency ? (
+            <Card className="rounded-xl border-2 border-destructive bg-destructive/5 shadow-sm p-4 animate-pulse-border">
+              <div className="flex items-start gap-3">
+                <ShieldAlert className="h-6 w-6 text-destructive flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-semibold text-lg text-destructive">🚨 Critical Emergency: Fall + SOS</h3>
+                    <Badge className="bg-destructive text-primary-foreground border-0">CRITICAL</Badge>
+                  </div>
+                  <p className="text-sm text-foreground mt-2">
+                    <strong>Patient:</strong> {demoEmergency.elderName}
+                  </p>
+                  <p className="text-sm text-foreground mt-1">
+                    <strong>Vitals:</strong> Heart Rate: {demoEmergency.heartRate} BPM | SpO₂: {demoEmergency.spo2}%
+                  </p>
+                  <p className="text-sm text-foreground mt-1">
+                    <strong>Location:</strong> {demoEmergency.location}
+                  </p>
+                  <p className="text-sm text-foreground mt-1">
+                    <strong>Time:</strong> {new Date(demoEmergency.detectedAt).toLocaleTimeString()}
+                  </p>
+                  <div className="mt-3 p-3 bg-background rounded-lg border border-border flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Doctor Appointment Status</p>
+                      <p className="text-sm font-semibold text-teal mt-0.5">
+                        {demoEmergency.appointmentStatus === 'confirmed'
+                          ? `Confirmed with ${demoEmergency.doctorName} (${demoEmergency.hospitalName})`
+                          : `Requested / Notified (${demoEmergency.doctorName} - ${demoEmergency.hospitalName})`}
+                      </p>
+                    </div>
+                    <Badge className={demoEmergency.appointmentStatus === 'confirmed' ? "bg-emerald-600 text-white" : "bg-amber-500 text-white animate-pulse"}>
+                      {demoEmergency.appointmentStatus === 'confirmed' ? "Confirmed" : "Pending Doctor Confirmation"}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ) : (
+            <AlertBanner />
+          )}
 
           {/* Care Intelligence */}
           {activeSection === 'dashboard' && (

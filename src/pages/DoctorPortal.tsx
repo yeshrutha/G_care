@@ -13,7 +13,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { LayoutDashboard, Users, Pill, Bell, ShieldAlert, FileText, Settings, LogOut, Plus, Activity, Battery, Wifi, Bluetooth, X, Brain, TrendingUp, CheckCircle2, PhoneCall, MapPin, Pencil, Trash2, UploadCloud, Folder, Clipboard, User } from 'lucide-react';
 import { GuardianLogo } from '@/components/GuardianLogo';
-import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
@@ -59,6 +58,8 @@ interface DoctorCareTeam {
   specialization: string;
   hospital: string;
 }
+
+type DemoAppointmentStatus = 'requested' | 'confirmed';
 
 const getSeedMedications = (): DashboardMedication[] => DEMO_MEDICATIONS.map((med) => ({
   id: med.id,
@@ -114,7 +115,8 @@ const DoctorPortal: React.FC = () => {
   const [btConnecting, setBtConnecting] = useState(false);
   const [btConnected, setBtConnected] = useState(false);
   const [btDeviceId, setBtDeviceId] = useState('');
-  const [activeSection, setActiveSection] = useState<DashboardSection>('reports');
+  const [activeSection, setActiveSection] = useState<DashboardSection>('dashboard');
+  const [demoAppointmentStatus, setDemoAppointmentStatus] = useState<DemoAppointmentStatus>('requested');
   const [addMedicationOpen, setAddMedicationOpen] = useState(false);
   const [editingMedicationId, setEditingMedicationId] = useState<string | null>(null);
   const [deleteMedicationId, setDeleteMedicationId] = useState<string | null>(null);
@@ -427,6 +429,31 @@ const DoctorPortal: React.FC = () => {
     return () => timers.forEach(clearTimeout);
   }, [demoMode, setDemoStep, addAlert]);
 
+  // Doctor-only emergency appointment request.
+  // It appears shortly after Demo Mode is enabled and resets when Demo Mode is turned off.
+  useEffect(() => {
+    if (!demoMode) {
+      setDemoAppointmentStatus('requested');
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setDemoAppointmentStatus('requested');
+    }, 1500);
+
+    return () => window.clearTimeout(timer);
+  }, [demoMode]);
+
+  const demoAppointmentVisible = demoMode;
+
+  const confirmDemoAppointment = () => {
+    setDemoAppointmentStatus('confirmed');
+    toast({
+      title: 'Emergency Appointment Confirmed',
+      description: 'Immediate appointment confirmed for Usha.',
+    });
+  };
+
   // Live vitals updates inside simulator mode
   useEffect(() => {
     if (!demoMode) return;
@@ -654,11 +681,72 @@ const DoctorPortal: React.FC = () => {
           {activeSection === 'dashboard' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                {/* Alert panel */}
-                {unresolvedCount > 0 && (
-                  <AlertBanner count={unresolvedCount} onClick={() => setActiveSection('alerts')} />
+                {demoAppointmentVisible && (
+                  <Card className="rounded-xl border-2 border-red-500/30 bg-red-500/5 shadow-lg">
+                    <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-4">
+                      <div>
+                        <CardTitle className="font-display text-base font-bold text-red-600 flex items-center gap-2">
+                          🚨 Urgent Appointment Request
+                        </CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Emergency consultation requested for Usha.
+                        </p>
+                      </div>
+                      <Badge className={demoAppointmentStatus === 'confirmed' ? 'bg-emerald-600 text-white border-0' : 'bg-red-600 text-white border-0'}>
+                        {demoAppointmentStatus === 'confirmed' ? 'CONFIRMED' : 'URGENT'}
+                      </Badge>
+                    </CardHeader>
+
+                    <CardContent className="space-y-4">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Patient</p>
+                          <p className="mt-1 font-semibold text-foreground">Usha</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Emergency</p>
+                          <p className="mt-1 font-semibold text-red-600">Fall + SOS</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Heart Rate</p>
+                          <p className="mt-1 font-semibold text-foreground">118 BPM</p>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">SpO₂</p>
+                          <p className="mt-1 font-semibold text-red-600">91%</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                        <p className="text-sm font-semibold text-red-600">Emergency reason</p>
+                        <p className="mt-1 text-sm text-foreground">Fall detected and SOS activated for Usha.</p>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Sadashivanagar, Bangalore</span>
+                          <span>Doctor: Dr. Ramesh Kumar</span>
+                          <span>Hospital: Apollo Hospitals</span>
+                        </div>
+                      </div>
+
+                      {demoAppointmentStatus === 'requested' ? (
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                          <div>
+                            <p className="font-semibold text-amber-700">Emergency appointment requested</p>
+                            <p className="text-xs text-muted-foreground">Immediate consultation is required for this demo emergency.</p>
+                          </div>
+                          <Button className="bg-teal hover:bg-teal/90 text-primary-foreground" onClick={confirmDemoAppointment}>
+                            Confirm Emergency Appointment
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
+                          <p className="font-semibold text-emerald-700 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Emergency appointment confirmed</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Usha's immediate consultation has been confirmed.</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
-                
+
                 {/* Main Care Intelligence summaries */}
                 {careIntelligence.topPriority && (
                   <Card className="rounded-xl border border-gw-amber/30 bg-gw-amber/5">

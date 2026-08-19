@@ -107,9 +107,31 @@ function storeActiveAlerts(alerts: DemoAlert[]) {
   }
 }
 
+const DEMO_MODE_STORAGE_KEY = 'gcare_demo_mode';
+
+function getStoredDemoMode(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
+}
+
+function storeDemoMode(v: boolean) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, String(v));
+  }
+}
+
 export const useAppStore = create<AppStore>((set) => ({
-  demoMode: false,
-  setDemoMode: (v) => set({ demoMode: v }),
+  demoMode: getStoredDemoMode(),
+  setDemoMode: (v) => {
+    storeDemoMode(v);
+    set({ demoMode: v });
+    if (!v) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('gcare_demo_emergency_event');
+        window.dispatchEvent(new CustomEvent('gcare_demo_emergency_event', { detail: null }));
+      }
+    }
+  },
   language: 'en',
   setLanguage: (v) => set({ language: v }),
   authUser: null,
@@ -143,10 +165,11 @@ export const useAppStore = create<AppStore>((set) => ({
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if (event.key !== ACTIVE_ALERTS_STORAGE_KEY) {
-      return;
+    if (event.key === ACTIVE_ALERTS_STORAGE_KEY) {
+      useAppStore.setState({ activeAlerts: getStoredActiveAlerts() });
     }
-
-    useAppStore.setState({ activeAlerts: getStoredActiveAlerts() });
+    if (event.key === DEMO_MODE_STORAGE_KEY) {
+      useAppStore.setState({ demoMode: getStoredDemoMode() });
+    }
   });
 }
