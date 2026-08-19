@@ -263,7 +263,6 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
   const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition> | null>(null);
   const responseTimeoutRef = useRef<number | null>(null);
   const alarmTimeoutRef = useRef<number | null>(null);
-  const pendingYoutubeWindowRef = useRef<Window | null>(null);
   const [open, setOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [isListening, setIsListening] = useState(false);
@@ -658,7 +657,6 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       recognitionRef.current?.stop();
       stopAlertLoop('medicine');
       window.speechSynthesis?.cancel();
-      pendingYoutubeWindowRef.current?.close();
       if (responseTimeoutRef.current) {
         window.clearTimeout(responseTimeoutRef.current);
       }
@@ -678,35 +676,24 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       setShowResponseOverlay(false);
       setResponseText('');
       setTranscript('');
-      pendingYoutubeWindowRef.current?.close();
-      pendingYoutubeWindowRef.current = null;
     }
   }, [open]);
 
   const startListening = async () => {
-    pendingYoutubeWindowRef.current?.close();
-    pendingYoutubeWindowRef.current = window.open('', '_blank', 'noopener,noreferrer');
-
     if (!isSpeechRecognitionSupported()) {
       startResponseOverlay(languageConfig.micUnavailable, assistantLanguage);
-      pendingYoutubeWindowRef.current?.close();
-      pendingYoutubeWindowRef.current = null;
       return;
     }
 
     const permission = await requestMicrophonePermission();
     if (!permission.granted) {
       startResponseOverlay(languageConfig.micPermission, assistantLanguage);
-      pendingYoutubeWindowRef.current?.close();
-      pendingYoutubeWindowRef.current = null;
       return;
     }
 
     const recognition = createSpeechRecognition(assistantLanguage);
     if (!recognition) {
       startResponseOverlay(languageConfig.voiceError, assistantLanguage);
-      pendingYoutubeWindowRef.current?.close();
-      pendingYoutubeWindowRef.current = null;
       return;
     }
 
@@ -738,26 +725,13 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
         }
 
         if (result.action?.type === 'youtube') {
-          if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-            pendingYoutubeWindowRef.current.location.href = result.action.url;
-          } else {
-            openYoutubeSearch(result.action.query, result.responseLanguage);
-          }
-          pendingYoutubeWindowRef.current = null;
-        } else if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-          pendingYoutubeWindowRef.current.close();
-          pendingYoutubeWindowRef.current = null;
+          openYoutubeSearch(result.action.query, result.responseLanguage);
         }
 
         speakText(result.responseText, result.responseLanguage);
       } else {
         setAssistantStatus('processing');
         startResponseOverlay('Thinking…', detectedLanguage);
-
-        if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-          pendingYoutubeWindowRef.current.close();
-          pendingYoutubeWindowRef.current = null;
-        }
 
         void (async () => {
           try {
@@ -797,19 +771,11 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
           : event.error === 'no-speech'
             ? languageConfig.noSpeech
             : languageConfig.voiceError;
-      if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-        pendingYoutubeWindowRef.current.close();
-        pendingYoutubeWindowRef.current = null;
-      }
       startResponseOverlay(nextMessage, assistantLanguage);
       setIsListening(false);
     };
 
     recognition.onend = () => {
-      if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-        pendingYoutubeWindowRef.current.close();
-        pendingYoutubeWindowRef.current = null;
-      }
       setIsListening(false);
     };
 
