@@ -46,52 +46,101 @@ export async function generateAssistantReply({ message, conversationHistory, hea
   if (!GEMINI_API_KEY) {
     throw new AssistantServiceError('AI service is not configured. Please ask the administrator to set GEMINI_API_KEY.', 503);
   }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20000);
-  const contents = [...cleanHistory(conversationHistory), { role: 'user', parts: [{ text: message }] }];
 
-  // Calculate current date/time dynamically for Asia/Kolkata
-  const now = new Date();
-  const timeContext = new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-  }).format(now);
+  const maxAttempts = 3;
+  let lastError = null;
 
-  try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildInstructions(healthContext, timeContext) }] },
-          contents,
-          generationConfig: { temperature: 0.6, maxOutputTokens: 350 },
-        }),
-        signal: controller.signal,
-      },
-    );
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      console.error('Gemini request failed:', response.status, payload?.error?.message || 'unknown error');
-      throw new AssistantServiceError('The AI service is temporarily unavailable. Please try again.', 502);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    // Use a reasonable timeout per attempt (e.g. 10 seconds)
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const contents = [...cleanHistory(conversationHistory), { role: 'user', parts: [{ text: message }] }];
+
+    // Dynamically calculate current date and time for Asia/Kolkata timezone
+    const now = new Date();
+    const timeContext = new Intl.DateTimeFormat('en-IN', {
+      timeZone: 'Asia/Kolkata',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    }).format(now);
+
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: buildInstructions(healthContext, timeContext) }] },
+            contents,
+            generationConfig: { temperature: 0.6, maxOutputTokens: 350 },
+          }),
+          signal: controller.signal,
+        },
+      );
+
+      const payload = await response.json().catch(() => ({}));
+
+      if (response.ok) {
+        const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
+        if (!text) {
+          throw new AssistantServiceError('The AI service returned an empty response.', 502);
+        }
+        return text;
+      }
+
+      // Read status code and construct descriptive error messages
+      console.error(`Gemini request failed (Attempt ${attempt}): Status ${response.status}`, payload);
+      const apiMessage = payload?.error?.message || 'unknown error';
+
+      if (response.status === 429) {
+        throw new AssistantServiceError('Rate limit exceeded. Please wait a moment before trying again.', 429);
+      }
+      if (response.status === 400) {
+        throw new AssistantServiceError(`Invalid request to AI service: ${apiMessage}`, 400);
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new AssistantServiceError('Authentication failed. Invalid Gemini API key.', 401);
+      }
+      if (response.status === 404) {
+        throw new AssistantServiceError(`The requested AI model was not found: ${GEMINI_MODEL}`, 404);
+      }
+
+      // Throw transient error for 5xx responses to trigger retry
+      throw new AssistantServiceError(`AI service encountered an error (${response.status}): ${apiMessage}`, response.status);
+
+    } catch (error) {
+      lastError = error;
+
+      // Determine if error is transient
+      const isTransient =
+        error?.name === 'AbortError' ||
+        (error instanceof AssistantServiceError && error.statusCode >= 500) ||
+        (error instanceof TypeError && error.message.includes('fetch failed'));
+
+      if (isTransient && attempt < maxAttempts) {
+        const backoffMs = attempt * 1000;
+        console.warn(`Transient error in Gemini request (Attempt ${attempt}). Retrying in ${backoffMs}ms... Error: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      // Rethrow immediate non-transient errors or if max attempts are reached
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    const text = payload?.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('').trim();
-    if (!text) throw new AssistantServiceError('The AI service did not return a response. Please try again.', 502);
-    return text;
-  } catch (error) {
-    if (error instanceof AssistantServiceError) throw error;
-    if (error?.name === 'AbortError') throw new AssistantServiceError('The AI response took too long. Please try again.', 504);
-    console.error('Gemini request error:', error instanceof Error ? error.message : error);
-    throw new AssistantServiceError('Unable to reach the AI service. Check your connection and try again.', 502);
-  } finally {
-    clearTimeout(timeout);
   }
+
+  // Fallback in case of exit from loop without returning/throwing
+  if (lastError?.name === 'AbortError') {
+    throw new AssistantServiceError('The AI response took too long. Please try again.', 504);
+  }
+  throw lastError || new AssistantServiceError('The AI request failed after multiple attempts.', 502);
 }

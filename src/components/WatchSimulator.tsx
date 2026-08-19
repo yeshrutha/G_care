@@ -505,6 +505,55 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     });
   }, [activeGuardianAlarm, activeGuardianAlarmElderName, currentTime, addGuardianAlert, addCaretakerAlert]);
 
+  const getLocalizedErrorMessage = (error: unknown, language: SupportedLanguage): string => {
+    let englishMessage = 'Unable to reach the AI assistant. Please try again.';
+    if (error instanceof Error) {
+      englishMessage = error.message;
+    } else if (typeof error === 'string') {
+      englishMessage = error;
+    }
+
+    if (language === 'hi-IN') {
+      if (englishMessage.includes('not configured') || englishMessage.includes('GEMINI_API_KEY')) {
+        return 'एआई सेवा कॉन्फ़िगर नहीं की गई है। कृपया व्यवस्थापक से संपर्क करें।';
+      }
+      if (englishMessage.includes('Rate limit') || englishMessage.includes('limit')) {
+        return 'अनुरोध दर सीमा समाप्त हो गई है। कृपया थोड़ी देर बाद पुनः प्रयास करें।';
+      }
+      if (englishMessage.includes('Authentication failed') || englishMessage.includes('key')) {
+        return 'प्रमाणीकरण विफल रहा। अमान्य एपीआई कुंजी।';
+      }
+      if (englishMessage.includes('too long') || englishMessage.includes('timeout')) {
+        return 'एआई प्रतिक्रिया में बहुत समय लगा। कृपया पुनः प्रयास करें।';
+      }
+      if (englishMessage.includes('empty response')) {
+        return 'एआई सेवा से कोई उत्तर नहीं मिला। कृपया फिर से कोशिश करें।';
+      }
+      return 'एआई सहायक तक पहुँचने में असमर्थ। कृपया पुनः प्रयास करें।';
+    }
+
+    if (language === 'kn-IN') {
+      if (englishMessage.includes('not configured') || englishMessage.includes('GEMINI_API_KEY')) {
+        return 'ಎಐ ಸೇವೆಯನ್ನು ಕಾನ್ಫಿಗರ್ ಮಾಡಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.';
+      }
+      if (englishMessage.includes('Rate limit') || englishMessage.includes('limit')) {
+        return 'ವಿನಂತಿ ಮಿತಿ ಮೀರಿದೆ. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯ ಕಾಯಿರಿ.';
+      }
+      if (englishMessage.includes('Authentication failed') || englishMessage.includes('key')) {
+        return 'ದೃಢೀಕರಣ ವಿಫಲವಾಗಿದೆ. ಅಮಾನ್ಯ ಎಪಿಐ ಕೀಲಿ.';
+      }
+      if (englishMessage.includes('too long') || englishMessage.includes('timeout')) {
+        return 'ಎಐ ಪ್ರತಿಕ್ರಿಯೆ ತುಂಬಾ ಸಮಯ ತೆಗೆದುಕೊಂಡಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
+      }
+      if (englishMessage.includes('empty response')) {
+        return 'ಎಐ ಸೇವೆಯಿಂದ ಯಾವುದೇ ಪ್ರತಿಕ್ರಿಯೆ ಬಂದಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
+      }
+      return 'ಎಐ ಸಹಾಯಕರನ್ನು ಸಂಪರ್ಕಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
+    }
+
+    return englishMessage;
+  };
+
   const startResponseOverlay = (text: string, language: SupportedLanguage) => {
     setAssistantLanguage(language);
     setResponseText(text);
@@ -518,6 +567,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       setShowResponseOverlay(false);
       setResponseText('');
       setTranscript('');
+      setAssistantStatus('idle');
     }, RESPONSE_TIMEOUT_MS);
   };
 
@@ -749,15 +799,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
             speakText(response, detectedLanguage);
           } catch (error) {
             setAssistantStatus('error');
-            let message = 'Unable to reach the AI assistant. Please try again.';
-            if (detectedLanguage === 'hi-IN') {
-              message = 'एआई सहायक तक पहुँचने में असमर्थ। कृपया पुनः प्रयास करें।';
-            } else if (detectedLanguage === 'kn-IN') {
-              message = 'ಎಐ ಸಹಾಯಕರನ್ನು ಸಂಪರ್ಕಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
-            }
-            if (error instanceof Error && !error.message.includes('failed') && !error.message.includes('500') && !error.message.includes('502')) {
-              message = error.message;
-            }
+            const message = getLocalizedErrorMessage(error, detectedLanguage);
             startResponseOverlay(message, detectedLanguage);
           }
         })();
