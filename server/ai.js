@@ -16,11 +16,20 @@ function cleanHistory(history) {
     .map((turn) => ({ role: turn.role, parts: [{ text: turn.content.slice(0, 4000) }] }));
 }
 
-function buildInstructions(healthContext) {
+function buildInstructions(healthContext, timeContext) {
   const patientContext = healthContext
     ? `\nAuthorized patient context (use only when relevant; it is private):\n${JSON.stringify(healthContext)}`
     : '';
   return `You are G-Care, a warm, concise conversational assistant in a health watch. Answer the user's actual message naturally; you can discuss general topics as well as the authorized patient context below.
+
+CURRENT REAL-TIME CONTEXT:
+- Timezone: Asia/Kolkata (IST, UTC+05:30)
+- Current Date, Day & Time: ${timeContext}
+
+CRITICAL DATE/TIME INSTRUCTION:
+- For questions about "today", "tomorrow", "yesterday", current time, current date, day of the week, etc., ALWAYS refer to the CURRENT REAL-TIME CONTEXT provided above.
+- NEVER guess or use any outdated training-time dates from your model knowledge.
+
 CRITICAL LANGUAGE REQUIREMENT:
 - If the user speaks in Kannada (using Kannada script or Kannada phonetics/words), you MUST respond in Kannada script.
 - If the user speaks in Hindi (using Devanagari script or Hindi phonetics/words), you MUST respond in Devanagari script.
@@ -40,6 +49,21 @@ export async function generateAssistantReply({ message, conversationHistory, hea
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 20000);
   const contents = [...cleanHistory(conversationHistory), { role: 'user', parts: [{ text: message }] }];
+
+  // Calculate current date/time dynamically for Asia/Kolkata
+  const now = new Date();
+  const timeContext = new Intl.DateTimeFormat('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  }).format(now);
+
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
@@ -47,7 +71,7 @@ export async function generateAssistantReply({ message, conversationHistory, hea
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: buildInstructions(healthContext) }] },
+          systemInstruction: { parts: [{ text: buildInstructions(healthContext, timeContext) }] },
           contents,
           generationConfig: { temperature: 0.6, maxOutputTokens: 350 },
         }),
