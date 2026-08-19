@@ -419,17 +419,73 @@ export async function requestMicrophonePermission() {
   }
 }
 
+let activeAssistantAudio: HTMLAudioElement | null = null;
+
+export function stopSpeaking() {
+  if (activeAssistantAudio) {
+    activeAssistantAudio.pause();
+    activeAssistantAudio.currentTime = 0;
+    activeAssistantAudio = null;
+  }
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+}
+
 export function speakText(text: string, language: SupportedLanguage = DEFAULT_LANGUAGE) {
-  if (!isSpeechSynthesisSupported()) {
+  if (typeof window === 'undefined' || !text?.trim()) {
     return;
   }
 
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = LANGUAGE_CONFIG[language].synthesisLang;
-  utterance.rate = 0.95;
-  utterance.pitch = 1;
-  window.speechSynthesis.speak(utterance);
+  stopSpeaking();
+
+  const cleanText = text.replace(/[*_#`~[\]()]/g, '').trim();
+  const shortLang = (LANGUAGE_CONFIG[language]?.shortCode || language.split('-')[0] || 'kn').toLowerCase();
+
+  // Primary: Native high-quality streaming TTS audio from Google TTS proxy
+  try {
+    const ttsUrl = `/api/tts?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(shortLang)}`;
+    const audio = new Audio(ttsUrl);
+    activeAssistantAudio = audio;
+
+    audio.play().catch(() => {
+      // Fallback: Browser Web SpeechSynthesis if audio element playback is blocked
+      fallbackSpeechSynthesis(cleanText, language);
+    });
+    return;
+  } catch {
+    fallbackSpeechSynthesis(cleanText, language);
+  }
+}
+
+function fallbackSpeechSynthesis(cleanText: string, language: SupportedLanguage) {
+  if (!isSpeechSynthesisSupported()) return;
+
+  try {
+    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+
+    const targetLang = LANGUAGE_CONFIG[language]?.synthesisLang || language;
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = targetLang;
+    utterance.rate = 0.92;
+    utterance.pitch = 1;
+
+    const voices = window.speechSynthesis.getVoices?.() || [];
+    const exactVoice = voices.find((v) => v.lang === targetLang || v.lang.replace('_', '-') === targetLang);
+    const prefixVoice = voices.find((v) => v.lang.startsWith(targetLang.split('-')[0]) || v.name.toLowerCase().includes('kannada'));
+    if (exactVoice) {
+      utterance.voice = exactVoice;
+    } else if (prefixVoice) {
+      utterance.voice = prefixVoice;
+    }
+
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn('Speech synthesis fallback error:', err);
+  }
 }
 
 export function openYoutubeSearch(query: string, language: SupportedLanguage) {

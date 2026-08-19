@@ -20,8 +20,9 @@ const server = http.createServer(async (req, res) => {
       return serveStatic(req, res, pathName);
     }
 
-    return handleRequest(req, res, pathName);
+    return await handleRequest(req, res, pathName);
   } catch (error) {
+    console.error('Request handler error:', error);
     return sendJson(res, error.statusCode || 500, { error: error instanceof Error ? error.message : 'Server error' }, req);
   }
 });

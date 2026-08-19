@@ -21,6 +21,7 @@ import { useAppStore, type DemoElder, type DemoVitals, type Medication, type Dem
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
 import { apiFetch } from '@/lib/api';
+import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
@@ -559,12 +560,10 @@ const Dashboard: React.FC = () => {
 
     let savedMedication = medication;
     try {
-      const response = await fetch(`${API_BASE}/medications${editingMedicationId ? `/${editingMedicationId}` : ''}`, {
+      savedMedication = await apiFetch<DashboardMedication>(`/medications${editingMedicationId ? `/${editingMedicationId}` : ''}`, {
         method: editingMedicationId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(medication),
       });
-      if (response.ok) savedMedication = await response.json();
     } catch {
       // Save locally if the backend is not running.
     }
@@ -679,7 +678,7 @@ const Dashboard: React.FC = () => {
   const handleDeleteMedication = async () => {
     if (!deleteMedicationId) return;
     try {
-      await fetch(`${API_BASE}/medications/${deleteMedicationId}`, { method: 'DELETE' });
+      await apiFetch(`/medications/${deleteMedicationId}`, { method: 'DELETE' });
     } catch {
       // Remove locally if the backend is not running.
     }
@@ -724,12 +723,10 @@ const Dashboard: React.FC = () => {
 
     let savedAlarm = alarm;
     try {
-      const response = await fetch(`${API_BASE}/alarms${editingAlarmId ? `/${editingAlarmId}` : ''}`, {
+      savedAlarm = await apiFetch<DashboardAlarm>(`/alarms${editingAlarmId ? `/${editingAlarmId}` : ''}`, {
         method: editingAlarmId ? 'PUT' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(alarm),
       });
-      if (response.ok) savedAlarm = await response.json();
     } catch {
       // Save locally if the backend is not running.
     }
@@ -770,7 +767,7 @@ const Dashboard: React.FC = () => {
   const handleDeleteAlarm = async () => {
     if (!deleteAlarmId) return;
     try {
-      await fetch(`${API_BASE}/alarms/${deleteAlarmId}`, { method: 'DELETE' });
+      await apiFetch(`/alarms/${deleteAlarmId}`, { method: 'DELETE' });
     } catch {
       // Remove locally if the backend is not running.
     }

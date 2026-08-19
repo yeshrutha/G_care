@@ -39,6 +39,7 @@ import {
   requestMicrophonePermission,
   resolveSpeechLanguage,
   speakText,
+  stopSpeaking,
   SupportedLanguage,
 } from '@/components/VoiceAssistant';
 import { useAppStore } from '@/store';
@@ -211,17 +212,9 @@ function getReminderAlarmKey(reminder: Reminder, date: Date) {
 }
 
 function getReminderDueAt(reminder: Reminder, now: Date) {
-  const [hours = '0', minutes = '0'] = reminder.time.split(':');
+  const [hours = '0', minutes = '0'] = (reminder.time || '00:00').split(':');
   const dueAt = reminder.appointmentDate ? new Date(`${reminder.appointmentDate}T00:00:00`) : new Date(now);
   dueAt.setHours(Number(hours), Number(minutes), 0, 0);
-
-  if (!reminder.appointmentDate && reminder.createdAt) {
-    const createdAt = new Date(reminder.createdAt);
-    if (!Number.isNaN(createdAt.getTime()) && dueAt.getTime() < createdAt.getTime()) {
-      dueAt.setDate(dueAt.getDate() + 1);
-    }
-  }
-
   return dueAt;
 }
 
@@ -231,20 +224,8 @@ function isReminderDueNow(reminder: Reminder, dueAt: Date, now: Date) {
   }
 
   const age = now.getTime() - dueAt.getTime();
-  if (age < 0) {
-    return false;
-  }
-
-  if (!reminder.createdAt) {
-    return age < WATCH_ALARM_DUE_WINDOW_MS;
-  }
-
-  const createdAt = new Date(reminder.createdAt);
-  if (Number.isNaN(createdAt.getTime()) || createdAt.getTime() > dueAt.getTime()) {
-    return age < WATCH_ALARM_DUE_WINDOW_MS;
-  }
-
-  return age < WATCH_ALARM_RECENT_MISS_WINDOW_MS;
+  // Trigger when current time is at or within 15 minutes past the scheduled alarm time
+  return age >= 0 && age < 15 * 60 * 1000;
 }
 
 const WatchSimulator: React.FC<WatchSimulatorProps> = ({
@@ -275,6 +256,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
   const [stepCount, setStepCount] = useState(2846);
   const [responseText, setResponseText] = useState('');
   const [showResponseOverlay, setShowResponseOverlay] = useState(false);
+  const [customVoiceInput, setCustomVoiceInput] = useState('');
 
   const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
   const [assistantStatus, setAssistantStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking' | 'error'>('idle');
@@ -299,33 +281,33 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     if (!open) return;
 
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.permission !== 'denied' && Notification.requestPermission();
+      if (Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
     }
 
-    fetch('/api/dashboard-data')
-      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
-      .then((data: { medications?: any[]; alarms?: any[] }) => {
-        const medReminders = (data.medications || []).map(med => {
-          const dosage = `${med.dose_amount}${med.dose_unit}`;
-          return med.times.map((time: string, idx: number) => ({
-            id: `med-${med.id}-${idx}`,
-            elderId: med.elder_id,
-            elderName: demoElders.find((elder) => elder.id === med.elder_id)?.full_name || activeElder.full_name,
-            type: 'medication' as const,
-            title: `${med.brand_name} ${dosage}`,
-            time: time,
-            repeat: 'daily' as const,
-            verified: false,
-            pillName: med.brand_name,
-            dosage: dosage,
-            photo: med.photo || '',
-            createdAt: new Date().toISOString(),
-          }));
-        }).flat();
+    const syncReminders = () => {
+      apiFetch<{ medications?: any[]; alarms?: any[] }>('/dashboard-data')
+        .then((data) => {
+          const medReminders = (data.medications || []).map((med) => {
+            const dosage = `${med.dose_amount}${med.dose_unit}`;
+            return (med.times || []).map((time: string, idx: number) => ({
+              id: `med-${med.id}-${idx}`,
+              elderId: med.elder_id,
+              elderName: demoElders.find((elder) => elder.id === med.elder_id)?.full_name || activeElder.full_name,
+              type: 'medication' as const,
+              title: `${med.brand_name} ${dosage}`,
+              time: time,
+              repeat: 'daily' as const,
+              verified: false,
+              pillName: med.brand_name,
+              dosage: dosage,
+              photo: med.photo || '',
+              createdAt: new Date().toISOString(),
+            }));
+          }).flat();
 
-        const alarmReminders = (data.alarms || [])
-          .filter(alarm => alarm.type !== 'medication')
-          .map(alarm => ({
+          const alarmReminders = (data.alarms || []).map((alarm) => ({
             id: `alarm-${alarm.id}`,
             elderId: alarm.elderId,
             elderName: demoElders.find((elder) => elder.id === alarm.elderId)?.full_name || activeElder.full_name,
@@ -337,11 +319,16 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
             createdAt: new Date().toISOString(),
           }));
 
-        setGuardianReminders([...medReminders, ...alarmReminders]);
-      })
-      .catch((err) => {
-        console.error('Failed to sync PWA watch reminders:', err);
-      });
+          setGuardianReminders([...medReminders, ...alarmReminders]);
+        })
+        .catch((err) => {
+          console.error('Failed to sync PWA watch reminders:', err);
+        });
+    };
+
+    syncReminders();
+    const interval = window.setInterval(syncReminders, 4000);
+    return () => window.clearInterval(interval);
   }, [activeElder.full_name, demoElders, open, setGuardianReminders]);
 
   const activeReminder = reminders.find((reminder) => reminder.id === activeReminderId) || null;
@@ -358,7 +345,11 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     .sort((a, b) => new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime())
     .slice(0, 3);
   const upcomingGuardianReminders = guardianReminders
-    .filter((reminder) => reminder.type === 'medication' && !reminder.verified)
+    .filter((reminder) => {
+      if (reminder.verified) return false;
+      if (reminder.elderId && activeElder?.id && reminder.elderId !== activeElder.id) return false;
+      return true;
+    })
     .map((reminder) => {
       const dueAt = getReminderDueAt(reminder, currentTime);
       const snoozedUntil = snoozedGuardianAlarms[reminder.id];
@@ -438,9 +429,8 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     } as const;
 
     addCaretakerAlert(caretakerAlert);
-    void fetch(`${API_BASE}/alerts`, {
+    void apiFetch('/alerts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(caretakerAlert),
     }).catch(() => {
       // The live caretaker alert is already in the local store.
@@ -519,7 +509,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     return englishMessage;
   };
 
-  const startResponseOverlay = (text: string, language: SupportedLanguage, durationMs: number = RESPONSE_TIMEOUT_MS) => {
+  const startResponseOverlay = useCallback((text: string, language: SupportedLanguage, durationMs: number = RESPONSE_TIMEOUT_MS) => {
     setAssistantLanguage(language);
     setResponseText(text);
     setShowResponseOverlay(true);
@@ -534,7 +524,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       setTranscript('');
       setAssistantStatus('idle');
     }, durationMs);
-  };
+  }, []);
 
   useEffect(() => {
     setAssistantLanguage(profileLanguage);
@@ -587,7 +577,10 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
 
     const now = currentTime.getTime();
     const nextDueGuardianReminder = guardianReminders.find((reminder) => {
-      if (reminder.type !== 'medication' || reminder.verified) {
+      if (reminder.verified) {
+        return false;
+      }
+      if (reminder.elderId && activeElder?.id && reminder.elderId !== activeElder.id) {
         return false;
       }
 
@@ -611,32 +604,30 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
 
     setAssistantLanguage(profileLanguage);
     setActiveGuardianAlarmId(nextDueGuardianReminder.id);
-    stopAlertLoop('medicine');
+    startAlertLoop('medicine');
 
-    if (!isSpeechSynthesisSupported()) {
-      startAlertLoop('medicine');
-    } else {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(WATCH_ALARM_COPY[profileLanguage].message);
-      utterance.lang = alarmLanguageConfig.synthesisLang;
-      utterance.rate = 0.95;
-      utterance.pitch = 1;
-      utterance.onend = () => startAlertLoop('medicine');
-      utterance.onerror = () => startAlertLoop('medicine');
-      window.speechSynthesis.speak(utterance);
-    }
+    const elderName = nextDueGuardianReminder.elderName || activeElder.full_name || 'Usha';
+    const alarmTitle = nextDueGuardianReminder.pillName || nextDueGuardianReminder.title || 'Reminder';
+    const spokenMessage = profileLanguage === 'kn-IN'
+      ? `${elderName} ಅವರ ${alarmTitle} ಸಮಯವಾಗಿದೆ.`
+      : profileLanguage === 'hi-IN'
+        ? `${elderName} के लिए ${alarmTitle} का समय हो गया है।`
+        : `Time for ${elderName}'s ${alarmTitle}.`;
+
+    speakText(spokenMessage, profileLanguage);
 
     toast({
       title: nextDueGuardianReminder.title,
-      description: WATCH_ALARM_COPY[profileLanguage].message,
+      description: spokenMessage,
     });
   }, [
+    activeElder?.id,
+    activeElder.full_name,
     activeGuardianAlarmId,
     currentTime,
     dismissedGuardianAlarms,
     guardianReminders,
     open,
-    alarmLanguageConfig.synthesisLang,
     profileLanguage,
     snoozedGuardianAlarms,
   ]);
@@ -694,7 +685,65 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     }
   }, [open]);
 
+  const handleVoiceQuery = useCallback(async (speechText: string) => {
+    if (!speechText.trim()) return;
+
+    stopSpeaking();
+    stopAlertLoop('medicine');
+    window.speechSynthesis?.cancel();
+
+    const detectedLanguage = detectLanguageFromText(speechText, assistantLanguage);
+    setTranscript(speechText);
+    setAssistantLanguage(detectedLanguage);
+    setShowResponseOverlay(true);
+    setAssistantStatus('processing');
+
+    const result = processVoiceCommand(speechText, medicationContext, detectedLanguage);
+
+    if (result.actionType === 'reminder' || result.actionType === 'youtube') {
+      setAssistantStatus('speaking');
+      startResponseOverlay(result.responseText, result.responseLanguage, 8000);
+
+      if (result.reminder) {
+        setReminders((currentReminders) => [result.reminder!, ...currentReminders]);
+        toast({
+          title: result.reminder.title,
+          description: result.reminder.message,
+        });
+      }
+
+      if (result.action?.type === 'youtube') {
+        openYoutubeSearch(result.action.query, result.responseLanguage);
+      }
+
+      speakText(result.responseText, result.responseLanguage);
+    } else {
+      try {
+        const { response } = await apiFetch<AssistantChatResponse>('/assistant/chat', {
+          method: 'POST',
+          body: JSON.stringify({ message: speechText, elderId: activeElder?.id, conversationHistory }),
+        });
+        setConversationHistory((current) => [
+          ...current,
+          { role: 'user', content: speechText },
+          { role: 'model', content: response },
+        ].slice(-12));
+        setAssistantStatus('speaking');
+        startResponseOverlay(response, detectedLanguage, 15000);
+        speakText(response, detectedLanguage);
+        // Also show a toast so response is always visible
+        toast({ title: '🗣️ Assistant', description: response });
+      } catch (error) {
+        setAssistantStatus('error');
+        const message = getLocalizedErrorMessage(error, detectedLanguage);
+        startResponseOverlay(message, detectedLanguage, 5000);
+        toast({ title: 'Assistant Error', description: message, variant: 'destructive' });
+      }
+    }
+  }, [activeElder?.id, assistantLanguage, conversationHistory, medicationContext, setReminders, startResponseOverlay]);
+
   const startListening = async () => {
+    stopSpeaking();
     if (!isSpeechRecognitionSupported()) {
       setAssistantStatus('error');
       startResponseOverlay(languageConfig.micUnavailable, assistantLanguage, 4000);
@@ -704,13 +753,14 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
     setAssistantStatus('listening');
     setTranscript('');
     setResponseText('');
-    setShowResponseOverlay(true);
+    setIsListening(true);
 
     try {
       const permission = await requestMicrophonePermission();
       if (!permission.granted) {
         setAssistantStatus('error');
         startResponseOverlay(languageConfig.micPermission, assistantLanguage, 4000);
+        setIsListening(false);
         return;
       }
 
@@ -718,84 +768,45 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       if (!recognition) {
         setAssistantStatus('error');
         startResponseOverlay(languageConfig.voiceError, assistantLanguage, 4000);
+        setIsListening(false);
         return;
       }
 
       recognitionRef.current = recognition;
       recognition.onresult = (event) => {
         const speechText = Array.from(event.results).map((result) => result[0]?.transcript || '').join(' ').trim();
-        if (!speechText) {
-          setAssistantStatus('error');
-          startResponseOverlay(languageConfig.noSpeech, assistantLanguage, 4000);
-          return;
-        }
-
-        const detectedLanguage = detectLanguageFromText(speechText, assistantLanguage);
-        setTranscript(speechText);
-        setAssistantLanguage(detectedLanguage);
-
-        const result = processVoiceCommand(speechText, medicationContext, detectedLanguage);
-
-        if (result.actionType === 'reminder' || result.actionType === 'youtube') {
-          setAssistantStatus('speaking');
-          startResponseOverlay(result.responseText, result.responseLanguage, 8000);
-
-          if (result.reminder) {
-            setReminders((currentReminders) => [result.reminder!, ...currentReminders]);
-            toast({
-              title: result.reminder.title,
-              description: result.reminder.message,
-            });
-          }
-
-          if (result.action?.type === 'youtube') {
-            openYoutubeSearch(result.action.query, result.responseLanguage);
-          }
-
-          speakText(result.responseText, result.responseLanguage);
-        } else {
-          setAssistantStatus('processing');
-
-          void (async () => {
-            try {
-              const { response } = await apiFetch<AssistantChatResponse>('/assistant/chat', {
-                method: 'POST',
-                body: JSON.stringify({ message: speechText, elderId: activeElder?.id, conversationHistory }),
-              });
-              setConversationHistory((current) => [
-                ...current,
-                { role: 'user', content: speechText },
-                { role: 'model', content: response },
-              ].slice(-12));
-              setAssistantStatus('speaking');
-              startResponseOverlay(response, detectedLanguage, 10000);
-              speakText(response, detectedLanguage);
-            } catch (error) {
-              setAssistantStatus('error');
-              const message = getLocalizedErrorMessage(error, detectedLanguage);
-              startResponseOverlay(message, detectedLanguage, 5000);
-            }
-          })();
+        if (speechText) {
+          setIsListening(false);
+          handleVoiceQuery(speechText);
         }
       };
 
       recognition.onerror = (event) => {
+        setIsListening(false);
+        if (event.error === 'no-speech') {
+          setAssistantStatus('idle');
+          toast({
+            title: 'No speech detected',
+            description: 'Please speak closer to the microphone or use the quick buttons below.',
+          });
+          return;
+        }
+
         const nextMessage =
           event.error === 'not-allowed'
             ? languageConfig.micPermission
-            : event.error === 'no-speech'
-              ? languageConfig.noSpeech
-              : languageConfig.voiceError;
+            : languageConfig.voiceError;
         setAssistantStatus('error');
-        startResponseOverlay(nextMessage, assistantLanguage, 4000);
-        setIsListening(false);
+        startResponseOverlay(nextMessage, assistantLanguage, 3500);
       };
 
       recognition.onend = () => {
         setIsListening(false);
+        if (assistantStatus === 'listening') {
+          setAssistantStatus('idle');
+        }
       };
 
-      setIsListening(true);
       recognition.start();
     } catch (err) {
       setAssistantStatus('error');
@@ -950,7 +961,14 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
                     ) : null}
 
                     <div className="mb-4 flex items-center justify-between text-[11px] text-slate-300">
-                      <span>{formatWatchTime(currentTime, assistantLanguage)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAssistantLanguage(assistantLanguage === 'kn-IN' ? 'en-IN' : 'kn-IN')}
+                        className="rounded-full bg-white/10 hover:bg-teal/20 border border-white/15 px-2 py-0.5 text-[10px] text-teal font-medium transition-colors flex items-center gap-1"
+                        title="Switch voice assistant language"
+                      >
+                        <span>🌐</span> {assistantLanguage === 'kn-IN' ? 'ಕನ್ನಡ (KN)' : 'English (EN)'}
+                      </button>
                       <div className="flex items-center gap-2">
                         <Signal className="h-3.5 w-3.5 text-emerald-300" />
                         <Wifi className="h-3.5 w-3.5 text-emerald-300" />
@@ -1021,13 +1039,18 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
                           {watchUpcomingReminders.length ? (
                             <div className="space-y-2">
                               {watchUpcomingReminders.map((reminder) => (
-                                <div
+                                <button
                                   key={reminder.id}
-                                  className="flex items-center justify-between rounded-2xl bg-slate-950/70 px-3 py-2 text-xs text-slate-200"
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveGuardianAlarmId(reminder.id);
+                                  }}
+                                  className="w-full flex items-center justify-between rounded-2xl bg-slate-950/70 px-3 py-2 text-xs text-slate-200 hover:bg-slate-900 border border-transparent hover:border-teal/30 transition-all text-left group"
+                                  title="Click to trigger this alarm"
                                 >
-                                  <span className="max-w-[150px] truncate">{reminder.title}</span>
-                                  <span className="text-teal">{reminder.timeLabel}</span>
-                                </div>
+                                  <span className="max-w-[140px] truncate group-hover:text-teal transition-colors">{reminder.title}</span>
+                                  <span className="text-teal font-medium">{reminder.timeLabel}</span>
+                                </button>
                               ))}
                             </div>
                           ) : (
@@ -1056,6 +1079,65 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Quick Test Voice Prompts & Interactive Input */}
+            <div className="mt-4 flex flex-col items-center justify-center gap-3">
+              <div className="flex flex-wrap items-center justify-center gap-2 max-w-lg">
+                <button
+                  type="button"
+                  onClick={() => handleVoiceQuery('ನಮಸ್ಕಾರ, ಹೇಗಿದ್ದೀರ?')}
+                  className="rounded-full bg-slate-900/90 hover:bg-teal/20 border border-white/10 hover:border-teal/50 px-3 py-1.5 text-xs text-slate-200 transition-colors flex items-center gap-1.5"
+                >
+                  <span>🎙️</span> "ನಮಸ್ಕಾರ, ಹೇಗಿದ್ದೀರ?"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceQuery('ನನ್ನ ಹೃದಯ ಬಡಿತ ಮತ್ತು ಆರೋಗ್ಯ ಸ್ಥಿತಿ ಹೇಗಿದೆ?')}
+                  className="rounded-full bg-slate-900/90 hover:bg-teal/20 border border-white/10 hover:border-teal/50 px-3 py-1.5 text-xs text-slate-200 transition-colors flex items-center gap-1.5"
+                >
+                  <span>🩺</span> "ಆರೋಗ್ಯ ಸ್ಥಿತಿ ಹೇಗಿದೆ?"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceQuery('ನನ್ನ ಇಂದಿನ ಔಷಧಿಗಳು ಯಾವುವು?')}
+                  className="rounded-full bg-slate-900/90 hover:bg-teal/20 border border-white/10 hover:border-teal/50 px-3 py-1.5 text-xs text-slate-200 transition-colors flex items-center gap-1.5"
+                >
+                  <span>💊</span> "ನನ್ನ ಔಷಧಿಗಳು"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleVoiceQuery('How is my health and vitals status?')}
+                  className="rounded-full bg-slate-900/90 hover:bg-teal/20 border border-white/10 hover:border-teal/50 px-3 py-1.5 text-xs text-slate-200 transition-colors flex items-center gap-1.5"
+                >
+                  <span>🗣️</span> "Vitals Status (English)"
+                </button>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (customVoiceInput.trim()) {
+                    handleVoiceQuery(customVoiceInput.trim());
+                    setCustomVoiceInput('');
+                  }
+                }}
+                className="flex items-center gap-2 max-w-md w-full"
+              >
+                <input
+                  type="text"
+                  value={customVoiceInput}
+                  onChange={(e) => setCustomVoiceInput(e.target.value)}
+                  placeholder="Type any question (Kannada / English) or click mic..."
+                  className="flex-1 bg-slate-900/90 border border-white/15 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-teal"
+                />
+                <button
+                  type="submit"
+                  className="bg-teal text-slate-950 font-semibold px-4 py-2 rounded-xl text-xs hover:bg-teal/90 transition-colors shadow flex items-center gap-1 shrink-0"
+                >
+                  Speak 🔊
+                </button>
+              </form>
             </div>
 
           </div>

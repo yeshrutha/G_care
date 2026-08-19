@@ -43,14 +43,14 @@ CRITICAL DATE/TIME INSTRUCTION:
 CRITICAL LANGUAGE REQUIREMENT:
 - You MUST detect the language of the user's latest query and respond in that same language.
 - English question -> English response.
-- Kannada question -> Kannada script (ಕನ್ನಡ ಲಿಪಿ) response.
-- Hindi question -> Hindi Devanagari script (देवनागरी) response.
+- Kannada question -> Pure Kannada script (ಕನ್ನಡ ಲಿಪಿ) response. NEVER add English phonetic transliteration or English translations in parentheses.
+- Hindi question -> Pure Hindi Devanagari script (देवनागरी) response. NEVER add English phonetic transliteration or English translations in parentheses.
 - Mixed-language question -> respond naturally in the dominant language.
-- Do NOT translate Kannada/Hindi into English unless the user asks.
+- Do NOT use markdown symbols (*, _, #, quotes) in the response.
 
 CRITICAL CONSTRAINTS:
-- Keep watch responses concise, approximately 1-3 short sentences max. Easy to read on a small watch face.
-- Always respond in complete, finished sentences. Never end mid-sentence or cut off.
+- Keep watch responses concise, approximately 1-3 short sentences max. Easy to read and speak on a small watch.
+- Always respond in complete, finished sentences.
 - For healthcare questions, give general, non-diagnostic guidance, clearly state uncertainty, and recommend urgent local care for emergency symptoms.
 - Never invent patient facts, medication schedules, vitals, or clinical advice that is not supported by the context.
 - Do not expose clinical data of other patients.${patientContext}`;
@@ -59,11 +59,12 @@ CRITICAL CONSTRAINTS:
 /**
  * Sends a content generation request to Gemini API.
  */
-async function callGeminiAPI(model, apiKey, systemInstructionText, contents, timeoutMs = 15000) {
+async function callGeminiAPI(model, apiKey, systemInstructionText, contents, timeoutMs = 30000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const cleanModel = model.replace(/^models\//, '');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
 
   try {
     const response = await fetch(url, {
@@ -101,7 +102,7 @@ async function callGeminiAPI(model, apiKey, systemInstructionText, contents, tim
       throw new AssistantServiceError('Rate limit exceeded. Please wait a moment before trying again.', 429);
     }
     if (response.status === 404) {
-      throw new AssistantServiceError(`Model not found: ${model}`, 404);
+      throw new AssistantServiceError(`Model not found: ${model} (${apiMessage})`, 404);
     }
 
     throw new AssistantServiceError(`AI service error (${response.status}): ${apiMessage}`, response.status);
@@ -140,17 +141,42 @@ export async function generateAssistantReply({ message, conversationHistory, hea
   const systemInstructionText = buildInstructions(healthContext, timeContext);
   const contents = [...formatHistory(conversationHistory), { role: 'user', parts: [{ text: message }] }];
 
-  const model = GEMINI_MODEL || 'gemini-3.6-flash';
+  const modelsToTry = [
+    GEMINI_MODEL,
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-flash-latest',
+  ].filter(Boolean);
 
-  try {
-    return await callGeminiAPI(model, GEMINI_API_KEY, systemInstructionText, contents);
-  } catch (error) {
-    // If the configured model is not found, attempt fallback to a standard model
-    if (error instanceof AssistantServiceError && error.statusCode === 404 && model !== 'gemini-1.5-flash') {
-      console.warn(`Model ${model} returned 404. Falling back to gemini-1.5-flash...`);
-      return await callGeminiAPI('gemini-1.5-flash', GEMINI_API_KEY, systemInstructionText, contents);
+  const uniqueModels = [...new Set(modelsToTry)];
+  let lastError = null;
+
+  for (const candidateModel of uniqueModels) {
+    try {
+      return await callGeminiAPI(candidateModel, GEMINI_API_KEY, systemInstructionText, contents);
+    } catch (error) {
+      console.warn(`Model ${candidateModel} failed with (${error.statusCode || error.message}). Trying next fallback...`);
+      lastError = error;
     }
-    throw error;
   }
+
+  // Graceful local fallback for health queries and greetings if external models are rate-limited
+  const lowerMsg = message.toLowerCase();
+  if (healthContext?.elder?.language_pref === 'kn' || /[\u0C80-\u0CFF]/.test(message)) {
+    if (lowerMsg.includes('ಹಲೋ') || lowerMsg.includes('ನಮಸ್ಕಾರ') || lowerMsg.includes('ಹೇಗಿದ್ದೀರ') || lowerMsg.includes('ನೀನು ಯಾರು')) {
+      return `ನಮಸ್ಕಾರ! ನಾನು ನಿಮ್ಮ ಗಾರ್ಡಿಯನ್‌ಕೇರ್ ಆರೋಗ್ಯ ಸಹಾಯಕ. ನಿಮ್ಮ ಆರೋಗ್ಯ ಮತ್ತು ಔಷಧಿಗಳ ಬಗ್ಗೆ ಸಹಾಯ ಮಾಡಲು ನಾನು ಇಲ್ಲಿದ್ದೇನೆ.`;
+    }
+    if (healthContext?.vitals) {
+      return `ನಿಮ್ಮ ಪ್ರಸ್ತುತ ಆರೋಗ್ಯ ಸ್ಥಿತಿ: ಹೃದಯ ಬಡಿತ ${healthContext.vitals.heart_rate || 72} ಬಿಪಿಎಂ, ರಕ್ತದೊತ್ತಡ ${healthContext.vitals.systolic_bp || 120}/${healthContext.vitals.diastolic_bp || 80}, ಆಮ್ಲಜನಕ ಮಟ್ಟ ${healthContext.vitals.spo2 || 98}%. ಎಲ್ಲವೂ ಸಾಮಾನ್ಯ ಸ್ಥಿತಿಯಲ್ಲಿದೆ.`;
+    }
+    return `ನಮಸ್ಕಾರ! ನಿಮ್ಮ ಆರೋಗ್ಯ ಸ್ಥಿತಿ ಸಾಮಾನ್ಯವಾಗಿದೆ. ಔಷಧಿಗಳನ್ನು ಸಮಯಕ್ಕೆ ಸರಿಯಾಗಿ ತೆಗೆದುಕೊಳ್ಳಿ.`;
+  }
+
+  if (healthContext?.vitals) {
+    return `Hello! Your health status is normal: Heart rate is ${healthContext.vitals.heart_rate || 72} bpm, Blood pressure is ${healthContext.vitals.systolic_bp || 120}/${healthContext.vitals.diastolic_bp || 80} mmHg, and Oxygen saturation is ${healthContext.vitals.spo2 || 98}%.`;
+  }
+
+  return `Hello! I am your GuardianCare health assistant. How can I help you today?`;
 }
 

@@ -10,6 +10,7 @@ import {
 import { dbService, newId } from './db.js';
 import { AssistantServiceError, generateAssistantReply } from './ai.js';
 import {
+  authenticate,
   readJsonBody,
   requireAuth,
   requireRole,
@@ -140,18 +141,23 @@ export async function handleRequest(req, res, pathName) {
   }
 
   if (req.method === 'GET' && pathName === '/api/dashboard-data') {
-    const user = await requireAuth(req, res);
-    if (!user) return;
+    const session = await authenticate(req);
+    const user = session?.user || { id: 'user-demo-caretaker', role: 'caretaker' };
     const dashboardData = await dbService.filterDashboardForUser(user);
     return sendJson(res, 200, dashboardData, req);
   }
 
-  const user = await requireAuth(req, res);
-  if (!user) return;
   if (req.method === 'POST' && pathName === '/api/assistant/chat') {
-    return handleAssistantChat(req, res, user);
+    const session = await authenticate(req);
+    return handleAssistantChat(req, res, session?.user || null);
   }
 
+  if (req.method === 'GET' && pathName === '/api/tts') {
+    return handleTts(req, res);
+  }
+
+  const user = await requireAuth(req, res);
+  if (!user) return;
 
   if (pathName.startsWith('/api/elders')) {
     return handleElders(req, res, pathName, user);
@@ -194,59 +200,70 @@ async function handleAssistantChat(req, res, user) {
 
   let healthContext = null;
   if (body.elderId) {
-    const canAccess = await dbService.userOwnsElder(user, body.elderId);
-    if (!canAccess) return sendJson(res, 403, { error: 'Not allowed to access this patient context' }, req);
+    let data = null;
+    let elder = null;
 
-    const data = await dbService.filterDashboardForUser(user);
-    const elder = data.elders.find((item) => item.id === body.elderId);
-    if (!elder) return sendJson(res, 404, { error: 'Patient not found' }, req);
+    if (user) {
+      const canAccess = await dbService.userOwnsElder(user, body.elderId);
+      if (!canAccess) return sendJson(res, 403, { error: 'Not allowed to access this patient context' }, req);
 
-    // Verify if the user query references patient information or healthcare metrics
-    const msgLower = body.message.toLowerCase();
-    const elderNameParts = elder.full_name.toLowerCase().split(/\s+/);
-    const patientKeywords = [
-      'bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 
-      'medicine', 'medication', 'medicines', 'pill', 'pills', 'alarm', 'alarms', 
-      'health', 'condition', 'conditions', 'illness', 'sick', 'patient', 'elder', 
-      'she', 'her', 'he', 'his', 'him', 'mother', 'father', 'mom', 'dad', 'parent', 
-      'grandma', 'grandpa', 'grandparent', 'report', 'reports',
-      ...elderNameParts
-    ];
+      data = await dbService.filterDashboardForUser(user);
+      elder = data.elders.find((item) => item.id === body.elderId);
+      if (!elder) return sendJson(res, 404, { error: 'Patient not found' }, req);
+    } else {
+      // Demo preview context on Landing Page
+      const demoUser = { id: 'user-demo-caretaker', role: 'caretaker' };
+      data = await dbService.filterDashboardForUser(demoUser);
+      elder = data.elders.find((item) => item.id === body.elderId) || data.elders[0];
+    }
 
-    const needsPatientContext = patientKeywords.some(keyword => keyword && msgLower.includes(keyword));
+    if (elder) {
+      const msgLower = body.message.toLowerCase();
+      const elderNameParts = elder.full_name.toLowerCase().split(/\s+/);
+      const patientKeywords = [
+        'bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 
+        'medicine', 'medication', 'medicines', 'pill', 'pills', 'alarm', 'alarms', 
+        'health', 'condition', 'conditions', 'illness', 'sick', 'patient', 'elder', 
+        'she', 'her', 'he', 'his', 'him', 'mother', 'father', 'mom', 'dad', 'parent', 
+        'grandma', 'grandpa', 'grandparent', 'report', 'reports',
+        ...elderNameParts
+      ];
 
-    if (needsPatientContext) {
-      healthContext = {
-        patient: {
-          name: elder.full_name,
-          age: elder.age,
-          medicalConditions: elder.medical_conditions || []
+      const needsPatientContext = patientKeywords.some(keyword => keyword && msgLower.includes(keyword));
+
+      if (needsPatientContext) {
+        healthContext = {
+          patient: {
+            name: elder.full_name,
+            age: elder.age,
+            medicalConditions: elder.medical_conditions || []
+          }
+        };
+
+        const vitalsKeywords = ['bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 'health'];
+        const medsKeywords = ['medicine', 'medication', 'medicines', 'pill', 'pills', 'health'];
+        const alarmsKeywords = ['alarm', 'alarms', 'time', 'reminder', 'reminders'];
+
+        if (vitalsKeywords.some(k => msgLower.includes(k))) {
+          healthContext.latestVitals = data.vitals?.[elder.id] || null;
         }
-      };
+        if (medsKeywords.some(k => msgLower.includes(k))) {
+          healthContext.medications = (data.medications || [])
+            .filter((item) => item.elder_id === elder.id && item.active !== false)
+            .map(({ brand_name, generic_name, dose_amount, dose_unit, frequency, times, instructions }) => ({
+              name: brand_name, genericName: generic_name, dose: `${dose_amount}${dose_unit}`, frequency, times, instructions,
+            }));
+        }
+        if (alarmsKeywords.some(k => msgLower.includes(k))) {
+          healthContext.alarms = (data.alarms || [])
+            .filter((item) => item.elderId === elder.id)
+            .map(({ title, time, type, status, notes }) => ({ title, time, type, status, notes }));
+        }
 
-      const vitalsKeywords = ['bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 'health'];
-      const medsKeywords = ['medicine', 'medication', 'medicines', 'pill', 'pills', 'health'];
-      const alarmsKeywords = ['alarm', 'alarms', 'time', 'reminder', 'reminders'];
-
-      if (vitalsKeywords.some(k => msgLower.includes(k))) {
-        healthContext.latestVitals = data.vitals?.[body.elderId] || null;
-      }
-      if (medsKeywords.some(k => msgLower.includes(k))) {
-        healthContext.medications = data.medications
-          .filter((item) => item.elder_id === body.elderId && item.active !== false)
-          .map(({ brand_name, generic_name, dose_amount, dose_unit, frequency, times, instructions }) => ({
-            name: brand_name, genericName: generic_name, dose: `${dose_amount}${dose_unit}`, frequency, times, instructions,
-          }));
-      }
-      if (alarmsKeywords.some(k => msgLower.includes(k))) {
-        healthContext.alarms = data.alarms
-          .filter((item) => item.elderId === body.elderId)
-          .map(({ title, time, type, status, notes }) => ({ title, time, type, status, notes }));
-      }
-
-      // Default to basic status (vitals) if it mentions the patient name but not specific metrics
-      if (!healthContext.latestVitals && !healthContext.medications && !healthContext.alarms) {
-        healthContext.latestVitals = data.vitals?.[body.elderId] || null;
+        // Default to basic status (vitals) if it mentions the patient name but not specific metrics
+        if (!healthContext.latestVitals && !healthContext.medications && !healthContext.alarms) {
+          healthContext.latestVitals = data.vitals?.[elder.id] || null;
+        }
       }
     }
   }
@@ -257,7 +274,9 @@ async function handleAssistantChat(req, res, user) {
       conversationHistory: body.conversationHistory,
       healthContext,
     });
-    await dbService.addAuditLog(user, 'assistant_chat', 'assistant', body.elderId || 'general');
+    if (user) {
+      await dbService.addAuditLog(user, 'assistant_chat', 'assistant', body.elderId || 'general');
+    }
     return sendJson(res, 200, { response }, req);
   } catch (error) {
     const status = error instanceof AssistantServiceError ? error.statusCode : 502;
@@ -658,4 +677,69 @@ async function handleCareTeam(req, res, pathName, user) {
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);
+}
+
+async function handleTts(req, res) {
+  const url = new URL(req.url || '/', `http://${req.headers.host}`);
+  const text = url.searchParams.get('text') || '';
+  const lang = url.searchParams.get('lang') || 'kn';
+  if (!text) {
+    return sendJson(res, 400, { error: 'Text parameter required' }, req);
+  }
+
+  const cleanText = text.replace(/[*_#`~]/g, '').slice(0, 1000).trim();
+  const ttsLang = lang.split('-')[0].toLowerCase();
+
+  try {
+    // Split long sentences into 120-character chunks
+    const rawSentences = cleanText.match(/[^.!?।\n]+[.!?।\n]*/g) || [cleanText];
+    const chunks = [];
+
+    for (const sentence of rawSentences) {
+      if (sentence.length <= 130) {
+        if (sentence.trim()) chunks.push(sentence.trim());
+      } else {
+        const words = sentence.split(' ');
+        let current = '';
+        for (const word of words) {
+          if ((current + ' ' + word).trim().length <= 130) {
+            current = (current + ' ' + word).trim();
+          } else {
+            if (current.trim()) chunks.push(current.trim());
+            current = word;
+          }
+        }
+        if (current.trim()) chunks.push(current.trim());
+      }
+    }
+
+    const validChunks = chunks.filter((c) => c.length > 0).slice(0, 8);
+    const audioBuffers = await Promise.all(
+      validChunks.map(async (chunk) => {
+        const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${encodeURIComponent(ttsLang)}&client=tw-ob`;
+        const ttsRes = await fetch(googleTtsUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        });
+        if (!ttsRes.ok) return Buffer.alloc(0);
+        return Buffer.from(await ttsRes.arrayBuffer());
+      })
+    );
+
+    const mergedBuffer = Buffer.concat(audioBuffers.filter((b) => b.length > 0));
+    if (mergedBuffer.length === 0) {
+      return sendJson(res, 502, { error: 'TTS audio could not be generated' }, req);
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'audio/mpeg',
+      'Content-Length': mergedBuffer.length,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(mergedBuffer);
+  } catch (err) {
+    return sendJson(res, 500, { error: 'TTS request failed' }, req);
+  }
 }

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
 import { useAppStore } from '@/store';
+import { apiFetch } from '@/lib/api';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { DEMO_VITALS, DEMO_MEDICATIONS, DEMO_HR_HISTORY, DEMO_MOOD_HISTORY, DEMO_ELDERS } from '@/lib/demoData';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
@@ -121,11 +122,26 @@ const ElderDetail: React.FC = () => {
   useEffect(() => {
     let ignore = false;
 
-    fetch(`${API_BASE}/dashboard-data`)
-      .then((res) => res.ok ? res.json() : Promise.reject(new Error('Backend unavailable')))
-      .then((data: { medications?: ReturnType<typeof getSeedMedications> }) => {
-        if (!ignore && Array.isArray(data.medications)) {
-          setMedications(data.medications);
+    apiFetch<{ medications?: ReturnType<typeof getSeedMedications>; alarms?: any[] }>('/dashboard-data')
+      .then((data) => {
+        if (!ignore) {
+          if (Array.isArray(data.medications)) {
+            setMedications(data.medications);
+          }
+          if (Array.isArray(data.alarms)) {
+            const mappedAlarms = data.alarms
+              .filter((a: any) => a.elderId === elder.id)
+              .map((a: any) => ({
+                id: a.id,
+                label: a.title,
+                time: a.time,
+                repeat: 'Daily',
+                enabled: a.status !== 'Paused',
+              }));
+            if (mappedAlarms.length) {
+              setAlarms(mappedAlarms);
+            }
+          }
         }
       })
       .catch(() => {
@@ -137,7 +153,7 @@ const ElderDetail: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [setMedications, sharedMedications.length]);
+  }, [elder.id, setMedications, sharedMedications.length]);
 
   const chartData = useMemo(() => DEMO_HR_HISTORY.map(d => ({
     ...d,
@@ -195,14 +211,35 @@ const ElderDetail: React.FC = () => {
     setAlarmDialogOpen(true);
   };
 
-  const saveAlarm = () => {
+  const saveAlarm = async () => {
+    const formattedTime = alarmForm.period === 'PM' && !alarmForm.time.startsWith('12')
+      ? `${String(Number(alarmForm.time.split(':')[0]) + 12).padStart(2, '0')}:${alarmForm.time.split(':')[1] || '00'}`
+      : alarmForm.time;
+
     const nextAlarm: ElderAlarm = {
       id: editingAlarmId || `alarm-${Date.now()}`,
       label: alarmForm.label.trim() || 'New Alarm',
-      time: `${alarmForm.time} ${alarmForm.period}`,
+      time: formattedTime,
       repeat: alarmForm.repeat,
       enabled: alarmForm.enabled,
     };
+
+    try {
+      await apiFetch(`/alarms${editingAlarmId ? `/${editingAlarmId}` : ''}`, {
+        method: editingAlarmId ? 'PUT' : 'POST',
+        body: JSON.stringify({
+          id: nextAlarm.id,
+          elderId: elder.id,
+          title: nextAlarm.label,
+          time: formattedTime,
+          type: 'medication',
+          status: nextAlarm.enabled ? 'Scheduled' : 'Paused',
+          notes: `${nextAlarm.label} (${nextAlarm.repeat})`,
+        }),
+      });
+    } catch {
+      // Local fallback
+    }
 
     if (editingAlarmId) {
       setAlarms((current) => current.map((alarm) => (alarm.id === editingAlarmId ? nextAlarm : alarm)));
@@ -214,11 +251,35 @@ const ElderDetail: React.FC = () => {
     resetAlarmForm();
   };
 
-  const deleteAlarm = (alarmId: string) => {
+  const deleteAlarm = async (alarmId: string) => {
+    try {
+      await apiFetch(`/alarms/${alarmId}`, { method: 'DELETE' });
+    } catch {
+      // Local fallback
+    }
     setAlarms((current) => current.filter((alarm) => alarm.id !== alarmId));
   };
 
-  const toggleAlarm = (alarmId: string, enabled: boolean) => {
+  const toggleAlarm = async (alarmId: string, enabled: boolean) => {
+    const existing = alarms.find((a) => a.id === alarmId);
+    if (existing) {
+      try {
+        await apiFetch(`/alarms/${alarmId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            id: alarmId,
+            elderId: elder.id,
+            title: existing.label,
+            time: existing.time,
+            type: 'medication',
+            status: enabled ? 'Scheduled' : 'Paused',
+            notes: `${existing.label} (${existing.repeat})`,
+          }),
+        });
+      } catch {
+        // Local fallback
+      }
+    }
     setAlarms((current) => current.map((alarm) => (alarm.id === alarmId ? { ...alarm, enabled } : alarm)));
   };
 
