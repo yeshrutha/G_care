@@ -1,0 +1,5 @@
+- [x] Update `server/ai.js` system instructions for strict language and formatting compliance.
+- [x] Update `src/components/WatchSimulator.tsx` to handle local commands and fallback to backend Gemini endpoint.
+- [x] Build the codebase using `npm run build` and run linting check.
+- [x] Run backend tests and verify the AI endpoint.
+- [ ] Commit all changes and push to origin/main.
