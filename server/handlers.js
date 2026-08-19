@@ -201,22 +201,54 @@ async function handleAssistantChat(req, res, user) {
     const elder = data.elders.find((item) => item.id === body.elderId);
     if (!elder) return sendJson(res, 404, { error: 'Patient not found' }, req);
 
-    healthContext = {
-      patient: { name: elder.full_name, age: elder.age, medicalConditions: elder.medical_conditions || [] },
-      latestVitals: data.vitals?.[body.elderId] || null,
-      medications: data.medications
-        .filter((item) => item.elder_id === body.elderId && item.active !== false)
-        .map(({ brand_name, generic_name, dose_amount, dose_unit, frequency, times, instructions }) => ({
-          name: brand_name, genericName: generic_name, dose: `${dose_amount}${dose_unit}`, frequency, times, instructions,
-        })),
-      alarms: data.alarms
-        .filter((item) => item.elderId === body.elderId)
-        .map(({ title, time, type, status, notes }) => ({ title, time, type, status, notes })),
-      recentAlerts: data.alerts
-        .filter((item) => (item.elderId || item.elder_id) === body.elderId)
-        .slice(0, 5)
-        .map(({ type, severity, message, time, resolved }) => ({ type, severity, message, time, resolved })),
-    };
+    // Verify if the user query references patient information or healthcare metrics
+    const msgLower = body.message.toLowerCase();
+    const elderNameParts = elder.full_name.toLowerCase().split(/\s+/);
+    const patientKeywords = [
+      'bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 
+      'medicine', 'medication', 'medicines', 'pill', 'pills', 'alarm', 'alarms', 
+      'health', 'condition', 'conditions', 'illness', 'sick', 'patient', 'elder', 
+      'she', 'her', 'he', 'his', 'him', 'mother', 'father', 'mom', 'dad', 'parent', 
+      'grandma', 'grandpa', 'grandparent', 'report', 'reports',
+      ...elderNameParts
+    ];
+
+    const needsPatientContext = patientKeywords.some(keyword => keyword && msgLower.includes(keyword));
+
+    if (needsPatientContext) {
+      healthContext = {
+        patient: {
+          name: elder.full_name,
+          age: elder.age,
+          medicalConditions: elder.medical_conditions || []
+        }
+      };
+
+      const vitalsKeywords = ['bp', 'blood pressure', 'vitals', 'heart', 'pulse', 'spo2', 'oxygen', 'steps', 'health'];
+      const medsKeywords = ['medicine', 'medication', 'medicines', 'pill', 'pills', 'health'];
+      const alarmsKeywords = ['alarm', 'alarms', 'time', 'reminder', 'reminders'];
+
+      if (vitalsKeywords.some(k => msgLower.includes(k))) {
+        healthContext.latestVitals = data.vitals?.[body.elderId] || null;
+      }
+      if (medsKeywords.some(k => msgLower.includes(k))) {
+        healthContext.medications = data.medications
+          .filter((item) => item.elder_id === body.elderId && item.active !== false)
+          .map(({ brand_name, generic_name, dose_amount, dose_unit, frequency, times, instructions }) => ({
+            name: brand_name, genericName: generic_name, dose: `${dose_amount}${dose_unit}`, frequency, times, instructions,
+          }));
+      }
+      if (alarmsKeywords.some(k => msgLower.includes(k))) {
+        healthContext.alarms = data.alarms
+          .filter((item) => item.elderId === body.elderId)
+          .map(({ title, time, type, status, notes }) => ({ title, time, type, status, notes }));
+      }
+
+      // Default to basic status (vitals) if it mentions the patient name but not specific metrics
+      if (!healthContext.latestVitals && !healthContext.medications && !healthContext.alarms) {
+        healthContext.latestVitals = data.vitals?.[body.elderId] || null;
+      }
+    }
   }
 
   try {

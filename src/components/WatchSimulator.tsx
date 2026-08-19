@@ -506,55 +506,20 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
   }, [activeGuardianAlarm, activeGuardianAlarmElderName, currentTime, addGuardianAlert, addCaretakerAlert]);
 
   const getLocalizedErrorMessage = (error: unknown, language: SupportedLanguage): string => {
-    let englishMessage = 'Unable to reach the AI assistant. Please try again.';
-    if (error instanceof Error) {
-      englishMessage = error.message;
-    } else if (typeof error === 'string') {
-      englishMessage = error;
-    }
+    const englishMessage = "Sorry, I couldn't connect right now. Please try again.";
 
     if (language === 'hi-IN') {
-      if (englishMessage.includes('not configured') || englishMessage.includes('GEMINI_API_KEY')) {
-        return 'एआई सेवा कॉन्फ़िगर नहीं की गई है। कृपया व्यवस्थापक से संपर्क करें।';
-      }
-      if (englishMessage.includes('Rate limit') || englishMessage.includes('limit')) {
-        return 'अनुरोध दर सीमा समाप्त हो गई है। कृपया थोड़ी देर बाद पुनः प्रयास करें।';
-      }
-      if (englishMessage.includes('Authentication failed') || englishMessage.includes('key')) {
-        return 'प्रमाणीकरण विफल रहा। अमान्य एपीआई कुंजी।';
-      }
-      if (englishMessage.includes('too long') || englishMessage.includes('timeout')) {
-        return 'एआई प्रतिक्रिया में बहुत समय लगा। कृपया पुनः प्रयास करें।';
-      }
-      if (englishMessage.includes('empty response')) {
-        return 'एआई सेवा से कोई उत्तर नहीं मिला। कृपया फिर से कोशिश करें।';
-      }
-      return 'एआई सहायक तक पहुँचने में असमर्थ। कृपया पुनः प्रयास करें।';
+      return 'असमर्थ हूँ, अभी कनेक्ट नहीं हो पाया। कृपया पुनः प्रयास करें।';
     }
 
     if (language === 'kn-IN') {
-      if (englishMessage.includes('not configured') || englishMessage.includes('GEMINI_API_KEY')) {
-        return 'ಎಐ ಸೇವೆಯನ್ನು ಕಾನ್ಫಿಗರ್ ಮಾಡಲಾಗಿಲ್ಲ. ದಯವಿಟ್ಟು ನಿರ್ವಾಹಕರನ್ನು ಸಂಪರ್ಕಿಸಿ.';
-      }
-      if (englishMessage.includes('Rate limit') || englishMessage.includes('limit')) {
-        return 'ವಿನಂತಿ ಮಿತಿ ಮೀರಿದೆ. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯ ಕಾಯಿರಿ.';
-      }
-      if (englishMessage.includes('Authentication failed') || englishMessage.includes('key')) {
-        return 'ದೃಢೀಕರಣ ವಿಫಲವಾಗಿದೆ. ಅಮಾನ್ಯ ಎಪಿಐ ಕೀಲಿ.';
-      }
-      if (englishMessage.includes('too long') || englishMessage.includes('timeout')) {
-        return 'ಎಐ ಪ್ರತಿಕ್ರಿಯೆ ತುಂಬಾ ಸಮಯ ತೆಗೆದುಕೊಂಡಿದೆ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
-      }
-      if (englishMessage.includes('empty response')) {
-        return 'ಎಐ ಸೇವೆಯಿಂದ ಯಾವುದೇ ಪ್ರತಿಕ್ರಿಯೆ ಬಂದಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
-      }
-      return 'ಎಐ ಸಹಾಯಕರನ್ನು ಸಂಪರ್ಕಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
+      return 'ಕ್ಷಮಿಸಿ, ಸಂಪರ್ಕಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
     }
 
     return englishMessage;
   };
 
-  const startResponseOverlay = (text: string, language: SupportedLanguage) => {
+  const startResponseOverlay = (text: string, language: SupportedLanguage, durationMs: number = RESPONSE_TIMEOUT_MS) => {
     setAssistantLanguage(language);
     setResponseText(text);
     setShowResponseOverlay(true);
@@ -568,7 +533,7 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
       setResponseText('');
       setTranscript('');
       setAssistantStatus('idle');
-    }, RESPONSE_TIMEOUT_MS);
+    }, durationMs);
   };
 
   useEffect(() => {
@@ -731,98 +696,112 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
 
   const startListening = async () => {
     if (!isSpeechRecognitionSupported()) {
-      startResponseOverlay(languageConfig.micUnavailable, assistantLanguage);
+      setAssistantStatus('error');
+      startResponseOverlay(languageConfig.micUnavailable, assistantLanguage, 4000);
       return;
     }
 
-    const permission = await requestMicrophonePermission();
-    if (!permission.granted) {
-      startResponseOverlay(languageConfig.micPermission, assistantLanguage);
-      return;
-    }
+    setAssistantStatus('listening');
+    setTranscript('');
+    setResponseText('');
+    setShowResponseOverlay(true);
 
-    const recognition = createSpeechRecognition(assistantLanguage);
-    if (!recognition) {
-      startResponseOverlay(languageConfig.voiceError, assistantLanguage);
-      return;
-    }
-
-    recognitionRef.current = recognition;
-    recognition.onresult = (event) => {
-      const speechText = Array.from(event.results).map((result) => result[0]?.transcript || '').join(' ').trim();
-      if (!speechText) {
+    try {
+      const permission = await requestMicrophonePermission();
+      if (!permission.granted) {
         setAssistantStatus('error');
-        startResponseOverlay(languageConfig.noSpeech, assistantLanguage);
+        startResponseOverlay(languageConfig.micPermission, assistantLanguage, 4000);
         return;
       }
 
-      const detectedLanguage = detectLanguageFromText(speechText, assistantLanguage);
-      setTranscript(speechText);
-      setAssistantLanguage(detectedLanguage);
-
-      const result = processVoiceCommand(speechText, medicationContext, detectedLanguage);
-
-      if (result.actionType === 'reminder' || result.actionType === 'youtube') {
-        setAssistantStatus('speaking');
-        startResponseOverlay(result.responseText, result.responseLanguage);
-
-        if (result.reminder) {
-          setReminders((currentReminders) => [result.reminder!, ...currentReminders]);
-          toast({
-            title: result.reminder.title,
-            description: result.reminder.message,
-          });
-        }
-
-        if (result.action?.type === 'youtube') {
-          openYoutubeSearch(result.action.query, result.responseLanguage);
-        }
-
-        speakText(result.responseText, result.responseLanguage);
-      } else {
-        setAssistantStatus('processing');
-        startResponseOverlay('Thinking…', detectedLanguage);
-
-        void (async () => {
-          try {
-            const { response } = await apiFetch<AssistantChatResponse>('/assistant/chat', {
-              method: 'POST',
-              body: JSON.stringify({ message: speechText, elderId: activeElder?.id, conversationHistory }),
-            });
-            setConversationHistory((current) => [
-              ...current,
-              { role: 'user', content: speechText },
-              { role: 'model', content: response },
-            ].slice(-12));
-            setAssistantStatus('speaking');
-            startResponseOverlay(response, detectedLanguage);
-            speakText(response, detectedLanguage);
-          } catch (error) {
-            setAssistantStatus('error');
-            const message = getLocalizedErrorMessage(error, detectedLanguage);
-            startResponseOverlay(message, detectedLanguage);
-          }
-        })();
+      const recognition = createSpeechRecognition(assistantLanguage);
+      if (!recognition) {
+        setAssistantStatus('error');
+        startResponseOverlay(languageConfig.voiceError, assistantLanguage, 4000);
+        return;
       }
-    };
 
-    recognition.onerror = (event) => {
-      const nextMessage =
-        event.error === 'not-allowed'
-          ? languageConfig.micPermission
-          : event.error === 'no-speech'
-            ? languageConfig.noSpeech
-            : languageConfig.voiceError;
-      startResponseOverlay(nextMessage, assistantLanguage);
+      recognitionRef.current = recognition;
+      recognition.onresult = (event) => {
+        const speechText = Array.from(event.results).map((result) => result[0]?.transcript || '').join(' ').trim();
+        if (!speechText) {
+          setAssistantStatus('error');
+          startResponseOverlay(languageConfig.noSpeech, assistantLanguage, 4000);
+          return;
+        }
+
+        const detectedLanguage = detectLanguageFromText(speechText, assistantLanguage);
+        setTranscript(speechText);
+        setAssistantLanguage(detectedLanguage);
+
+        const result = processVoiceCommand(speechText, medicationContext, detectedLanguage);
+
+        if (result.actionType === 'reminder' || result.actionType === 'youtube') {
+          setAssistantStatus('speaking');
+          startResponseOverlay(result.responseText, result.responseLanguage, 8000);
+
+          if (result.reminder) {
+            setReminders((currentReminders) => [result.reminder!, ...currentReminders]);
+            toast({
+              title: result.reminder.title,
+              description: result.reminder.message,
+            });
+          }
+
+          if (result.action?.type === 'youtube') {
+            openYoutubeSearch(result.action.query, result.responseLanguage);
+          }
+
+          speakText(result.responseText, result.responseLanguage);
+        } else {
+          setAssistantStatus('processing');
+
+          void (async () => {
+            try {
+              const { response } = await apiFetch<AssistantChatResponse>('/assistant/chat', {
+                method: 'POST',
+                body: JSON.stringify({ message: speechText, elderId: activeElder?.id, conversationHistory }),
+              });
+              setConversationHistory((current) => [
+                ...current,
+                { role: 'user', content: speechText },
+                { role: 'model', content: response },
+              ].slice(-12));
+              setAssistantStatus('speaking');
+              startResponseOverlay(response, detectedLanguage, 10000);
+              speakText(response, detectedLanguage);
+            } catch (error) {
+              setAssistantStatus('error');
+              const message = getLocalizedErrorMessage(error, detectedLanguage);
+              startResponseOverlay(message, detectedLanguage, 5000);
+            }
+          })();
+        }
+      };
+
+      recognition.onerror = (event) => {
+        const nextMessage =
+          event.error === 'not-allowed'
+            ? languageConfig.micPermission
+            : event.error === 'no-speech'
+              ? languageConfig.noSpeech
+              : languageConfig.voiceError;
+        setAssistantStatus('error');
+        startResponseOverlay(nextMessage, assistantLanguage, 4000);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      setIsListening(true);
+      recognition.start();
+    } catch (err) {
+      setAssistantStatus('error');
+      startResponseOverlay(languageConfig.voiceError, assistantLanguage, 4000);
       setIsListening(false);
-    };
-
-    recognition.onend = () => {
-      setIsListening(false);
-    };
-
-    setIsListening(true);
-    recognition.start();
+    }
   };
 
   return (
@@ -909,24 +888,64 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
                       </div>
                     ) : null}
 
-                    {showResponseOverlay && !activeGuardianAlarm ? (
+                    {(showResponseOverlay || assistantStatus === 'listening' || assistantStatus === 'processing') && !activeGuardianAlarm ? (
                       <div className="absolute inset-0 z-20 flex flex-col justify-between bg-[radial-gradient(circle_at_top,_rgba(45,212,191,0.22),_transparent_40%),linear-gradient(180deg,_rgba(15,23,42,0.98),_rgba(15,23,42,0.96))] px-5 py-6">
                         <div className="flex items-center justify-between text-[11px] text-slate-300">
                           <span>{formatWatchTime(currentTime, assistantLanguage)}</span>
                           <Bell className="h-4 w-4 text-teal" />
                         </div>
-                        <div className="flex-1 flex flex-col items-center justify-center text-center">
-                          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-teal/15">
-                            <Mic className="h-7 w-7 text-teal" />
-                          </div>
-                          <p className="text-lg font-semibold leading-8 text-white">{responseText}</p>
-                          {transcript ? (
-                            <p className="mt-4 text-xs leading-5 text-slate-400">
-                              {languageConfig.heardPrompt} {transcript}
+                        <div className="flex-1 flex flex-col items-center justify-center text-center w-full">
+                          {assistantStatus === 'listening' && (
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-teal/15 animate-pulse">
+                              <span className="text-3xl">🎙️</span>
+                            </div>
+                          )}
+                          {assistantStatus === 'processing' && (
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-teal/15 animate-spin">
+                              <span className="text-3xl">⏳</span>
+                            </div>
+                          )}
+                          {assistantStatus === 'speaking' && (
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-teal/15">
+                              <span className="text-3xl">🗣️</span>
+                            </div>
+                          )}
+                          {assistantStatus === 'error' && (
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-red-500/10">
+                              <span className="text-3xl">❌</span>
+                            </div>
+                          )}
+                          {assistantStatus === 'idle' && (
+                            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-3xl bg-teal/15">
+                              <span className="text-3xl">🗣️</span>
+                            </div>
+                          )}
+
+                          <p className="text-lg font-semibold leading-8 text-white px-2 max-h-[120px] overflow-y-auto w-full">
+                            {assistantStatus === 'listening' ? (
+                              assistantLanguage === 'hi-IN' ? 'सुन रहा है...' :
+                              assistantLanguage === 'kn-IN' ? 'ಕೇಳುತ್ತಿದೆ...' :
+                              'Listening...'
+                            ) : assistantStatus === 'processing' ? (
+                              assistantLanguage === 'hi-IN' ? 'सोच रहा हूँ...' :
+                              assistantLanguage === 'kn-IN' ? 'ಯೋಚಿಸುತ್ತಿದೆ...' :
+                              'Thinking...'
+                            ) : (
+                              responseText
+                            )}
+                          </p>
+                          {transcript && assistantStatus !== 'listening' ? (
+                            <p className="mt-4 text-xs leading-5 text-slate-400 bg-black/35 px-3 py-1.5 rounded-xl border border-white/5 max-w-[200px] truncate">
+                              {languageConfig.heardPrompt} "{transcript}"
                             </p>
                           ) : null}
                         </div>
-                        <p className="text-center text-[11px] text-slate-500">Returning to watch screen...</p>
+                        <p className="text-center text-[10px] text-slate-500">
+                          {assistantStatus === 'listening' ? 'Speak naturally' : 
+                           assistantStatus === 'processing' ? 'Connecting to Gemini' :
+                           assistantStatus === 'error' ? 'Failed' : 
+                           'Returning to watch...'}
+                        </p>
                       </div>
                     ) : null}
 
