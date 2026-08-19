@@ -8,6 +8,7 @@ import {
   verifyPassword,
 } from './auth.js';
 import { dbService, newId } from './db.js';
+import { AssistantServiceError, generateAssistantReply } from './ai.js';
 import {
   readJsonBody,
   requireAuth,
@@ -111,6 +112,15 @@ const reportSchema = z.object({
   fileUrl: z.string().max(500).optional().default(''),
 });
 
+const assistantChatSchema = z.object({
+  message: z.string().trim().min(1).max(4000),
+  elderId: z.string().min(1).max(160).nullish(),
+  conversationHistory: z.array(z.object({
+    role: z.enum(['user', 'model']),
+    content: z.string().trim().min(1).max(4000),
+  })).max(12).default([]),
+});
+
 function parseBody(schema, body, res, req) {
   const result = schema.safeParse(body);
   if (!result.success) {
@@ -138,6 +148,10 @@ export async function handleRequest(req, res, pathName) {
 
   const user = await requireAuth(req, res);
   if (!user) return;
+  if (req.method === 'POST' && pathName === '/api/assistant/chat') {
+    return handleAssistantChat(req, res, user);
+  }
+
 
   if (pathName.startsWith('/api/elders')) {
     return handleElders(req, res, pathName, user);
@@ -172,6 +186,52 @@ export async function handleRequest(req, res, pathName) {
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);
+}
+
+async function handleAssistantChat(req, res, user) {
+  const body = parseBody(assistantChatSchema, await readJsonBody(req), res, req);
+  if (!body) return;
+
+  let healthContext = null;
+  if (body.elderId) {
+    const canAccess = await dbService.userOwnsElder(user, body.elderId);
+    if (!canAccess) return sendJson(res, 403, { error: 'Not allowed to access this patient context' }, req);
+
+    const data = await dbService.filterDashboardForUser(user);
+    const elder = data.elders.find((item) => item.id === body.elderId);
+    if (!elder) return sendJson(res, 404, { error: 'Patient not found' }, req);
+
+    healthContext = {
+      patient: { name: elder.full_name, age: elder.age, medicalConditions: elder.medical_conditions || [] },
+      latestVitals: data.vitals?.[body.elderId] || null,
+      medications: data.medications
+        .filter((item) => item.elder_id === body.elderId && item.active !== false)
+        .map(({ brand_name, generic_name, dose_amount, dose_unit, frequency, times, instructions }) => ({
+          name: brand_name, genericName: generic_name, dose: `${dose_amount}${dose_unit}`, frequency, times, instructions,
+        })),
+      alarms: data.alarms
+        .filter((item) => item.elderId === body.elderId)
+        .map(({ title, time, type, status, notes }) => ({ title, time, type, status, notes })),
+      recentAlerts: data.alerts
+        .filter((item) => (item.elderId || item.elder_id) === body.elderId)
+        .slice(0, 5)
+        .map(({ type, severity, message, time, resolved }) => ({ type, severity, message, time, resolved })),
+    };
+  }
+
+  try {
+    const response = await generateAssistantReply({
+      message: body.message,
+      conversationHistory: body.conversationHistory,
+      healthContext,
+    });
+    await dbService.addAuditLog(user, 'assistant_chat', 'assistant', body.elderId || 'general');
+    return sendJson(res, 200, { response }, req);
+  } catch (error) {
+    const status = error instanceof AssistantServiceError ? error.statusCode : 502;
+    const message = error instanceof Error ? error.message : 'AI request failed';
+    return sendJson(res, status, { error: message }, req);
+  }
 }
 
 async function handleAuth(req, res, pathName) {

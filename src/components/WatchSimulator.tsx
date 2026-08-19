@@ -43,8 +43,15 @@ import {
 } from '@/components/VoiceAssistant';
 import { useAppStore } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
+import { apiFetch } from '@/lib/api';
 
 const API_BASE = '/api';
+
+type ConversationTurn = { role: 'user' | 'model'; content: string };
+
+interface AssistantChatResponse {
+  response: string;
+}
 
 interface WatchSimulatorProps {
   buttonClassName?: string;
@@ -270,6 +277,8 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
   const [responseText, setResponseText] = useState('');
   const [showResponseOverlay, setShowResponseOverlay] = useState(false);
 
+  const [conversationHistory, setConversationHistory] = useState<ConversationTurn[]>([]);
+  const [assistantStatus, setAssistantStatus] = useState<'idle' | 'listening' | 'processing' | 'speaking' | 'error'>('idle');
   const medicationContext = useMemo(() => DEFAULT_MEDICATION_CONTEXT, []);
   const activeElder = useMemo(() => {
     const demoElder = demoElders[0] || DEMO_ELDERS[0];
@@ -703,38 +712,82 @@ const WatchSimulator: React.FC<WatchSimulatorProps> = ({
 
     recognitionRef.current = recognition;
     recognition.onresult = (event) => {
-      const speechText = Array.from(event.results)
-        .map((result) => result[0]?.transcript || '')
-        .join(' ')
-        .trim();
+      const speechText = Array.from(event.results).map((result) => result[0]?.transcript || '').join(' ').trim();
+      if (!speechText) {
+        setAssistantStatus('error');
+        startResponseOverlay(languageConfig.noSpeech, assistantLanguage);
+        return;
+      }
 
       const detectedLanguage = detectLanguageFromText(speechText, assistantLanguage);
+      setTranscript(speechText);
+      setAssistantLanguage(detectedLanguage);
+
       const result = processVoiceCommand(speechText, medicationContext, detectedLanguage);
 
-      setTranscript(speechText);
-      startResponseOverlay(result.responseText, result.responseLanguage);
+      if (result.actionType === 'reminder' || result.actionType === 'youtube') {
+        setAssistantStatus('speaking');
+        startResponseOverlay(result.responseText, result.responseLanguage);
 
-      if (result.reminder) {
-        setReminders((currentReminders) => [result.reminder, ...currentReminders]);
-        toast({
-          title: result.reminder.title,
-          description: result.reminder.message,
-        });
-      }
-
-      if (result.action?.type === 'youtube') {
-        if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-          pendingYoutubeWindowRef.current.location.href = result.action.url;
-        } else {
-          openYoutubeSearch(result.action.query, result.responseLanguage);
+        if (result.reminder) {
+          setReminders((currentReminders) => [result.reminder!, ...currentReminders]);
+          toast({
+            title: result.reminder.title,
+            description: result.reminder.message,
+          });
         }
-        pendingYoutubeWindowRef.current = null;
-      } else if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
-        pendingYoutubeWindowRef.current.close();
-        pendingYoutubeWindowRef.current = null;
-      }
 
-      speakText(result.responseText, result.responseLanguage);
+        if (result.action?.type === 'youtube') {
+          if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
+            pendingYoutubeWindowRef.current.location.href = result.action.url;
+          } else {
+            openYoutubeSearch(result.action.query, result.responseLanguage);
+          }
+          pendingYoutubeWindowRef.current = null;
+        } else if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
+          pendingYoutubeWindowRef.current.close();
+          pendingYoutubeWindowRef.current = null;
+        }
+
+        speakText(result.responseText, result.responseLanguage);
+      } else {
+        setAssistantStatus('processing');
+        startResponseOverlay('Thinking…', detectedLanguage);
+
+        if (pendingYoutubeWindowRef.current && !pendingYoutubeWindowRef.current.closed) {
+          pendingYoutubeWindowRef.current.close();
+          pendingYoutubeWindowRef.current = null;
+        }
+
+        void (async () => {
+          try {
+            const { response } = await apiFetch<AssistantChatResponse>('/assistant/chat', {
+              method: 'POST',
+              body: JSON.stringify({ message: speechText, elderId: activeElder?.id, conversationHistory }),
+            });
+            setConversationHistory((current) => [
+              ...current,
+              { role: 'user', content: speechText },
+              { role: 'model', content: response },
+            ].slice(-12));
+            setAssistantStatus('speaking');
+            startResponseOverlay(response, detectedLanguage);
+            speakText(response, detectedLanguage);
+          } catch (error) {
+            setAssistantStatus('error');
+            let message = 'Unable to reach the AI assistant. Please try again.';
+            if (detectedLanguage === 'hi-IN') {
+              message = 'एआई सहायक तक पहुँचने में असमर्थ। कृपया पुनः प्रयास करें।';
+            } else if (detectedLanguage === 'kn-IN') {
+              message = 'ಎಐ ಸಹಾಯಕರನ್ನು ಸಂಪರ್ಕಿಸಲು ಸಾಧ್ಯವಾಗುತ್ತಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.';
+            }
+            if (error instanceof Error && !error.message.includes('failed') && !error.message.includes('500') && !error.message.includes('502')) {
+              message = error.message;
+            }
+            startResponseOverlay(message, detectedLanguage);
+          }
+        })();
+      }
     };
 
     recognition.onerror = (event) => {
