@@ -122,12 +122,31 @@ const DemoEmergencyManager = () => {
   return null;
 };
 
+const LiveVitalsSimulatorRunner = () => {
+  const simulationEnabled = useAppStore((s) => s.simulationEnabled);
+  const updateLiveVitalsTick = useAppStore((s) => s.updateLiveVitalsTick);
+
+  React.useEffect(() => {
+    if (!simulationEnabled) return;
+    updateLiveVitalsTick();
+
+    const interval = setInterval(() => {
+      updateLiveVitalsTick();
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [simulationEnabled, updateLiveVitalsTick]);
+
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
       <BrowserRouter>
         <DemoEmergencyManager />
+        <LiveVitalsSimulatorRunner />
         <Suspense fallback={<Loader />}>
           <Routes>
             <Route path="/" element={<Landing />} />

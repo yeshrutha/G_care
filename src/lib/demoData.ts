@@ -1,4 +1,4 @@
-import type { DemoElder, DemoVitals, DemoAlert } from '@/store';
+import type { DemoElder, DemoVitals, DemoAlert, StoreAlarm } from '@/store';
 
 export const DEMO_ELDERS: DemoElder[] = [
   {
@@ -106,6 +106,13 @@ export const DEMO_ALERTS: DemoAlert[] = [
     message: 'Ecosprin 75mg missed at 9:00 AM', time: new Date(Date.now() - 7200000).toISOString(),
     resolved: false,
   },
+];
+
+export const DEMO_ALARMS: StoreAlarm[] = [
+  { id: 'alarm-1', time: '08:00', title: 'Morning medicines', elderId: 'elder-1', status: 'Due soon', type: 'medication', notes: 'Morning medication reminder', repeat: 'Daily', enabled: true },
+  { id: 'alarm-2', time: '08:30', title: 'Breakfast reminder', elderId: 'elder-1', status: 'Scheduled', type: 'food', notes: 'Breakfast reminder', repeat: 'Daily', enabled: true },
+  { id: 'alarm-3', time: '12:30', title: 'Lunch reminder', elderId: 'elder-2', status: 'Scheduled', type: 'food', notes: 'Lunch reminder', repeat: 'Daily', enabled: true },
+  { id: 'alarm-4', time: '18:30', title: 'Evening walk', elderId: 'elder-3', status: 'Scheduled', type: 'activity', notes: 'Evening activity reminder', repeat: 'Daily', enabled: true },
 ];
 
 export function generateVitalsUpdate(base: DemoVitals): DemoVitals {

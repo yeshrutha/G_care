@@ -38,7 +38,7 @@ blob-report/
 .turbo/
 *.tsbuildinfo
 
-# Package manager state
+# Package manager state & lock files
 .npm/
 .pnpm-store/
 .yarn/*
@@ -46,11 +46,16 @@ blob-report/
 !.yarn/plugins
 !.yarn/sdks
 !.yarn/versions
+package-lock.json
+bun.lock
+bun.lockb
 
 # OS files
 .DS_Store
 Thumbs.db
 desktop.ini
+ehthumbs.db
+*.lnk
 
 # Editor directories and files
 .vscode/*
@@ -61,3 +66,19 @@ desktop.ini
 *.njsproj
 *.sln
 *.sw?
+*.swp
+*.swo
+*~
+
+# Planning & agent artifacts
+.planning/
+.gemini/
+.agents/
+
+# PWA generated files
+dev-dist/
+
+# Misc
+*.pid
+*.seed
+*.pid.lock

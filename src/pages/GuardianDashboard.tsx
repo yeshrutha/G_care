@@ -15,7 +15,7 @@ import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '@/store';
 import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 import { triggerAlert } from '@/lib/audioAlerts';
-import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2 } from 'lucide-react';
+import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2, Heart } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
 import LogsTab from '@/components/guardian/LogsTab';
 import AlertsTab from '@/components/guardian/AlertsTab';
@@ -34,7 +34,7 @@ const TAB_CONFIG = [
 
 const GuardianDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { guardianUser, setGuardianUser, activeTab, setActiveTab, alerts } = useGuardianStore();
+  const { guardianUser, setGuardianUser, activeTab, setActiveTab, alerts, acknowledgeAlert } = useGuardianStore();
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState<GuardianUser>(() => ({
     name: guardianUser?.name || 'Guardian User',
@@ -56,6 +56,7 @@ const GuardianDashboard: React.FC = () => {
   }, []);
 
   const unresolvedAlerts = alerts.filter(a => !a.acknowledged).length;
+  const unresolvedVitalAlerts = alerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
 
   const demoMode = useAppStore((s) => s.demoMode);
   const setDemoMode = useAppStore((s) => s.setDemoMode);
@@ -340,6 +341,40 @@ const GuardianDashboard: React.FC = () => {
             </div>
           </Card>
         )}
+
+        {/* Critical Vital Anomaly Banner for Guardians */}
+        {unresolvedVitalAlerts.length > 0 && (
+          <Card className="rounded-xl border-2 border-gw-amber bg-gw-amber/10 shadow-lg mb-6 animate-pulse-border p-4">
+            <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Heart className="h-7 w-7 text-gw-amber flex-shrink-0 mt-0.5 animate-pulse" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-foreground text-base">⚠️ VITAL ANOMALY ALERT</h3>
+                    <Badge className="bg-gw-amber text-slate-950 font-bold text-[10px]">
+                      {unresolvedVitalAlerts[0].severity.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <p className="text-sm font-semibold text-foreground mt-1">
+                    {unresolvedVitalAlerts[0].elderName}: {unresolvedVitalAlerts[0].message}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Logged at {new Date(unresolvedVitalAlerts[0].time).toLocaleTimeString()} · Clinical Doctor & Caretaker Notified
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => acknowledgeAlert(unresolvedVitalAlerts[0].id)}>
+                  Acknowledge & Confirm Safe
+                </Button>
+                <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => setActiveTab('alerts')}>
+                  View Alerts ({unresolvedVitalAlerts.length})
+                </Button>
+              </div>
+            </div>
+          </Card>
+        )}
+
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="bg-muted rounded-xl mb-6 flex-wrap h-auto gap-1 p-1">
             {TAB_CONFIG.map(tab => (

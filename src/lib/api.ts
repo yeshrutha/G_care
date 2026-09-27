@@ -1,4 +1,4 @@
-﻿export type UserRole = 'caretaker' | 'doctor' | 'guardian';
+export type UserRole = 'caretaker' | 'doctor' | 'guardian';
 
 export interface AuthUser {
   id: string;
@@ -70,7 +70,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(path.startsWith('/api') ? path : `/api${path}`, {
+  const endpoint = path.startsWith('/api') ? path : `/api${path}`;
+  const origin = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
+    ? window.location.origin
+    : 'http://127.0.0.1:8787';
+  const fullUrl = endpoint.startsWith('http') ? endpoint : `${origin}${endpoint}`;
+
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
   });

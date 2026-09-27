@@ -16,7 +16,7 @@ import { GuardianLogo } from '@/components/GuardianLogo';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert } from '@/store';
+import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert, type StoreAlarm } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
 import { apiFetch } from '@/lib/api';
@@ -28,15 +28,7 @@ type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'ale
 
 type DashboardMedication = Medication;
 
-type DashboardAlarm = {
-  id: string;
-  elderId: string;
-  title: string;
-  time: string;
-  type: 'medication' | 'food' | 'activity' | 'appointment';
-  status: 'Due soon' | 'Scheduled' | 'Paused';
-  notes: string;
-};
+type DashboardAlarm = StoreAlarm;
 
 interface ClinicalReport {
   id: string;
@@ -104,7 +96,13 @@ const SECTION_TITLES: Record<DashboardSection, string> = {
 const DoctorPortal: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { demoMode, setDemoMode, demoElders, setDemoElders, demoVitals, setDemoVitals, activeAlerts, setActiveAlerts, addAlert, medications, setMedications, setDemoStep, demoStep } = useAppStore();
+  const {
+    demoMode, setDemoMode, demoElders, setDemoElders, demoVitals, setDemoVitals,
+    activeAlerts, setActiveAlerts, addAlert, resolveAlert,
+    medications, setMedications, addMedication, updateMedication, deleteMedication,
+    alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
+    setDemoStep, demoStep,
+  } = useAppStore();
   const { user: authUser, logout } = useAuthStore();
   const setReminders = useGuardianStore((state) => state.setReminders);
 
@@ -123,12 +121,6 @@ const DoctorPortal: React.FC = () => {
   const [addAlarmOpen, setAddAlarmOpen] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [deleteAlarmId, setDeleteAlarmId] = useState<string | null>(null);
-  const [alarms, setAlarms] = useState<DashboardAlarm[]>([
-    { id: 'alarm-1', time: '08:00', title: 'Morning medicines', elderId: 'elder-1', status: 'Due soon', type: 'medication', notes: 'Morning medication reminder' },
-    { id: 'alarm-2', time: '08:30', title: 'Breakfast reminder', elderId: 'elder-1', status: 'Scheduled', type: 'food', notes: 'Breakfast reminder' },
-    { id: 'alarm-3', time: '12:30', title: 'Lunch reminder', elderId: 'elder-2', status: 'Scheduled', type: 'food', notes: 'Lunch reminder' },
-    { id: 'alarm-4', time: '18:30', title: 'Evening walk', elderId: 'elder-3', status: 'Scheduled', type: 'activity', notes: 'Evening activity reminder' },
-  ]);
   const [newMedication, setNewMedication] = useState({
     elderId: '',
     tabletName: '',
@@ -269,6 +261,34 @@ const DoctorPortal: React.FC = () => {
     return () => { ignore = true; };
   }, [clinicalElderId]);
 
+  // Hydrate clinical alerts from server backend on mount
+  useEffect(() => {
+    let ignore = false;
+    apiFetch<any[]>('/alerts')
+      .then((serverAlerts) => {
+        if (ignore || !Array.isArray(serverAlerts)) return;
+        const currentIds = new Set(useAppStore.getState().activeAlerts.map(a => a.id));
+        const newItems: DemoAlert[] = serverAlerts.map((sa: any) => ({
+          id: sa.id,
+          elder_id: sa.elder_id || sa.elderId || '',
+          elder_name: sa.elder_name || sa.elderName || 'Patient',
+          type: (sa.type || 'high_hr') as DemoAlert['type'],
+          severity: (sa.severity || 'warning') as DemoAlert['severity'],
+          message: sa.message || '',
+          time: sa.time || new Date().toISOString(),
+          resolved: sa.resolved ?? false,
+        })).filter(a => !currentIds.has(a.id));
+
+        if (newItems.length > 0) {
+          useAppStore.setState((s) => ({
+            activeAlerts: [...newItems, ...s.activeAlerts].slice(0, 100),
+          }));
+        }
+      })
+      .catch(() => {});
+    return () => { ignore = true; };
+  }, []);
+
   const handleSaveNote = async () => {
     if (!clinicalNote.trim() || !clinicalElderId) return;
     try {
@@ -380,18 +400,37 @@ const DoctorPortal: React.FC = () => {
   }, [demoMode, demoElders.length, medications.length, setDemoElders, setDemoVitals, setMedications]);
 
   useEffect(() => {
-    if (demoMode) return;
     let ignore = false;
 
     apiFetch<any>('/dashboard-data')
       .then((data) => {
         if (ignore) return;
-        if (Array.isArray(data.elders)) {
+        if (Array.isArray(data.elders) && data.elders.length > 0) {
           setDemoElders(data.elders);
         }
-        if (Array.isArray(data.medications)) setMedications(data.medications);
-        if (Array.isArray(data.alarms)) setAlarms(data.alarms);
-        if (Array.isArray(data.alerts)) setActiveAlerts(data.alerts);
+        if (Array.isArray(data.medications) && data.medications.length > 0) {
+          setMedications((current) => {
+            const merged = [...current];
+            data.medications.forEach((m: any) => {
+              const idx = merged.findIndex((x) => x.id === m.id);
+              if (idx >= 0) merged[idx] = { ...merged[idx], ...m };
+              else merged.push(m);
+            });
+            return merged;
+          });
+        }
+        if (Array.isArray(data.alarms) && data.alarms.length > 0) {
+          setAlarms((current) => {
+            const merged = [...current];
+            data.alarms.forEach((a: any) => {
+              const idx = merged.findIndex((x) => x.id === a.id);
+              if (idx >= 0) merged[idx] = { ...merged[idx], ...a };
+              else merged.push(a);
+            });
+            return merged;
+          });
+        }
+        if (Array.isArray(data.alerts) && data.alerts.length > 0) setActiveAlerts(data.alerts);
         if (data.vitals) {
           Object.entries(data.vitals).forEach(([id, v]) => setDemoVitals(id, v as any));
         }
@@ -399,7 +438,7 @@ const DoctorPortal: React.FC = () => {
       .catch(() => {});
 
     return () => { ignore = true; };
-  }, [demoMode, setActiveAlerts, setMedications]);
+  }, [setActiveAlerts, setDemoElders, setDemoVitals, setMedications, setAlarms]);
 
   // Demo mode scripted timeline
   useEffect(() => {
@@ -453,17 +492,6 @@ const DoctorPortal: React.FC = () => {
       description: 'Immediate appointment confirmed for Usha.',
     });
   };
-
-  // Live vitals updates inside simulator mode
-  useEffect(() => {
-    if (!demoMode) return;
-    const interval = setInterval(() => {
-      Object.entries(demoVitals).forEach(([id, v]) => {
-        setDemoVitals(id, generateVitalsUpdate(v));
-      });
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [demoMode, demoVitals, setDemoVitals]);
 
   const unresolvedCount = activeAlerts.filter(a => !a.resolved).length;
 
@@ -559,9 +587,9 @@ const DoctorPortal: React.FC = () => {
     } catch {}
 
     if (editingMedicationId) {
-      setMedications(medications.map(m => m.id === editingMedicationId ? savedMedication : m));
+      updateMedication(editingMedicationId, savedMedication);
     } else {
-      setMedications([savedMedication, ...medications]);
+      addMedication(savedMedication);
     }
     setAddMedicationOpen(false);
     setEditingMedicationId(null);
@@ -578,9 +606,9 @@ const DoctorPortal: React.FC = () => {
     } catch {}
 
     if (editingAlarmId) {
-      setAlarms(alarms.map(a => a.id === editingAlarmId ? savedAlarm : a));
+      updateAlarm(editingAlarmId, savedAlarm);
     } else {
-      setAlarms([savedAlarm, ...alarms]);
+      addAlarm(savedAlarm);
     }
     setAddAlarmOpen(false);
     setEditingAlarmId(null);
@@ -592,7 +620,7 @@ const DoctorPortal: React.FC = () => {
     try {
       await apiFetch(`/medications/${deleteMedicationId}`, { method: 'DELETE' });
     } catch {}
-    setMedications(medications.filter(m => m.id !== deleteMedicationId));
+    deleteMedication(deleteMedicationId);
     setDeleteMedicationId(null);
     toast({ title: 'Deleted', description: 'Medication removed' });
   };
@@ -602,7 +630,7 @@ const DoctorPortal: React.FC = () => {
     try {
       await apiFetch(`/alarms/${deleteAlarmId}`, { method: 'DELETE' });
     } catch {}
-    setAlarms(alarms.filter(a => a.id !== deleteAlarmId));
+    deleteAlarm(deleteAlarmId);
     setDeleteAlarmId(null);
     toast({ title: 'Deleted', description: 'Reminder alarm removed' });
   };
@@ -674,6 +702,48 @@ const DoctorPortal: React.FC = () => {
               </Button>
             </div>
           </header>
+
+          {/* Critical Vitals Anomaly Banner for Doctors */}
+          {unresolvedCount > 0 && (
+            <Card className="rounded-xl border-2 border-gw-red bg-gw-red/10 shadow-sm p-4 animate-pulse-border">
+              <div className="flex flex-col sm:flex-row items-start justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="h-6 w-6 text-gw-red flex-shrink-0 mt-0.5 animate-bounce" />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-gw-red text-base">🚨 URGENT PATIENT VITALS ALERT</h3>
+                      <Badge className="bg-gw-red text-white text-[10px] uppercase font-semibold">
+                        {activeAlerts.find(a => !a.resolved)?.severity || 'CRITICAL'}
+                      </Badge>
+                    </div>
+                    <p className="text-sm font-medium text-foreground mt-1">
+                      {activeAlerts.find(a => !a.resolved)?.message}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Received {new Date(activeAlerts.find(a => !a.resolved)?.time || Date.now()).toLocaleTimeString()} · Monitored Telemetry Stream
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                  <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => setActiveSection('alerts')}>
+                    Review All Alerts ({unresolvedCount})
+                  </Button>
+                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={async () => {
+                    const firstUnresolved = activeAlerts.find(a => !a.resolved);
+                    if (firstUnresolved) {
+                      resolveAlert(firstUnresolved.id);
+                      try {
+                        await apiFetch(`/alerts/${firstUnresolved.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+                      } catch {}
+                      toast({ title: 'Acknowledged', description: `Alert marked as acknowledged.` });
+                    }
+                  }}>
+                    Acknowledge
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
 
           {/* Active section rendering */}
 
@@ -911,16 +981,17 @@ const DoctorPortal: React.FC = () => {
                     <Card key={elder.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/elder/${elder.id}`)}>
                       <CardContent className="p-5">
                         <div className="flex items-start gap-3 mb-3">
-                          <div className="w-11 h-11 rounded-full bg-teal/15 flex items-center justify-center text-teal font-semibold">
+                          <div className="w-11 h-11 rounded-full bg-teal/15 flex items-center justify-center text-teal font-semibold shrink-0">
                             {elder.full_name.split(' ').map(n => n[0]).join('')}
                           </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-foreground">{elder.full_name}</h3>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-foreground truncate">{elder.full_name}</h3>
                             <p className="text-xs text-muted-foreground">Age {elder.age}</p>
                           </div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <div className={`w-2 h-2 rounded-full ${elder.connection_status === 'connected' ? 'bg-gw-green animate-pulse-dot' : 'bg-gw-red'}`} />
-                            <Battery className="h-3 w-3" />{elder.battery}%
+                          <div className="shrink-0 flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/60 px-2.5 py-1 rounded-md border border-border/50">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${elder.connection_status === 'connected' ? 'bg-gw-green animate-pulse-dot' : 'bg-gw-red'}`} />
+                            <Battery className="h-3.5 w-3.5 text-teal shrink-0" />
+                            <span className="font-mono font-medium">{elder.battery}%</span>
                           </div>
                         </div>
                         
@@ -1020,28 +1091,66 @@ const DoctorPortal: React.FC = () => {
           {/* ALERTS SECTION */}
           {activeSection === 'alerts' && (
             <section className="space-y-4">
-              <h2 className="font-display text-xl text-foreground">Active Notifications</h2>
-              <div className="space-y-2">
-                {activeAlerts.map((alert) => (
-                  <div key={alert.id} className={`p-4 border rounded-xl flex items-center justify-between ${
-                    alert.severity === 'critical' ? 'border-gw-red/30 bg-gw-red/5' : 'border-border bg-card'
-                  }`}>
-                    <div>
-                      <p className="font-semibold text-foreground">{alert.message}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Time: {new Date(alert.time).toLocaleTimeString()}</p>
-                    </div>
-                    {!alert.resolved && (
-                      <Button size="sm" className="bg-teal text-primary-foreground" onClick={async () => {
-                        try {
-                          await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-                          setActiveAlerts(activeAlerts.map(a => a.id === alert.id ? { ...a, resolved: true } : a));
-                          toast({ title: 'Acknowledged', description: 'Alert resolved successfully' });
-                        } catch {}
-                      }}>Acknowledge</Button>
-                    )}
-                  </div>
-                ))}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-display text-xl text-foreground">Clinical Notifications & Alerts</h2>
+                  <p className="text-sm text-muted-foreground">Real-time physiological alerts, threshold violations, and urgent events.</p>
+                </div>
+                <Badge variant="outline" className="text-teal border-teal/30">
+                  {unresolvedCount} Unresolved
+                </Badge>
               </div>
+
+              {activeAlerts.length === 0 ? (
+                <Card className="rounded-xl border-border bg-card">
+                  <CardContent className="p-8 text-center text-muted-foreground">
+                    <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-gw-green" />
+                    <p className="font-medium text-foreground">All Patients Stable</p>
+                    <p className="text-xs text-muted-foreground mt-1">No active abnormal vital notifications across connected patient watches.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {activeAlerts.map((alert) => (
+                    <div key={alert.id} className={`p-4 border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      alert.severity === 'critical'
+                        ? 'border-gw-red/40 bg-gw-red/10'
+                        : 'border-gw-amber/40 bg-gw-amber/10'
+                    }`}>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-foreground text-sm">{alert.elder_name}</span>
+                          <Badge className={`text-[10px] uppercase font-semibold ${
+                            alert.severity === 'critical' ? 'bg-gw-red text-white' : 'bg-gw-amber text-slate-950'
+                          }`}>
+                            {alert.severity}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {new Date(alert.time).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        <p className="font-medium text-sm text-foreground">{alert.message}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!alert.resolved ? (
+                          <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={async () => {
+                            resolveAlert(alert.id);
+                            try {
+                              await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+                            } catch {}
+                            toast({ title: 'Acknowledged', description: `Alert for ${alert.elder_name} marked as acknowledged.` });
+                          }}>
+                            Acknowledge
+                          </Button>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-gw-green border-gw-green/40">Resolved</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           )}
 

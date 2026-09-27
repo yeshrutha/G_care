@@ -13,7 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { useAppStore } from '@/store';
+import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
+import { useAppStore, type StoreAlarm } from '@/store';
 import { apiFetch } from '@/lib/api';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { DEMO_VITALS, DEMO_MEDICATIONS, DEMO_HR_HISTORY, DEMO_MOOD_HISTORY, DEMO_ELDERS } from '@/lib/demoData';
@@ -99,11 +100,22 @@ const ElderDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { demoVitals, medications: sharedMedications, setMedications } = useAppStore();
+  const {
+    demoElders,
+    activeElderId,
+    setActiveElderId,
+    demoVitals,
+    medications: sharedMedications,
+    setMedications,
+    alarms: storeAlarms,
+    setAlarms: setStoreAlarms,
+    addAlarm: addStoreAlarm,
+    updateAlarm: updateStoreAlarm,
+    deleteAlarm: deleteStoreAlarm,
+  } = useAppStore();
   const [moodRecorded, setMoodRecorded] = useState(false);
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
   const [elderAlerts, setElderAlerts] = useState<ElderAlert[]>(INITIAL_ALERTS);
-  const [alarms, setAlarms] = useState<ElderAlarm[]>(INITIAL_ALARMS);
   const [alarmDialogOpen, setAlarmDialogOpen] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [alarmForm, setAlarmForm] = useState({
@@ -114,10 +126,29 @@ const ElderDetail: React.FC = () => {
     enabled: true,
   });
 
-  const elder = DEMO_ELDERS.find(e => e.id === id) || DEMO_ELDERS[0];
+  const elder = (demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS).find(e => e.id === id) || (demoElders[0] || DEMO_ELDERS[0]);
   const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
   const medications = (sharedMedications.length ? sharedMedications : getSeedMedications())
     .filter(m => m.elder_id === elder.id);
+
+  // Synchronize active elder context across the application
+  useEffect(() => {
+    if (elder?.id && activeElderId !== elder.id) {
+      setActiveElderId(elder.id);
+    }
+  }, [elder?.id, activeElderId, setActiveElderId]);
+
+  const alarms: ElderAlarm[] = useMemo(() => {
+    return storeAlarms
+      .filter((a) => a.elderId === elder.id)
+      .map((a) => ({
+        id: a.id,
+        label: a.title,
+        time: a.time,
+        repeat: a.repeat || 'Daily',
+        enabled: a.enabled !== undefined ? a.enabled : a.status !== 'Paused',
+      }));
+  }, [storeAlarms, elder.id]);
 
   useEffect(() => {
     let ignore = false;
@@ -125,40 +156,65 @@ const ElderDetail: React.FC = () => {
     apiFetch<{ medications?: ReturnType<typeof getSeedMedications>; alarms?: any[] }>('/dashboard-data')
       .then((data) => {
         if (!ignore) {
-          if (Array.isArray(data.medications)) {
-            setMedications(data.medications);
+          if (Array.isArray(data.medications) && data.medications.length > 0) {
+            setMedications((current) => {
+              const merged = [...current];
+              data.medications.forEach((m) => {
+                const idx = merged.findIndex((x) => x.id === m.id);
+                if (idx >= 0) merged[idx] = { ...merged[idx], ...m };
+                else merged.push(m);
+              });
+              return merged;
+            });
           }
-          if (Array.isArray(data.alarms)) {
-            const mappedAlarms = data.alarms
-              .filter((a: any) => a.elderId === elder.id)
-              .map((a: any) => ({
-                id: a.id,
-                label: a.title,
-                time: a.time,
-                repeat: 'Daily',
-                enabled: a.status !== 'Paused',
-              }));
-            if (mappedAlarms.length) {
-              setAlarms(mappedAlarms);
-            }
+          if (Array.isArray(data.alarms) && data.alarms.length > 0) {
+            setStoreAlarms((current) => {
+              const merged = [...current];
+              data.alarms.forEach((a) => {
+                const idx = merged.findIndex((x) => x.id === a.id);
+                if (idx >= 0) merged[idx] = { ...merged[idx], ...a };
+                else merged.push(a);
+              });
+              return merged;
+            });
           }
         }
       })
-      .catch(() => {
-        if (!ignore && sharedMedications.length === 0) {
-          setMedications(getSeedMedications());
-        }
-      });
+      .catch(() => {});
 
     return () => {
       ignore = true;
     };
-  }, [elder.id, setMedications, sharedMedications.length]);
+  }, [elder.id, setMedications, setStoreAlarms]);
 
-  const chartData = useMemo(() => DEMO_HR_HISTORY.map(d => ({
-    ...d,
-    time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  })), []);
+  // Dynamic real-time rolling vitals history
+  const [liveHistory, setLiveHistory] = useState<Array<{ time: string; hr: number; spo2: number; stress: number; breathing: number }>>(() => {
+    return DEMO_HR_HISTORY.slice(-30).map((d) => ({
+      time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      hr: Math.round(d.hr),
+      spo2: Math.round(d.spo2 * 10) / 10,
+      stress: Math.round(d.stress),
+      breathing: Math.round(d.breathing),
+    }));
+  });
+
+  useEffect(() => {
+    if (!vitals) return;
+    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLiveHistory((prev) => {
+      const nextPoint = {
+        time: nowTime,
+        hr: Math.round(vitals.heart_rate),
+        spo2: Math.round(vitals.spo2 * 10) / 10,
+        stress: Math.round(vitals.stress),
+        breathing: Math.round(vitals.breathing_rate),
+      };
+      const updated = [...prev, nextPoint];
+      return updated.length > 30 ? updated.slice(-30) : updated;
+    });
+  }, [vitals?.heart_rate, vitals?.spo2, vitals?.stress, vitals?.breathing_rate]);
+
+  const chartData = liveHistory;
 
   const moodData = DEMO_MOOD_HISTORY;
   const moods = [
@@ -216,11 +272,15 @@ const ElderDetail: React.FC = () => {
       ? `${String(Number(alarmForm.time.split(':')[0]) + 12).padStart(2, '0')}:${alarmForm.time.split(':')[1] || '00'}`
       : alarmForm.time;
 
-    const nextAlarm: ElderAlarm = {
+    const storeAlarmPayload: StoreAlarm = {
       id: editingAlarmId || `alarm-${Date.now()}`,
-      label: alarmForm.label.trim() || 'New Alarm',
+      elderId: elder.id,
+      title: alarmForm.label.trim() || 'New Alarm',
       time: formattedTime,
       repeat: alarmForm.repeat,
+      type: 'medication',
+      status: alarmForm.enabled ? 'Scheduled' : 'Paused',
+      notes: `${alarmForm.label.trim()} (${alarmForm.repeat})`,
       enabled: alarmForm.enabled,
     };
 
@@ -228,13 +288,13 @@ const ElderDetail: React.FC = () => {
       await apiFetch(`/alarms${editingAlarmId ? `/${editingAlarmId}` : ''}`, {
         method: editingAlarmId ? 'PUT' : 'POST',
         body: JSON.stringify({
-          id: nextAlarm.id,
+          id: storeAlarmPayload.id,
           elderId: elder.id,
-          title: nextAlarm.label,
+          title: storeAlarmPayload.title,
           time: formattedTime,
           type: 'medication',
-          status: nextAlarm.enabled ? 'Scheduled' : 'Paused',
-          notes: `${nextAlarm.label} (${nextAlarm.repeat})`,
+          status: storeAlarmPayload.status,
+          notes: storeAlarmPayload.notes,
         }),
       });
     } catch {
@@ -242,9 +302,9 @@ const ElderDetail: React.FC = () => {
     }
 
     if (editingAlarmId) {
-      setAlarms((current) => current.map((alarm) => (alarm.id === editingAlarmId ? nextAlarm : alarm)));
+      updateStoreAlarm(editingAlarmId, storeAlarmPayload);
     } else {
-      setAlarms((current) => [...current, nextAlarm]);
+      addStoreAlarm(storeAlarmPayload);
     }
 
     setAlarmDialogOpen(false);
@@ -257,30 +317,26 @@ const ElderDetail: React.FC = () => {
     } catch {
       // Local fallback
     }
-    setAlarms((current) => current.filter((alarm) => alarm.id !== alarmId));
+    deleteStoreAlarm(alarmId);
   };
 
   const toggleAlarm = async (alarmId: string, enabled: boolean) => {
-    const existing = alarms.find((a) => a.id === alarmId);
+    const existing = storeAlarms.find((a) => a.id === alarmId);
     if (existing) {
       try {
         await apiFetch(`/alarms/${alarmId}`, {
           method: 'PUT',
           body: JSON.stringify({
-            id: alarmId,
-            elderId: elder.id,
-            title: existing.label,
-            time: existing.time,
-            type: 'medication',
+            ...existing,
             status: enabled ? 'Scheduled' : 'Paused',
-            notes: `${existing.label} (${existing.repeat})`,
+            enabled,
           }),
         });
       } catch {
         // Local fallback
       }
+      updateStoreAlarm(alarmId, { enabled, status: enabled ? 'Scheduled' : 'Paused' });
     }
-    setAlarms((current) => current.map((alarm) => (alarm.id === alarmId ? { ...alarm, enabled } : alarm)));
   };
 
   const handleVoiceCommand = (command: string) => {
@@ -349,6 +405,8 @@ const ElderDetail: React.FC = () => {
 
           {/* TAB 1: LIVE VITALS */}
           <TabsContent value="vitals" className="space-y-6 mt-6">
+            <VitalsAnomalyTrigger elderId={elder.id} />
+
             <Card className="rounded-xl">
               <CardHeader><CardTitle className="font-display">Real-Time Vitals (Last 60 Minutes)</CardTitle></CardHeader>
               <CardContent>

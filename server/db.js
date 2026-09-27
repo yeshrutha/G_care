@@ -570,9 +570,13 @@ export const dbService = {
 
   // --- ELDERS ---
   getAccessibleElderIds: async (user) => {
+    const demoElderIds = ['elder-1', 'elder-2', 'elder-3'];
     if (usePostgres) {
       if (user.role === 'caretaker') {
-        const { rows } = await pool.query('SELECT id FROM elders WHERE owner_id = $1', [user.id]);
+        const { rows } = await pool.query(
+          "SELECT id FROM elders WHERE owner_id = $1 OR id = ANY($2)",
+          [user.id, demoElderIds]
+        );
         if (rows.length > 0) return rows.map((r) => r.id);
         const { rows: allElders } = await pool.query('SELECT id FROM elders');
         return allElders.map((r) => r.id);
@@ -585,24 +589,28 @@ export const dbService = {
         const { rows: namedElders } = await pool.query('SELECT id FROM elders WHERE LOWER(TRIM(full_name)) = $1', [elderName]);
         const namedIds = namedElders.map((r) => r.id);
 
-        const combined = [...new Set([...explicitIds, ...namedIds])];
+        const combined = [...new Set([...explicitIds, ...namedIds, ...demoElderIds])];
         if (combined.length > 0) return combined;
         const { rows: allElders } = await pool.query('SELECT id FROM elders');
         return allElders.map((r) => r.id);
       }
       if (user.role === 'doctor') {
         const { rows: rels } = await pool.query('SELECT elder_id FROM user_elders WHERE user_id = $1', [user.id]);
-        if (rels.length > 0) return rels.map((r) => r.elder_id);
+        const explicit = rels.map((r) => r.elder_id);
+        const combined = [...new Set([...explicit, ...demoElderIds])];
+        if (combined.length > 0) return combined;
 
         const { rows: allElders } = await pool.query('SELECT id FROM elders');
         return allElders.map((r) => r.id);
       }
-      return [];
+      return demoElderIds;
     } else {
       const fileDb = await readDb();
       if (user.role === 'caretaker') {
-        const owned = fileDb.elders.filter((elder) => elder.ownerId === user.id || (user.assignedElderIds && user.assignedElderIds.includes(elder.id))).map((elder) => elder.id);
-        if (owned.length > 0) return owned;
+        const owned = fileDb.elders
+          .filter((elder) => elder.ownerId === user.id || demoElderIds.includes(elder.id) || (user.assignedElderIds && user.assignedElderIds.includes(elder.id)))
+          .map((elder) => elder.id);
+        if (owned.length > 0) return [...new Set(owned)];
         return fileDb.elders.map((elder) => elder.id);
       }
       if (user.role === 'guardian') {
@@ -611,14 +619,14 @@ export const dbService = {
         const byName = fileDb.elders
           .filter((elder) => elder.full_name.trim().toLowerCase() === elderName)
           .map((elder) => elder.id);
-        const combined = [...new Set([...byAssignment, ...byName])];
+        const combined = [...new Set([...byAssignment, ...byName, ...demoElderIds])];
         if (combined.length > 0) return combined;
         return fileDb.elders.map((elder) => elder.id);
       }
       if (user.role === 'doctor') {
-        return user.assignedElderIds?.length
-          ? user.assignedElderIds
-          : fileDb.elders.map((elder) => elder.id);
+        const byAssignment = user.assignedElderIds || [];
+        const combined = [...new Set([...byAssignment, ...demoElderIds])];
+        return combined.length > 0 ? combined : fileDb.elders.map((elder) => elder.id);
       }
       return fileDb.elders.map((elder) => elder.id);
     }

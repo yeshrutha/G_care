@@ -17,6 +17,10 @@ import {
   Signal,
   Sparkles,
   Wifi,
+  Waves,
+  Droplets,
+  Thermometer,
+  Brain,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -29,6 +33,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+import { getElderBaseline } from '@/lib/vitalsSimulator';
 
 import { Badge } from '@/components/ui/badge';
 
@@ -65,6 +79,8 @@ import {
 } from '@/components/VoiceAssistant';
 
 import { useAppStore } from '@/store';
+import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
+import { detectVitalsAnomalies } from '@/lib/anomalyDetector';
 
 import {
   useGuardianStore,
@@ -219,6 +235,22 @@ const WatchSimulator: React.FC<
       (state) => state.addAlert,
     );
 
+  const activeElderId = useAppStore(
+    (state) => state.activeElderId,
+  );
+
+  const setActiveElderId = useAppStore(
+    (state) => state.setActiveElderId,
+  );
+
+  const storeMedications = useAppStore(
+    (state) => state.medications,
+  );
+
+  const storeAlarms = useAppStore(
+    (state) => state.alarms,
+  );
+
   const guardianReminders =
     useGuardianStore(
       (state) => state.reminders,
@@ -335,6 +367,17 @@ const WatchSimulator: React.FC<
     | 'error'
   >('idle');
 
+  const selectedElderId = activeElderId || 'elder-1';
+  const setSelectedElderId = useCallback(
+    (id: string) => {
+      setActiveElderId(id);
+    },
+    [setActiveElderId],
+  );
+
+  const [watchScreenMode, setWatchScreenMode] =
+    useState<'main' | 'biometrics'>('main');
+
   /*
    * -------------------------------------------------------
    * CONTEXT
@@ -347,28 +390,27 @@ const WatchSimulator: React.FC<
   );
 
   const activeElder = useMemo(() => {
-    const demoElder =
-      demoElders[0] ||
-      DEMO_ELDERS[0];
-
-    if (!guardianUser?.elderName) {
-      return demoElder;
-    }
-
-    return {
-      ...demoElder,
-      full_name:
-        guardianUser.elderName,
-    };
+    const list = demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS;
+    const found = list.find((e) => e.id === selectedElderId) || list[0];
+    return found;
   }, [
     demoElders,
-    guardianUser?.elderName,
+    selectedElderId,
   ]);
 
-  const activeVitals =
-    demoVitals[activeElder?.id] ||
-    DEMO_VITALS[activeElder?.id] ||
-    DEMO_VITALS['elder-1'];
+  const activeVitals = useMemo(() => {
+    if (!activeElder) return DEMO_VITALS['elder-1'];
+    return (
+      demoVitals[activeElder.id] ||
+      DEMO_VITALS[activeElder.id] ||
+      getElderBaseline(activeElder)
+    );
+  }, [demoVitals, activeElder]);
+
+  const activeWatchAnomalies = useMemo(() => {
+    if (!activeElder || !activeVitals) return [];
+    return detectVitalsAnomalies(activeElder, activeVitals);
+  }, [activeElder, activeVitals]);
 
   const profileLanguage =
     resolveSpeechLanguage(
@@ -486,11 +528,45 @@ const WatchSimulator: React.FC<
             ...alarmReminders,
           ]);
         })
-        .catch((err) => {
-          console.error(
-            'Failed to sync PWA watch reminders:',
-            err,
-          );
+        .catch(() => {
+          const medReminders = storeMedications.flatMap((med) => {
+            const dosage = `${med.dose_amount}${med.dose_unit}`;
+            return (med.times || []).map((time: string, idx: number) => ({
+              id: `med-${med.id}-${idx}`,
+              elderId: med.elder_id,
+              elderName:
+                demoElders.find((e) => e.id === med.elder_id)?.full_name ||
+                activeElder.full_name,
+              type: 'medication' as const,
+              title: `${med.brand_name} ${dosage}`,
+              time,
+              repeat: 'daily' as const,
+              verified: false,
+              pillName: med.brand_name,
+              dosage,
+              photo: med.photo || '',
+              createdAt: new Date().toISOString(),
+            }));
+          });
+
+          const alarmReminders = storeAlarms.map((alarm) => ({
+            id: alarm.id,
+            elderId: alarm.elderId,
+            elderName:
+              demoElders.find((e) => e.id === alarm.elderId)?.full_name ||
+              activeElder.full_name,
+            type: alarm.type,
+            title: alarm.title,
+            time: alarm.time,
+            repeat: 'daily' as const,
+            verified: false,
+            createdAt: new Date().toISOString(),
+          }));
+
+          setGuardianReminders([
+            ...medReminders,
+            ...alarmReminders,
+          ]);
         });
     };
 
@@ -1997,21 +2073,50 @@ const WatchSimulator: React.FC<
 
             <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),transparent_35%,rgba(45,212,191,0.12))]" />
 
-            <DialogHeader className="relative mb-6 text-left">
-              <Badge className="mb-3 w-fit border border-teal/30 bg-teal/10 text-teal hover:bg-teal/10">
-                Multilingual Watch Preview
-              </Badge>
+            <div className="relative mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
+              <DialogHeader className="text-left">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge className="border border-teal/30 bg-teal/10 text-teal hover:bg-teal/10">
+                    Multilingual Watch Preview
+                  </Badge>
+                  <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                    LIVE TELEMETRY
+                  </span>
+                </div>
 
-              <DialogTitle className="text-2xl font-display text-white">
-                Watch Simulator
-              </DialogTitle>
+                <DialogTitle className="text-2xl font-display text-white">
+                  Watch Simulator
+                </DialogTitle>
 
-              <DialogDescription className="max-w-lg text-slate-300">
-                GuardianWatch helps elders stay
-                safe with timely medicine reminders
-                and live health updates.
-              </DialogDescription>
-            </DialogHeader>
+                <DialogDescription className="max-w-lg text-slate-300">
+                  Simulating wearable device live vitals connected to clinical and caretaker systems.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-slate-900/80 p-2.5 backdrop-blur-md">
+                <span className="text-xs font-medium text-slate-300">
+                  Patient Watch:
+                </span>
+                <Select
+                  value={selectedElderId}
+                  onValueChange={(val) => setSelectedElderId(val)}
+                >
+                  <SelectTrigger className="h-8 w-[190px] border-white/15 bg-slate-800 text-xs font-semibold text-white focus:ring-teal">
+                    <SelectValue placeholder="Select patient" />
+                  </SelectTrigger>
+                  <SelectContent className="border-white/15 bg-slate-900 text-white">
+                    {(demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS).map(
+                      (elder) => (
+                        <SelectItem key={elder.id} value={elder.id} className="text-xs focus:bg-teal/20 focus:text-teal">
+                          {elder.full_name} ({elder.age}y)
+                        </SelectItem>
+                      ),
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
             <div className="relative mx-auto flex w-full max-w-[330px] items-center justify-center py-6">
 
@@ -2267,7 +2372,10 @@ const WatchSimulator: React.FC<
 
                         <Wifi className="h-3.5 w-3.5 text-emerald-300" />
 
-                        <BatteryMedium className="h-3.5 w-3.5 text-emerald-300" />
+                        <div className="flex items-center gap-1">
+                          <BatteryMedium className="h-3.5 w-3.5 text-emerald-300 shrink-0" />
+                          <span className="text-[10px] text-emerald-300 font-mono">85%</span>
+                        </div>
 
                       </div>
 
@@ -2313,72 +2421,158 @@ const WatchSimulator: React.FC<
                     {/* VITALS                            */}
                     {/* -------------------------------- */}
 
-                    <div className="flex-1 space-y-3 overflow-hidden">
+                    <div className="flex-1 space-y-2.5 overflow-hidden">
 
-                      <div className="grid grid-cols-3 gap-2">
-
-                        <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-3">
-
-                          <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
-                            <HeartPulse className="h-4 w-4 text-rose-300" />
-                            <span>
-                              Heart
-                            </span>
-                          </div>
-
-                          <p className="text-lg font-semibold text-white">
-                            {
-                              activeVitals.heart_rate
-                            }
-                          </p>
-
-                          <p className="text-[11px] text-slate-400">
-                            bpm
-                          </p>
-
+                      <div className="flex items-center justify-between px-1">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-teal/90 flex items-center gap-1">
+                          <span className="h-1.5 w-1.5 rounded-full bg-teal animate-pulse" />
+                          Live Vitals
+                        </span>
+                        <div className="flex items-center rounded-lg bg-black/40 p-0.5 border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => setWatchScreenMode('main')}
+                            className={cn(
+                              "rounded px-2 py-0.5 text-[9px] font-semibold transition-colors",
+                              watchScreenMode === 'main' ? "bg-teal text-slate-950" : "text-slate-400 hover:text-white"
+                            )}
+                          >
+                            Main
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setWatchScreenMode('biometrics')}
+                            className={cn(
+                              "rounded px-2 py-0.5 text-[9px] font-semibold transition-colors",
+                              watchScreenMode === 'biometrics' ? "bg-teal text-slate-950" : "text-slate-400 hover:text-white"
+                            )}
+                          >
+                            Clinical
+                          </button>
                         </div>
-
-                        <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-3">
-
-                          <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
-                            <Activity className="h-4 w-4 text-cyan-300" />
-                            <span>
-                              SpO2
-                            </span>
-                          </div>
-
-                          <p className="text-lg font-semibold text-white">
-                            {
-                              activeVitals.spo2
-                            }%
-                          </p>
-
-                          <p className="text-[11px] text-slate-400">
-                            oxygen
-                          </p>
-
-                        </div>
-
-                        <div className="rounded-[1.6rem] border border-white/10 bg-white/5 p-3">
-
-                          <div className="mb-2 flex items-center gap-2 text-[11px] text-slate-400">
-                            <Footprints className="h-4 w-4 text-emerald-300" />
-                            <span>
-                              Steps
-                            </span>
-                          </div>
-
-                          <p className="text-lg font-semibold text-white">
-                            {stepCount}
-                          </p>
-
-                          <p className="text-[11px] text-slate-400">
-                            walked
-                          </p>
-
-                        </div>
-
                       </div>
+
+                      {/* -------------------------------- */}
+                      {/* BIOMETRIC ANOMALY ALERT BANNER   */}
+                      {/* -------------------------------- */}
+                      {activeWatchAnomalies.length > 0 && (
+                        <div className="mb-2 animate-pulse rounded-2xl border border-red-500/50 bg-red-950/80 p-2 text-center shadow-lg">
+                          <div className="flex items-center justify-center gap-1.5 text-[11px] font-bold text-red-400">
+                            <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" />
+                            <span>{activeWatchAnomalies[0].title.toUpperCase()}</span>
+                          </div>
+                          <p className="text-[10px] text-red-200 mt-0.5 leading-tight font-medium">
+                            {activeWatchAnomalies[0].message}
+                          </p>
+                          <p className="text-[9px] text-red-300/80 mt-1 font-semibold uppercase tracking-wide">
+                            🚨 Alert sent to Doctor & Guardian
+                          </p>
+                        </div>
+                      )}
+
+                      {watchScreenMode === 'main' ? (
+                        <>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                                <HeartPulse className="h-3.5 w-3.5 text-rose-400 animate-pulse" />
+                                <span>HR</span>
+                              </div>
+                              <p className="text-base font-bold text-white tracking-tight">
+                                {activeVitals.heart_rate}
+                              </p>
+                              <p className="text-[10px] text-slate-400">bpm</p>
+                            </div>
+
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                                <Activity className="h-3.5 w-3.5 text-cyan-300" />
+                                <span>SpO2</span>
+                              </div>
+                              <p className="text-base font-bold text-white tracking-tight">
+                                {activeVitals.spo2}%
+                              </p>
+                              <p className="text-[10px] text-slate-400">oxygen</p>
+                            </div>
+
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                                <Footprints className="h-3.5 w-3.5 text-emerald-300" />
+                                <span>Steps</span>
+                              </div>
+                              <p className="text-base font-bold text-white tracking-tight">
+                                {stepCount}
+                              </p>
+                              <p className="text-[10px] text-slate-400">walked</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Activity className="h-3 w-3 text-teal" /> BP
+                              </span>
+                              <span className="font-semibold text-white">
+                                {activeVitals.systolic_bp}/{activeVitals.diastolic_bp}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Thermometer className="h-3 w-3 text-amber-300" /> Temp
+                              </span>
+                              <span className="font-semibold text-white">
+                                {activeVitals.skin_temp}°C
+                              </span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
+                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                              <Activity className="h-3 w-3 text-teal" />
+                              <span>Blood Pressure</span>
+                            </div>
+                            <p className="text-sm font-bold text-white">
+                              {activeVitals.systolic_bp}/{activeVitals.diastolic_bp}
+                            </p>
+                            <p className="text-[9px] text-slate-400">mmHg</p>
+                          </div>
+
+                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
+                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                              <Waves className="h-3 w-3 text-sky-300" />
+                              <span>Respiration</span>
+                            </div>
+                            <p className="text-sm font-bold text-white">
+                              {activeVitals.breathing_rate}
+                            </p>
+                            <p className="text-[9px] text-slate-400">brpm</p>
+                          </div>
+
+                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
+                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                              <Brain className="h-3 w-3 text-purple-300" />
+                              <span>Stress Index</span>
+                            </div>
+                            <p className="text-sm font-bold text-white">
+                              {activeVitals.stress}
+                            </p>
+                            <p className="text-[9px] text-slate-400">/100</p>
+                          </div>
+
+                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
+                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                              <Droplets className="h-3 w-3 text-blue-300" />
+                              <span>Hydration</span>
+                            </div>
+                            <p className="text-sm font-bold text-white">
+                              {activeVitals.hydration}%
+                            </p>
+                            <p className="text-[9px] text-slate-400">level</p>
+                          </div>
+                        </div>
+                      )}
 
                       {/* -------------------------------- */}
                       {/* ACTIVE REMINDER                  */}
@@ -2514,6 +2708,17 @@ const WatchSimulator: React.FC<
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* ------------------------------------------ */}
+            {/* VITALS ANOMALY DEMO CONTROLS              */}
+            {/* ------------------------------------------ */}
+            <div className="mt-5 w-full max-w-2xl mx-auto">
+              <VitalsAnomalyTrigger
+                elderId={selectedElderId}
+                className="bg-slate-900/90 border-white/10"
+                compact
+              />
             </div>
 
             {/* ------------------------------------------ */}

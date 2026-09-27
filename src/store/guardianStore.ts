@@ -105,6 +105,39 @@ function getStoredGuardianUser(): GuardianStore['guardianUser'] {
 const INITIAL_GUARDIAN_USER = getStoredGuardianUser();
 const INITIAL_ELDER_NAME = INITIAL_GUARDIAN_USER?.elderName || 'Registered elder';
 
+const GUARDIAN_ALERTS_STORAGE_KEY = 'gcare_guardian_alerts';
+
+const INITIAL_GUARDIAN_ALERTS: GuardianAlert[] = [
+  {
+    id: 'ga-1', type: 'medicine_missed', severity: 'warning',
+    message: 'Metformin 500mg was not taken at 8:00 AM', time: new Date(Date.now() - 3600000).toISOString(),
+    acknowledged: false, elderName: INITIAL_ELDER_NAME,
+  },
+  {
+    id: 'ga-2', type: 'vital_abnormal', severity: 'warning',
+    message: 'Heart rate elevated to 98 bpm for 10 minutes', time: new Date(Date.now() - 7200000).toISOString(),
+    acknowledged: false, elderName: INITIAL_ELDER_NAME,
+  },
+];
+
+function getStoredGuardianAlerts(): GuardianAlert[] {
+  if (typeof window === 'undefined') return INITIAL_GUARDIAN_ALERTS;
+  const raw = window.localStorage.getItem(GUARDIAN_ALERTS_STORAGE_KEY);
+  if (!raw) return INITIAL_GUARDIAN_ALERTS;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_GUARDIAN_ALERTS;
+  } catch {
+    return INITIAL_GUARDIAN_ALERTS;
+  }
+}
+
+function storeGuardianAlerts(alerts: GuardianAlert[]) {
+  if (typeof window !== 'undefined') {
+    window.localStorage.setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts.slice(0, 100)));
+  }
+}
+
 export const useGuardianStore = create<GuardianStore>((set) => ({
   guardianUser: INITIAL_GUARDIAN_USER,
   setGuardianUser: (u) => {
@@ -164,25 +197,37 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     reminders: s.reminders.map(r => r.id === id ? { ...r, verified: true } : r),
   })),
   setReminders: (reminders) => set({ reminders }),
-  alerts: [
-    {
-      id: 'ga-1', type: 'medicine_missed', severity: 'warning',
-      message: 'Metformin 500mg was not taken at 8:00 AM', time: new Date(Date.now() - 3600000).toISOString(),
-      acknowledged: false, elderName: INITIAL_ELDER_NAME,
-    },
-    {
-      id: 'ga-2', type: 'vital_abnormal', severity: 'warning',
-      message: 'Heart rate elevated to 98 bpm for 10 minutes', time: new Date(Date.now() - 7200000).toISOString(),
-      acknowledged: false, elderName: INITIAL_ELDER_NAME,
-    },
-  ],
-  addGuardianAlert: (a) => set((s) => ({ alerts: [a, ...s.alerts] })),
-  acknowledgeAlert: (id) => set((s) => ({
-    alerts: s.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a),
-  })),
-  clearAlerts: () => set({ alerts: [] }),
+  alerts: getStoredGuardianAlerts(),
+  addGuardianAlert: (a) => set((s) => {
+    const nextAlerts = [a, ...s.alerts.filter((item) => item.id !== a.id)].slice(0, 100);
+    storeGuardianAlerts(nextAlerts);
+    return { alerts: nextAlerts };
+  }),
+  acknowledgeAlert: (id) => set((s) => {
+    const nextAlerts = s.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a);
+    storeGuardianAlerts(nextAlerts);
+    return { alerts: nextAlerts };
+  }),
+  clearAlerts: () => {
+    storeGuardianAlerts([]);
+    set({ alerts: [] });
+  },
   activeTab: 'feed',
   setActiveTab: (t) => set({ activeTab: t }),
   smartTvMode: false,
   setSmartTvMode: (v) => set({ smartTvMode: v }),
 }));
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === GUARDIAN_ALERTS_STORAGE_KEY && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue);
+        if (Array.isArray(parsed)) {
+          useGuardianStore.setState({ alerts: parsed });
+        }
+      } catch {}
+    }
+  });
+}
+
