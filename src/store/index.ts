@@ -112,6 +112,8 @@ interface AppStore {
   activeAnomalyOverrides: Record<string, { overrides: Partial<DemoVitals>; expiresAt: number }>;
   injectVitalsAnomaly: (elderId: string, overrides: Partial<DemoVitals>) => void;
   stabilizeElderVitals: (elderId: string) => void;
+  activeWatchElderId: string | null;
+  setActiveWatchElderId: (id: string | null) => void;
 }
 
 const ACTIVE_ALERTS_STORAGE_KEY = 'gcare_active_alerts';
@@ -265,6 +267,8 @@ export const useAppStore = create<AppStore>((set) => ({
     storeActiveElderId(id);
     set({ activeElderId: id });
   },
+  activeWatchElderId: null,
+  setActiveWatchElderId: (id) => set({ activeWatchElderId: id }),
   demoVitals: initializePatientVitals(DEMO_ELDERS),
   setDemoVitals: (id, v) => set((s) => ({ demoVitals: { ...s.demoVitals, [id]: v } })),
   medications: getStoredMedications(),

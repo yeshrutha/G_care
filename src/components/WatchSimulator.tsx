@@ -243,6 +243,14 @@ const WatchSimulator: React.FC<
     (state) => state.setActiveElderId,
   );
 
+  const setActiveWatchElderId = useAppStore(
+    (state) => state.setActiveWatchElderId,
+  );
+
+  const stabilizeElderVitals = useAppStore(
+    (state) => state.stabilizeElderVitals,
+  );
+
   const storeMedications = useAppStore(
     (state) => state.medications,
   );
@@ -374,6 +382,41 @@ const WatchSimulator: React.FC<
     },
     [setActiveElderId],
   );
+
+  const prevElderIdRef = useRef<string>(selectedElderId);
+
+  /* Sync active watch elder context and silence alarms when switching patients or closing */
+  useEffect(() => {
+    if (open) {
+      setActiveWatchElderId(selectedElderId);
+    } else {
+      setActiveWatchElderId(null);
+    }
+
+    if (prevElderIdRef.current !== selectedElderId) {
+      // Return previous patient's vitals to baseline so old demo alarms do not bleed
+      stabilizeElderVitals(prevElderIdRef.current);
+      prevElderIdRef.current = selectedElderId;
+    }
+
+    setActiveGuardianAlarmId(null);
+    setActiveReminderId(null);
+    stopAlertLoop();
+    stopSpeaking();
+    window.speechSynthesis?.cancel();
+    setShowResponseOverlay(false);
+    setResponseText('');
+    setTranscript('');
+    setAssistantStatus('idle');
+    if (alarmTimeoutRef.current) {
+      window.clearTimeout(alarmTimeoutRef.current);
+      alarmTimeoutRef.current = null;
+    }
+    if (responseTimeoutRef.current) {
+      window.clearTimeout(responseTimeoutRef.current);
+      responseTimeoutRef.current = null;
+    }
+  }, [open, selectedElderId, setActiveWatchElderId, stabilizeElderVitals]);
 
   const [watchScreenMode, setWatchScreenMode] =
     useState<'main' | 'biometrics'>('main');
@@ -586,6 +629,9 @@ const WatchSimulator: React.FC<
     activeElder.full_name,
     demoElders,
     open,
+    selectedElderId,
+    storeMedications,
+    storeAlarms,
     setGuardianReminders,
   ]);
 
@@ -598,15 +644,15 @@ const WatchSimulator: React.FC<
   const activeReminder =
     reminders.find(
       (reminder) =>
-        reminder.id ===
-        activeReminderId,
+        reminder.id === activeReminderId &&
+        (!reminder.elderId || reminder.elderId === selectedElderId),
     ) || null;
 
   const activeGuardianAlarm =
     guardianReminders.find(
       (reminder) =>
-        reminder.id ===
-        activeGuardianAlarmId,
+        reminder.id === activeGuardianAlarmId &&
+        (!reminder.elderId || reminder.elderId === selectedElderId),
     ) || null;
 
   const activeGuardianAlarmElderName =
@@ -627,7 +673,8 @@ const WatchSimulator: React.FC<
     reminders
       .filter(
         (reminder) =>
-          !reminder.triggered,
+          !reminder.triggered &&
+          (!reminder.elderId || reminder.elderId === selectedElderId),
       )
       .sort(
         (a, b) =>
@@ -721,9 +768,14 @@ const WatchSimulator: React.FC<
 
         if (
           reminder.elderId &&
-          activeElder?.id &&
-          reminder.elderId !==
-            activeElder.id
+          reminder.elderId !== selectedElderId
+        ) {
+          return false;
+        }
+
+        if (
+          !reminder.elderId &&
+          selectedElderId !== 'elder-1'
         ) {
           return false;
         }
@@ -1149,6 +1201,7 @@ const WatchSimulator: React.FC<
       reminders.find(
         (reminder) =>
           !reminder.triggered &&
+          (!reminder.elderId || reminder.elderId === selectedElderId) &&
           new Date(
             reminder.dueAt,
           ).getTime() <= now,
@@ -1226,11 +1279,17 @@ const WatchSimulator: React.FC<
             return false;
           }
 
+          /* Only fire alarms for the currently selected patient */
           if (
             reminder.elderId &&
-            activeElder?.id &&
-            reminder.elderId !==
-              activeElder.id
+            reminder.elderId !== selectedElderId
+          ) {
+            return false;
+          }
+
+          if (
+            !reminder.elderId &&
+            selectedElderId !== 'elder-1'
           ) {
             return false;
           }
@@ -1332,6 +1391,7 @@ const WatchSimulator: React.FC<
     guardianReminders,
     open,
     profileLanguage,
+    selectedElderId,
     snoozedGuardianAlarms,
   ]);
 
@@ -1404,11 +1464,10 @@ const WatchSimulator: React.FC<
     return () => {
       recognitionRef.current?.stop();
 
-      stopAlertLoop(
-        'medicine',
-      );
-
+      stopAlertLoop();
+      stopSpeaking();
       window.speechSynthesis?.cancel();
+      setActiveWatchElderId(null);
 
       if (
         responseTimeoutRef.current
@@ -1583,7 +1642,10 @@ const WatchSimulator: React.FC<
               (
                 currentReminders,
               ) => [
-                result.reminder!,
+                {
+                  ...result.reminder!,
+                  elderId: selectedElderId,
+                },
                 ...currentReminders,
               ],
             );

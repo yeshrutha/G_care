@@ -21,6 +21,7 @@ export interface MedicationContext {
 
 export interface ReminderItem {
   id: string;
+  elderId?: string;
   title: string;
   message: string;
   timeLabel: string;

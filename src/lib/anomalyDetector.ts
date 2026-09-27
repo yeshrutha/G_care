@@ -311,8 +311,12 @@ export function processVitalsTickWithAlerts(
     }
 
     // 3. Audio & Haptic Alarm
+    // The alarm of a person should ONLY be heard when currently in that person's watch simulator!
     try {
-      triggerAlert(anomaly.severity === 'critical' ? 'vital' : 'notification');
+      const activeWatchElderId = useAppStore.getState().activeWatchElderId;
+      if (activeWatchElderId && elder.id === activeWatchElderId) {
+        triggerAlert(anomaly.severity === 'critical' ? 'vital' : 'notification');
+      }
     } catch {}
   }
 

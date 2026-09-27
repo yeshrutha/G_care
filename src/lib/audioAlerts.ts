@@ -67,7 +67,7 @@ export function startAlertLoop(
 }
 
 export function stopAlertLoop(type?: keyof typeof AUDIO_MAP) {
-  const types = type ? [type] : (Object.keys(vibrationLoopCache) as Array<keyof typeof AUDIO_MAP>);
+  const types = type ? [type] : (Object.keys(AUDIO_MAP) as Array<keyof typeof AUDIO_MAP>);
 
   for (const currentType of types) {
     const vibrationLoop = vibrationLoopCache[currentType];
@@ -82,6 +82,16 @@ export function stopAlertLoop(type?: keyof typeof AUDIO_MAP) {
       audio.pause();
       audio.currentTime = 0;
     }
+  }
+
+  if (!type) {
+    Object.values(audioCache).forEach((audio) => {
+      if (audio) {
+        audio.loop = false;
+        audio.pause();
+        audio.currentTime = 0;
+      }
+    });
   }
 
   if ('vibrate' in navigator) {

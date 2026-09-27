@@ -15,8 +15,7 @@ import {
   ArrowDownRight,
   Wind
 } from 'lucide-react';
-import { detectVitalsAnomalies, VitalsAnomaly } from '@/lib/anomalyDetector';
-import { VitalsAnomalyAlertModal } from '@/components/VitalsAnomalyAlertModal';
+import { detectVitalsAnomalies } from '@/lib/anomalyDetector';
 
 interface VitalsAnomalyTriggerProps {
   elderId?: string;
@@ -37,9 +36,6 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
     stabilizeElderVitals,
   } = useAppStore();
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [selectedAnomaly, setSelectedAnomaly] = useState<VitalsAnomaly | null>(null);
-
   const targetId = propElderId || activeElderId || 'elder-1';
   const targetElder = demoElders.find((e) => e.id === targetId) || demoElders[0];
   const currentVitals = demoVitals[targetId];
@@ -51,33 +47,23 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
   const handleTrigger = (name: string, overrides: Parameters<typeof injectVitalsAnomaly>[1]) => {
     injectVitalsAnomaly(targetId, overrides);
 
-    const updated = { ...(currentVitals || {}), ...overrides } as any;
-    const detected = detectVitalsAnomalies(targetElder, updated);
-    if (detected.length > 0) {
-      setSelectedAnomaly(detected[0]);
-      setModalOpen(true);
-    }
-
     toast({
-      title: `🚨 ${name}`,
-      description: `Anomaly triggered for ${targetElder.full_name}. Alerts routed to Dr. Ramesh Kumar and Guardian.`,
+      title: `🚨 ${name} — ${targetElder.full_name}`,
+      description: `Notified Doctor (Dr. Ramesh Kumar) & Guardian. Automated alerts dispatched.`,
       variant: 'destructive',
     });
   };
 
   const handleStabilize = () => {
     stabilizeElderVitals(targetId);
-    setSelectedAnomaly(null);
-    setModalOpen(false);
     toast({
-      title: `✅ Vitals Stabilized`,
-      description: `${targetElder.full_name}'s vitals returned to personal clinical baseline.`,
+      title: `✅ Vitals Stabilized — ${targetElder.full_name}`,
+      description: `Biometrics returned to personal baseline. Doctor & Guardian updated.`,
     });
   };
 
   return (
-    <>
-      <Card className={`border border-border/80 bg-card/95 backdrop-blur-sm shadow-sm ${className}`}>
+    <Card className={`border border-border/80 bg-card/95 backdrop-blur-sm shadow-sm ${className}`}>
         <CardContent className={compact ? 'p-3' : 'p-4'}>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2">
@@ -204,15 +190,6 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
           </div>
         </CardContent>
       </Card>
-
-      {/* Anomaly Alert Modal */}
-      <VitalsAnomalyAlertModal
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        anomaly={selectedAnomaly}
-        onNormalize={handleStabilize}
-      />
-    </>
   );
 };
 

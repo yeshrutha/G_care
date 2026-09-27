@@ -161,31 +161,41 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
   },
   reminders: [
     {
-      id: 'rem-1', type: 'medication', title: 'Metformin 500mg', time: '08:00',
+      id: 'rem-1', elderId: 'elder-1', elderName: 'Usha', type: 'medication', title: 'Metformin 500mg', time: '08:00',
       repeat: 'daily', verified: false, pillName: 'Metformin', dosage: '500mg',
       photo: '',
     },
     {
-      id: 'rem-2', type: 'medication', title: 'Amlodipine 5mg', time: '08:00',
+      id: 'rem-2', elderId: 'elder-1', elderName: 'Usha', type: 'medication', title: 'Amlodipine 5mg', time: '08:00',
       repeat: 'daily', verified: false, pillName: 'Amlodipine', dosage: '5mg',
     },
     {
-      id: 'rem-3', type: 'food', title: 'Breakfast', time: '08:30',
+      id: 'rem-3', elderId: 'elder-1', elderName: 'Usha', type: 'food', title: 'Breakfast', time: '08:30',
       repeat: 'daily', verified: false, mealType: 'Breakfast',
     },
     {
-      id: 'rem-4', type: 'food', title: 'Lunch', time: '12:30',
+      id: 'rem-4', elderId: 'elder-1', elderName: 'Usha', type: 'food', title: 'Lunch', time: '12:30',
       repeat: 'daily', verified: false, mealType: 'Lunch',
     },
     {
-      id: 'rem-5', type: 'activity', title: 'Morning Walk', time: '06:30',
+      id: 'rem-5', elderId: 'elder-1', elderName: 'Usha', type: 'activity', title: 'Morning Walk', time: '06:30',
       repeat: 'daily', verified: false, routineDescription: '30 min walk in park',
       videoUrl: 'https://www.youtube.com/watch?v=example',
     },
     {
-      id: 'rem-6', type: 'appointment', title: 'Dr. Ramesh Cardiology', time: '10:00',
+      id: 'rem-6', elderId: 'elder-1', elderName: 'Usha', type: 'appointment', title: 'Dr. Ramesh Cardiology', time: '10:00',
       repeat: 'once', verified: false, doctorName: 'Dr. Ramesh Kumar',
       hospitalName: 'Apollo Hospitals', appointmentDate: '2026-04-05',
+    },
+    {
+      id: 'rem-7', elderId: 'elder-2', elderName: 'Lakshmi Devi', type: 'medication', title: 'Ecosprin 75mg', time: '09:00',
+      repeat: 'daily', verified: false, pillName: 'Ecosprin', dosage: '75mg',
+      photo: '',
+    },
+    {
+      id: 'rem-8', elderId: 'elder-3', elderName: 'Venkatesh Rao', type: 'medication', title: 'Deriphyllin 150mg', time: '10:00',
+      repeat: 'daily', verified: false, pillName: 'Deriphyllin', dosage: '150mg',
+      photo: '',
     },
   ],
   addReminder: (r) => set((s) => ({ reminders: [...s.reminders, r] })),

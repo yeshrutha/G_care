@@ -6,8 +6,12 @@ dist/
 dist-ssr/
 .vite/
 
-# Local runtime data
-data/db.json
+# Local runtime data & database files
+data/*.json
+!data/.gitkeep
+*.sqlite
+*.sqlite3
+*.db
 
 # Logs
 logs/
@@ -74,6 +78,10 @@ ehthumbs.db
 .planning/
 .gemini/
 .agents/
+.tempmediaStorage/
+.user_uploaded/
+scratch/
+artifacts/
 
 # PWA generated files
 dev-dist/

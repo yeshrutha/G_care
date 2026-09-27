@@ -1200,28 +1200,46 @@ const Dashboard: React.FC = () => {
                   <div className="space-y-3">
                     {careIntelligence.profiles.map(({ elder, vitals, riskScore, risk, recommendation }) => (
                       <button key={elder.id} onClick={() => navigate(`/elder/${elder.id}`)}
-                        className="w-full rounded-lg border border-border bg-background p-3 text-left hover:border-teal/40 hover:bg-teal/5 transition-colors">
-                        <div className="flex flex-col md:flex-row md:items-center gap-3">
-                          <div className="flex items-center gap-3 md:w-52">
-                            <div className="h-9 w-9 rounded-lg bg-teal/15 flex items-center justify-center text-teal text-sm font-semibold">
+                        className="w-full rounded-xl border border-border bg-background/80 p-3.5 text-left hover:border-teal/40 hover:bg-teal/[0.03] transition-all group">
+                        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+                          {/* Elder identity */}
+                          <div className="flex items-center gap-3 sm:w-48 shrink-0">
+                            <div className="h-10 w-10 rounded-xl bg-teal/15 flex items-center justify-center text-teal text-sm font-semibold shrink-0 group-hover:scale-105 transition-transform">
                               {elder.full_name.split(' ').map(n => n[0]).join('')}
                             </div>
                             <div className="min-w-0">
-                              <p className="font-medium text-foreground truncate">{elder.full_name}</p>
+                              <p className="font-semibold text-foreground truncate group-hover:text-teal transition-colors">{elder.full_name}</p>
                               <p className="text-xs text-muted-foreground">Age {elder.age}</p>
                             </div>
                           </div>
-                          <div className="grid grid-cols-3 gap-2 flex-1 text-xs">
-                            <span className="rounded-md bg-muted px-2 py-1 font-mono">HR {vitals?.heart_rate ?? '--'}</span>
-                            <span className="rounded-md bg-muted px-2 py-1 font-mono">SpO2 {vitals?.spo2 ?? '--'}%</span>
-                            <span className="rounded-md bg-muted px-2 py-1 flex items-center gap-1.5 shrink-0 font-mono"><Battery className="h-3 w-3 text-teal shrink-0" /> {elder.battery}%</span>
+
+                          {/* Quick vitals metrics chips */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="rounded-lg bg-muted/80 px-2.5 py-1 text-xs font-mono font-medium text-foreground inline-flex items-center gap-1 shrink-0">
+                              <span className="text-[10px] text-muted-foreground uppercase">HR</span>
+                              <span>{vitals?.heart_rate ?? '--'}</span>
+                            </span>
+                            <span className="rounded-lg bg-muted/80 px-2.5 py-1 text-xs font-mono font-medium text-foreground inline-flex items-center gap-1 shrink-0">
+                              <span className="text-[10px] text-muted-foreground uppercase">SpO₂</span>
+                              <span>{vitals?.spo2 ?? '--'}%</span>
+                            </span>
+                            <span className="rounded-lg bg-muted/80 px-2.5 py-1 text-xs font-mono font-medium text-foreground inline-flex items-center gap-1.5 shrink-0">
+                              <Battery className="h-3.5 w-3.5 text-teal shrink-0" />
+                              <span>{elder.battery}%</span>
+                            </span>
                           </div>
-                          <div className="md:w-64">
-                            <p className="text-xs text-muted-foreground line-clamp-2">{recommendation}</p>
+
+                          {/* Clinical Recommendation */}
+                          <div className="flex-1 min-w-0 xl:px-3">
+                            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{recommendation}</p>
                           </div>
-                          <Badge variant="outline" className={`${risk.color} ${risk.border} ${risk.bg} justify-center md:w-24`}>
-                            {riskScore}
-                          </Badge>
+
+                          {/* Risk score badge */}
+                          <div className="shrink-0 flex items-center">
+                            <Badge variant="outline" className={`${risk.color} ${risk.border} ${risk.bg} px-3 py-1 font-bold text-xs rounded-full shrink-0 min-w-[70px] justify-center`}>
+                              Risk: {riskScore}
+                            </Badge>
+                          </div>
                         </div>
                       </button>
                     ))}
