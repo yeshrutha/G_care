@@ -233,6 +233,58 @@ function storeActiveElderId(id: string) {
   }
 }
 
+const LIVE_VITALS_STORAGE_KEY = 'gcare_live_vitals';
+
+interface StoredLiveVitalsPayload {
+  updatedAt: number;
+  vitals: Record<string, DemoVitals>;
+}
+
+let vitalsBroadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    vitalsBroadcastChannel = new BroadcastChannel('gcare_vitals_sync_channel');
+  } catch {}
+}
+
+function getStoredLiveVitalsPayload(): StoredLiveVitalsPayload | null {
+  if (!isStorageAvailable()) return null;
+  const raw = window.localStorage.getItem(LIVE_VITALS_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      if ('vitals' in parsed && typeof parsed.vitals === 'object' && parsed.vitals !== null) {
+        return { updatedAt: Number(parsed.updatedAt) || 0, vitals: parsed.vitals as Record<string, DemoVitals> };
+      }
+      return { updatedAt: 0, vitals: parsed as Record<string, DemoVitals> };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getStoredLiveVitals(): Record<string, DemoVitals> | null {
+  const payload = getStoredLiveVitalsPayload();
+  return payload ? payload.vitals : null;
+}
+
+function storeLiveVitals(vitals: Record<string, DemoVitals>) {
+  if (isStorageAvailable()) {
+    try {
+      const payload: StoredLiveVitalsPayload = {
+        updatedAt: Date.now(),
+        vitals,
+      };
+      window.localStorage.setItem(LIVE_VITALS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+  }
+  try {
+    vitalsBroadcastChannel?.postMessage({ type: 'SYNC_VITALS', vitals });
+  } catch {}
+}
+
 export const useAppStore = create<AppStore>((set) => ({
   demoMode: getStoredDemoMode(),
   setDemoMode: (v) => {
@@ -273,8 +325,12 @@ export const useAppStore = create<AppStore>((set) => ({
   },
   activeWatchElderId: null,
   setActiveWatchElderId: (id) => set({ activeWatchElderId: id }),
-  demoVitals: initializePatientVitals(DEMO_ELDERS),
-  setDemoVitals: (id, v) => set((s) => ({ demoVitals: { ...s.demoVitals, [id]: v } })),
+  demoVitals: getStoredLiveVitals() || initializePatientVitals(DEMO_ELDERS),
+  setDemoVitals: (id, v) => set((s) => {
+    const next = { ...s.demoVitals, [id]: v };
+    storeLiveVitals(next);
+    return { demoVitals: next };
+  }),
   medications: getStoredMedications(),
   setMedications: (m) => set((s) => {
     const next = typeof m === 'function' ? m(s.medications) : m;
@@ -324,10 +380,16 @@ export const useAppStore = create<AppStore>((set) => ({
   activeAnomalyOverrides: {},
   updateLiveVitalsTick: () => set((state) => {
     if (!state.simulationEnabled) return {};
+    const nowMs = Date.now();
+    const storedPayload = getStoredLiveVitalsPayload();
+    // If another tab/runner generated vitals less than 3200ms ago, adopt them instead of creating drift
+    if (storedPayload && storedPayload.updatedAt && (nowMs - storedPayload.updatedAt < 3200)) {
+      return { demoVitals: storedPayload.vitals };
+    }
+
     const elders = state.demoElders && state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS;
     const nextVitals: Record<string, DemoVitals> = { ...state.demoVitals };
     const nowIso = new Date().toISOString();
-    const nowMs = Date.now();
 
     elders.forEach((elder) => {
       const current = nextVitals[elder.id] || getElderBaseline(elder);
@@ -342,6 +404,8 @@ export const useAppStore = create<AppStore>((set) => ({
       ...e,
       last_vitals_at: nowIso,
     }));
+
+    storeLiveVitals(nextVitals);
 
     return {
       demoVitals: nextVitals,
@@ -358,15 +422,18 @@ export const useAppStore = create<AppStore>((set) => ({
       // Force dispatch alerts immediately on manual demo trigger
       processVitalsTickWithAlerts(elder, updated, { force: true });
 
+      const nextVitals = {
+        ...state.demoVitals,
+        [elderId]: updated,
+      };
+      storeLiveVitals(nextVitals);
+
       return {
         activeAnomalyOverrides: {
           ...state.activeAnomalyOverrides,
           [elderId]: { overrides, expiresAt: Date.now() + 15 * 60 * 1000 },
         },
-        demoVitals: {
-          ...state.demoVitals,
-          [elderId]: updated,
-        },
+        demoVitals: nextVitals,
       };
     });
   },
@@ -380,12 +447,15 @@ export const useAppStore = create<AppStore>((set) => ({
       const nextOverrides = { ...state.activeAnomalyOverrides };
       delete nextOverrides[elderId];
 
+      const nextVitals = {
+        ...state.demoVitals,
+        [elderId]: baseline,
+      };
+      storeLiveVitals(nextVitals);
+
       return {
         activeAnomalyOverrides: nextOverrides,
-        demoVitals: {
-          ...state.demoVitals,
-          [elderId]: baseline,
-        },
+        demoVitals: nextVitals,
       };
     });
   },
@@ -408,5 +478,19 @@ if (typeof window !== 'undefined') {
     if (event.key === ACTIVE_ELDER_STORAGE_KEY) {
       useAppStore.setState({ activeElderId: getStoredActiveElderId() });
     }
+    if (event.key === LIVE_VITALS_STORAGE_KEY) {
+      const stored = getStoredLiveVitals();
+      if (stored) {
+        useAppStore.setState({ demoVitals: stored });
+      }
+    }
   });
+
+  if (vitalsBroadcastChannel) {
+    vitalsBroadcastChannel.onmessage = (event) => {
+      if (event.data?.type === 'SYNC_VITALS' && event.data?.vitals) {
+        useAppStore.setState({ demoVitals: event.data.vitals });
+      }
+    };
+  }
 }

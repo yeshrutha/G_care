@@ -25,6 +25,7 @@ const Loader = () => (
 
 import { useAppStore } from "./store";
 import { getDemoEmergency, createDemoEmergencyEvent, saveDemoEmergency, clearDemoEmergency } from "./pages/demoEmergency";
+import { apiFetch } from "./lib/api";
 
 const DemoEmergencyManager = () => {
   const demoMode = useAppStore((s) => s.demoMode);
@@ -125,17 +126,55 @@ const DemoEmergencyManager = () => {
 const LiveVitalsSimulatorRunner = () => {
   const simulationEnabled = useAppStore((s) => s.simulationEnabled);
   const updateLiveVitalsTick = useAppStore((s) => s.updateLiveVitalsTick);
+  const setDemoVitals = useAppStore((s) => s.setDemoVitals);
 
   React.useEffect(() => {
     if (!simulationEnabled) return;
-    updateLiveVitalsTick();
+
+    let lastDeviceTimestamp: string | null = null;
+
+    const runCycle = async () => {
+      // 1. Check for incoming hardware telemetry from Render
+      try {
+        const result = await apiFetch<{ ok: boolean; latest?: any }>('/device/vitals?elderId=elder-1');
+        if (result?.latest && result.latest.timestamp && result.latest.timestamp !== lastDeviceTimestamp) {
+          const recordedAt = new Date(result.latest.timestamp).getTime();
+          // If recorded recently from physical device
+          if (Date.now() - recordedAt < 60000 && result.latest.source === 'device') {
+            lastDeviceTimestamp = result.latest.timestamp;
+            const l = result.latest;
+            setDemoVitals(l.elderId || 'elder-1', {
+              heart_rate: Number(l.heart_rate),
+              systolic_bp: Number(l.systolic_bp || 120),
+              diastolic_bp: Number(l.diastolic_bp || 80),
+              spo2: Number(l.spo2),
+              stress: Number(l.stress || 20),
+              hydration: Number(l.hydration || 80),
+              breathing_rate: Number(l.breathing_rate || 16),
+              skin_temp: Number(l.skin_temp || 36.6),
+              shiver_detected: Boolean(l.shiver_detected),
+              panic_detected: Boolean(l.panic_detected),
+              fall_detected: Boolean(l.fall_detected),
+            });
+            return;
+          }
+        }
+      } catch {
+        // Backend offline or sleeping; fallback seamlessly
+      }
+
+      // 2. Synchronized cross-tab tick
+      updateLiveVitalsTick();
+    };
+
+    runCycle();
 
     const interval = setInterval(() => {
-      updateLiveVitalsTick();
+      runCycle();
     }, 4000);
 
     return () => clearInterval(interval);
-  }, [simulationEnabled, updateLiveVitalsTick]);
+  }, [simulationEnabled, updateLiveVitalsTick, setDemoVitals]);
 
   return null;
 };
