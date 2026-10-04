@@ -146,6 +146,44 @@ async function buildSeedUsers() {
       assignedElderIds: ['elder-1'],
       createdAt: new Date().toISOString(),
     },
+    {
+      id: 'user-1790536871126-xdfb0l',
+      email: 'vishwamohansn@gmail.com',
+      passwordHash: 'pbkdf2$120000$bc1a144aa94207b3c8f35eca23db88b7$eaa14db2f2fd93b4429da70cf340c86577231a05f821110339327901bf7577e2a4ab4064546fbd24b27b094ced8c8130350be230a9c44ed4d6b1aac3960b9369',
+      name: 'Vishwa',
+      role: 'guardian',
+      phone: '+91 98765 43212',
+      profile: {
+        elderName: 'Usha',
+        elderAge: '77',
+        elderLanguage: 'kn',
+        elderConditions: 'Hypertension, Type 2 Diabetes',
+      },
+      assignedElderIds: ['elder-1'],
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'user-1790535155932-ufytv9',
+      email: 'yeshruthagowda@gmail.com',
+      passwordHash: 'pbkdf2$120000$5e762550d912622ef450a7bf8bfce1e0$a6db87f11409b26db4d882e633b0660b3bd9574ff2fe740bf4875104c8950372b57c637f534daaa977c0606f747c0af19b78c14b880f644d9fbf9d7613167b96',
+      name: 'Yeshrutha S',
+      role: 'caretaker',
+      phone: '+91 98765 43210',
+      profile: {},
+      assignedElderIds: ['elder-1', 'elder-2', 'elder-3'],
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'user-1790535120996-1p6bav',
+      email: 'dr.ramesh@gmail.com',
+      passwordHash: 'pbkdf2$120000$82d721f3f46c57207eeac7fd77039dc0$c9558ab61fc990ec601f37a337032eab2335cfb82b9efcf5588443930f7ce46b3d2191f3593916f4fe6963d9c7da8b4b2f7f9e51fdb1468340639845f79e6b4b',
+      name: 'Ramesh',
+      role: 'doctor',
+      phone: '+91 98765 43211',
+      profile: { hospital: 'Apollo Hospitals', specialization: 'Cardiologist' },
+      assignedElderIds: ['elder-1', 'elder-2', 'elder-3'],
+      createdAt: new Date().toISOString(),
+    },
   ];
 }
 
@@ -412,17 +450,17 @@ export async function initDb() {
       )
     `);
 
-    const { rows } = await client.query('SELECT COUNT(*) FROM users');
-    if (parseInt(rows[0].count, 10) === 0) {
-      console.log('Seeding initial database data into PostgreSQL...');
-      const seed = await createSeedDb();
+    const seed = await createSeedDb();
+    for (const u of seed.users) {
+      await client.query(
+        'INSERT INTO users (id, email, password_hash, name, role, phone, profile, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (email) DO NOTHING',
+        [u.id, u.email, u.passwordHash, u.name, u.role, u.phone, JSON.stringify(u.profile), u.createdAt]
+      );
+    }
 
-      for (const u of seed.users) {
-        await client.query(
-          'INSERT INTO users (id, email, password_hash, name, role, phone, profile, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-          [u.id, u.email, u.passwordHash, u.name, u.role, u.phone, JSON.stringify(u.profile), u.createdAt]
-        );
-      }
+    const { rows } = await client.query('SELECT COUNT(*) FROM elders');
+    if (parseInt(rows[0].count, 10) === 0) {
+      console.log('Seeding initial elders, medications, and alarms into PostgreSQL...');
 
       for (const e of seed.elders) {
         await client.query(

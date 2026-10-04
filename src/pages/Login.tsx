@@ -71,11 +71,6 @@ const Login: React.FC = () => {
           })
         : await login(email, password);
 
-      if (user.role !== role) {
-        setError(`This account is registered as ${user.role}. Switch role tab or use the correct portal.`);
-        return;
-      }
-
       navigate(getRedirect(user.role));
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

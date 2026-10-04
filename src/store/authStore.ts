@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand';
+import { create } from 'zustand';
 import {
   AuthUser,
   clearSession,
@@ -79,6 +79,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   hydrate: async () => {
     const token = getStoredToken();
+    const storedUser = getStoredUser();
     if (!token) {
       set({ initialized: true, user: null, token: null });
       return;
@@ -89,10 +90,19 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       storeSession(token, user);
       syncLegacyStores(user);
       set({ user, token, initialized: true });
-    } catch {
-      clearSession();
-      syncLegacyStores(null);
-      set({ user: null, token: null, initialized: true });
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) {
+        clearSession();
+        syncLegacyStores(null);
+        set({ user: null, token: null, initialized: true });
+      } else {
+        if (storedUser) {
+          syncLegacyStores(storedUser);
+          set({ user: storedUser, token, initialized: true });
+        } else {
+          set({ initialized: true });
+        }
+      }
     }
   },
 

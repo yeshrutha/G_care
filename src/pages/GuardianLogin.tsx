@@ -35,11 +35,14 @@ const GuardianLogin: React.FC = () => {
           })
         : await login(form.email, form.password);
 
-      if (user.role !== 'guardian') {
-        setError('This account is not a guardian account. Use the main login page.');
+      if (user.role === 'doctor') {
+        navigate('/doctor');
         return;
       }
-
+      if (user.role === 'caretaker') {
+        navigate('/dashboard');
+        return;
+      }
       navigate('/guardian/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Authentication failed');
