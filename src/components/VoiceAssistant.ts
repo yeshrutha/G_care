@@ -861,7 +861,8 @@ export function speakText(
   ).toLowerCase();
 
   try {
-    const ttsUrl = `/api/tts?text=${encodeURIComponent(
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim()?.replace(/\/$/, '') || '';
+    const ttsUrl = `${apiBase}/api/tts?text=${encodeURIComponent(
       cleanText,
     )}&lang=${encodeURIComponent(shortLang)}`;
 
