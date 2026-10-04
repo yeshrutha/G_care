@@ -97,7 +97,6 @@ const GuardianLogin: React.FC = () => {
               <p className="text-sm text-muted-foreground">
                 {isSignup ? 'Set up your guardian monitoring account' : 'Sign in to monitor your loved ones'}
               </p>
-              <p className="text-xs text-muted-foreground">Demo: guardian@example.com / Demo1234!</p>
             </div>
 
             {error && (

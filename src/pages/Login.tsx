@@ -135,16 +135,8 @@ const Login: React.FC = () => {
             {isSignup ? t('login.create_account') : t('login.welcome')}
           </h2>
           {role === 'guardian' && (
-            <p className="text-sm text-muted-foreground mb-2">
+            <p className="text-sm text-muted-foreground mb-4">
               Monitor, protect, and care for your loved ones in real time.
-            </p>
-          )}
-
-          {!isSignup && (
-            <p className="text-xs text-muted-foreground mb-4 bg-muted/40 p-2 rounded border border-border/40">
-              {role === 'doctor' && 'Demo credentials: dr.ramesh@gmail.com (or dr.ramesh@apollo.in) / Demo1234!'}
-              {role === 'caretaker' && 'Demo credentials: yeshruthagowda@gmail.com (or demo@guardianwatch.in) / Demo1234!'}
-              {role === 'guardian' && 'Demo credentials: vishwamohansn@gmail.com (or guardian@example.com) / Demo1234!'}
             </p>
           )}
 
