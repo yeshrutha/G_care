@@ -5,6 +5,7 @@ import { Activity, Heart, Droplets, Wind, Thermometer, Brain, Footprints, Vibrat
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { loadVitalsCSV, getHourlyData, getLatestVitals, type VitalsRow } from '@/lib/csvLoader';
 import { useGuardianStore } from '@/store/guardianStore';
+import { useAppStore } from '@/store';
 
 const statusColor = (val: number, low: number, high: number) => {
   if (val < low || val > high) return 'text-destructive';
@@ -29,6 +30,9 @@ const MOTION_LABELS: Record<MotionState, { label: string; color: string }> = {
 
 const FeedTab: React.FC = () => {
   const guardianUser = useGuardianStore((state) => state.guardianUser);
+  const activeElderId = useAppStore((state) => state.activeElderId) || 'elder-1';
+  const storeVitals = useAppStore((state) => state.demoVitals[activeElderId] || state.demoVitals['elder-1']);
+
   const [vitalsData, setVitalsData] = useState<VitalsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [liveVitals, setLiveVitals] = useState<VitalsRow | null>(null);
@@ -44,9 +48,9 @@ const FeedTab: React.FC = () => {
     });
   }, []);
 
-  // Simulate live updates
+  // Simulate live updates only if global store vitals are absent
   useEffect(() => {
-    if (!liveVitals) return;
+    if (storeVitals || !liveVitals) return;
     const interval = setInterval(() => {
       setLiveVitals(prev => {
         if (!prev) return prev;
@@ -80,7 +84,7 @@ const FeedTab: React.FC = () => {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [liveVitals !== null]);
+  }, [storeVitals, liveVitals !== null]);
 
   const chartData = useMemo(() => {
     if (vitalsData.length === 0) return [];
@@ -93,7 +97,7 @@ const FeedTab: React.FC = () => {
     }));
   }, [vitalsData]);
 
-  if (loading) {
+  if (loading && !storeVitals) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-2 border-teal border-t-transparent rounded-full animate-spin" />
@@ -101,7 +105,7 @@ const FeedTab: React.FC = () => {
     );
   }
 
-  const v = liveVitals!;
+  const v = storeVitals || liveVitals!;
   const elderName = guardianUser?.elderName || 'Registered elder';
   const elderAge = guardianUser?.elderAge ? `${guardianUser.elderAge} years` : 'Not added';
   const elderConditions = guardianUser?.elderConditions || 'Not added';
@@ -119,6 +123,9 @@ const FeedTab: React.FC = () => {
 
   const motionInfo = MOTION_LABELS[motionState];
 
+  const isShivering = Boolean(v?.shiver_detected || shiverDetected);
+  const isFalling = Boolean(v?.fall_detected || fallDetected);
+
   return (
     <div className="space-y-6">
       {/* Connection Status */}
@@ -128,7 +135,7 @@ const FeedTab: React.FC = () => {
       </div>
 
       {/* Fall Detection Alert */}
-      {fallDetected && (
+      {isFalling && (
         <Card className="rounded-xl border-2 border-destructive bg-destructive/10 animate-pulse">
           <CardContent className="p-4 flex items-center gap-3">
             <Footprints className="h-6 w-6 text-destructive" />
@@ -152,14 +159,14 @@ const FeedTab: React.FC = () => {
             <p className="text-xs text-muted-foreground mt-1">Accelerometer + Gyroscope</p>
           </CardContent>
         </Card>
-        <Card className={`rounded-xl border ${shiverDetected ? 'bg-gw-amber/10 border-gw-amber/30' : 'bg-card'}`}>
+        <Card className={`rounded-xl border ${isShivering ? 'bg-gw-amber/10 border-gw-amber/30' : 'bg-card'}`}>
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Vibrate className="h-4 w-4 text-gw-purple" />
               <span className="text-xs text-muted-foreground font-medium">Shiver Monitor</span>
             </div>
-            <span className={`text-lg font-bold ${shiverDetected ? 'text-gw-amber' : 'text-gw-green'}`}>
-              {shiverDetected ? '⚠️ Shivering Detected' : '✅ Normal'}
+            <span className={`text-lg font-bold ${isShivering ? 'text-gw-amber' : 'text-gw-green'}`}>
+              {isShivering ? '⚠️ Shivering Detected' : '✅ Normal'}
             </span>
             <p className="text-xs text-muted-foreground mt-1">Micro-tremor analysis</p>
           </CardContent>
