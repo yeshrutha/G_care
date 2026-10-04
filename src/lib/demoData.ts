@@ -42,16 +42,19 @@ export const DEMO_VITALS: Record<string, DemoVitals> = {
     heart_rate: 71, systolic_bp: 128, diastolic_bp: 82, spo2: 97.4,
     stress: 34, hydration: 72, breathing_rate: 16, skin_temp: 36.5,
     shiver_detected: false, panic_detected: false, fall_detected: false,
+    motion_state: 'sitting',
   },
   'elder-2': {
     heart_rate: 74, systolic_bp: 138, diastolic_bp: 88, spo2: 95,
     stress: 45, hydration: 64, breathing_rate: 18, skin_temp: 36.6,
     shiver_detected: false, panic_detected: false, fall_detected: false,
+    motion_state: 'sitting',
   },
   'elder-3': {
     heart_rate: 72, systolic_bp: 118, diastolic_bp: 76, spo2: 93,
     stress: 58, hydration: 68, breathing_rate: 20, skin_temp: 36.2,
     shiver_detected: false, panic_detected: false, fall_detected: false,
+    motion_state: 'sitting',
   },
 };
 

@@ -5,7 +5,8 @@ import { Activity, Heart, Droplets, Wind, Thermometer, Brain, Footprints, Vibrat
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { loadVitalsCSV, getHourlyData, getLatestVitals, type VitalsRow } from '@/lib/csvLoader';
 import { useGuardianStore } from '@/store/guardianStore';
-import { useAppStore } from '@/store';
+import { useAppStore, type MotionState } from '@/store';
+import { getElderBaseline } from '@/lib/vitalsSimulator';
 
 const statusColor = (val: number, low: number, high: number) => {
   if (val < low || val > high) return 'text-destructive';
@@ -18,8 +19,6 @@ const statusBg = (val: number, low: number, high: number) => {
   if (val < low * 1.05 || val > high * 0.95) return 'bg-gw-amber/10 border-gw-amber/20';
   return 'bg-gw-green/10 border-gw-green/20';
 };
-
-type MotionState = 'walking' | 'sitting' | 'standing' | 'lying_down';
 
 const MOTION_LABELS: Record<MotionState, { label: string; color: string }> = {
   walking: { label: '🚶 Walking', color: 'text-gw-green' },
@@ -35,56 +34,13 @@ const FeedTab: React.FC = () => {
 
   const [vitalsData, setVitalsData] = useState<VitalsRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [liveVitals, setLiveVitals] = useState<VitalsRow | null>(null);
-  const [motionState, setMotionState] = useState<MotionState>('sitting');
-  const [shiverDetected, setShiverDetected] = useState(false);
-  const [fallDetected, setFallDetected] = useState(false);
 
   useEffect(() => {
     loadVitalsCSV().then(data => {
       setVitalsData(data);
-      setLiveVitals(getLatestVitals(data));
       setLoading(false);
     });
   }, []);
-
-  // Simulate live updates only if global store vitals are absent
-  useEffect(() => {
-    if (storeVitals || !liveVitals) return;
-    const interval = setInterval(() => {
-      setLiveVitals(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          timestamp: new Date().toISOString(),
-          heart_rate: Math.round(prev.heart_rate + (Math.random() - 0.5) * 4),
-          systolic_bp: Math.round(prev.systolic_bp + (Math.random() - 0.5) * 3),
-          diastolic_bp: Math.round(prev.diastolic_bp + (Math.random() - 0.5) * 2),
-          spo2: Math.min(100, Math.round((prev.spo2 + (Math.random() - 0.5) * 0.8) * 10) / 10),
-          stress: Math.max(0, Math.min(100, Math.round(prev.stress + (Math.random() - 0.5) * 5))),
-          hydration: Math.max(40, Math.min(100, Math.round(prev.hydration + (Math.random() - 0.5) * 2))),
-          breathing_rate: Math.max(10, Math.min(30, Math.round(prev.breathing_rate + (Math.random() - 0.5) * 1.5))),
-          skin_temp: Math.round((prev.skin_temp + (Math.random() - 0.5) * 0.2) * 10) / 10,
-        };
-      });
-
-      // Simulate motion state changes
-      const motionStates: MotionState[] = ['walking', 'sitting', 'standing', 'lying_down'];
-      if (Math.random() < 0.15) {
-        setMotionState(motionStates[Math.floor(Math.random() * motionStates.length)]);
-      }
-
-      // Simulate shiver detection (rare)
-      setShiverDetected(Math.random() < 0.03);
-
-      // Simulate fall detection (very rare)
-      if (Math.random() < 0.005) {
-        setFallDetected(true);
-        setTimeout(() => setFallDetected(false), 10000);
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [storeVitals, liveVitals !== null]);
 
   const chartData = useMemo(() => {
     if (vitalsData.length === 0) return [];
@@ -105,7 +61,12 @@ const FeedTab: React.FC = () => {
     );
   }
 
-  const v = storeVitals || liveVitals!;
+  const v = storeVitals || getElderBaseline({ id: activeElderId });
+  const motionState = (v?.motion_state as MotionState) || 'sitting';
+  const motionInfo = MOTION_LABELS[motionState] || MOTION_LABELS['sitting'];
+  const isShivering = Boolean(v?.shiver_detected);
+  const isFalling = Boolean(v?.fall_detected);
+
   const elderName = guardianUser?.elderName || 'Registered elder';
   const elderAge = guardianUser?.elderAge ? `${guardianUser.elderAge} years` : 'Not added';
   const elderConditions = guardianUser?.elderConditions || 'Not added';
@@ -120,11 +81,6 @@ const FeedTab: React.FC = () => {
     { label: 'Hydration', value: `${Math.round(v.hydration)}`, unit: '%', icon: Droplets, low: 50, high: 100, current: v.hydration },
     { label: 'Temperature', value: `${typeof v.skin_temp === 'number' ? v.skin_temp.toFixed(1) : v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },
   ];
-
-  const motionInfo = MOTION_LABELS[motionState];
-
-  const isShivering = Boolean(v?.shiver_detected || shiverDetected);
-  const isFalling = Boolean(v?.fall_detected || fallDetected);
 
   return (
     <div className="space-y-6">

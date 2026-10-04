@@ -1,4 +1,4 @@
-import type { DemoElder, DemoVitals } from '@/store';
+import type { DemoElder, DemoVitals, MotionState } from '@/store';
 
 export interface PhysiologicalProfile {
   elderId: string;
@@ -41,6 +41,7 @@ export const PATIENT_PHYSIOLOGICAL_PROFILES: Record<string, PhysiologicalProfile
       shiver_detected: false,
       panic_detected: false,
       fall_detected: false,
+      motion_state: 'sitting',
     },
     variance: {
       hr: 2.2,
@@ -76,6 +77,7 @@ export const PATIENT_PHYSIOLOGICAL_PROFILES: Record<string, PhysiologicalProfile
       shiver_detected: false,
       panic_detected: false,
       fall_detected: false,
+      motion_state: 'sitting',
     },
     // Higher HR variance reflecting Atrial Fibrillation irregularity
     variance: {
@@ -112,6 +114,7 @@ export const PATIENT_PHYSIOLOGICAL_PROFILES: Record<string, PhysiologicalProfile
       shiver_detected: false,
       panic_detected: false,
       fall_detected: false,
+      motion_state: 'sitting',
     },
     variance: {
       hr: 3.0,
@@ -161,6 +164,7 @@ export function getElderBaseline(elder?: Partial<DemoElder> | null): DemoVitals 
     shiver_detected: false,
     panic_detected: false,
     fall_detected: false,
+    motion_state: 'sitting',
   };
 }
 
@@ -281,6 +285,22 @@ export function simulateNextVitals(
     }
   }
 
+  // Motion State transitions (sitting, standing, walking, resting)
+  const motionStates: MotionState[] = ['walking', 'sitting', 'standing', 'resting'];
+  let nextMotion: MotionState = current.motion_state || 'sitting';
+  if (Math.random() < 0.18) {
+    nextMotion = motionStates[Math.floor(Math.random() * motionStates.length)];
+  }
+
+  // Shiver micro-tremor simulation
+  let nextShiver = current.shiver_detected || false;
+  if (anomalyOverride?.shiver_detected !== undefined) {
+    nextShiver = Boolean(anomalyOverride.shiver_detected);
+  } else {
+    // 3% probability of transient micro-tremor detection
+    nextShiver = Math.random() < 0.03;
+  }
+
   return {
     heart_rate: Math.max(minHr, Math.min(maxHr, nextHr)),
     systolic_bp: Math.max(minSys, Math.min(maxSys, nextSys)),
@@ -290,9 +310,10 @@ export function simulateNextVitals(
     hydration: Math.max(40, Math.min(95, nextHyd)),
     breathing_rate: Math.max(minBr, Math.min(maxBr, nextBr)),
     skin_temp: Math.max(35.5, Math.min(37.5, nextTemp)),
-    shiver_detected: current.shiver_detected || false,
+    shiver_detected: nextShiver,
     panic_detected: current.panic_detected || false,
     fall_detected: current.fall_detected || false,
+    motion_state: nextMotion,
   };
 }
 

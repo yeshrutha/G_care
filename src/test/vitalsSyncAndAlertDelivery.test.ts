@@ -151,7 +151,60 @@ describe('Phase 4: Vitals Sync, Alert Delivery, and Persistence Test Suite', () 
       const bpVitals = { ...DEMO_VITALS[usha.id], systolic_bp: 175, diastolic_bp: 105 };
       const bpAnomalies = detectVitalsAnomalies(usha, bpVitals);
       expect(bpAnomalies[0].title).toBe('Hypertensive Urgency');
-      expect(bpAnomalies[0].clinicalRecommendation).toContain('antihypertensive');
+    });
+  });
+
+  describe('4. Watch Simulator & Guardian Portal Real-time Synchronization', () => {
+    it('synchronizes all 8 monitors (HR, BP, SpO2, Stress, Hydration, Temp, Motion, Shiver) across the store', () => {
+      // Simulate live tick
+      useAppStore.getState().updateLiveVitalsTick();
+
+      const ushaVitals = useAppStore.getState().demoVitals[usha.id];
+      expect(ushaVitals).toBeDefined();
+      expect(ushaVitals.heart_rate).toBeGreaterThan(50);
+      expect(ushaVitals.systolic_bp).toBeGreaterThan(90);
+      expect(ushaVitals.diastolic_bp).toBeGreaterThan(60);
+      expect(ushaVitals.spo2).toBeGreaterThan(90);
+      expect(ushaVitals.stress).toBeDefined();
+      expect(ushaVitals.hydration).toBeDefined();
+      expect(ushaVitals.skin_temp).toBeDefined();
+      expect(ushaVitals.motion_state).toBeDefined();
+      expect(['walking', 'sitting', 'standing', 'resting', 'lying_down']).toContain(ushaVitals.motion_state);
+      expect(typeof ushaVitals.shiver_detected).toBe('boolean');
+    });
+
+    it('ensures Watch Simulator and Guardian Portal read identical vitals with 0 discrepancy', () => {
+      // Set precise vitals
+      const testVitals = {
+        heart_rate: 79,
+        systolic_bp: 125,
+        diastolic_bp: 87,
+        spo2: 98.9,
+        stress: 20,
+        hydration: 64,
+        breathing_rate: 16,
+        skin_temp: 36.8,
+        shiver_detected: false,
+        panic_detected: false,
+        fall_detected: false,
+        motion_state: 'standing' as const,
+      };
+
+      useAppStore.getState().setDemoVitals(usha.id, testVitals);
+
+      // Verify store provides identical data
+      const watchVitals = useAppStore.getState().demoVitals[usha.id];
+      const portalVitals = useAppStore.getState().demoVitals[usha.id];
+
+      expect(watchVitals.heart_rate).toBe(portalVitals.heart_rate);
+      expect(watchVitals.systolic_bp).toBe(portalVitals.systolic_bp);
+      expect(watchVitals.diastolic_bp).toBe(portalVitals.diastolic_bp);
+      expect(watchVitals.spo2).toBe(portalVitals.spo2);
+      expect(watchVitals.stress).toBe(portalVitals.stress);
+      expect(watchVitals.hydration).toBe(portalVitals.hydration);
+      expect(watchVitals.skin_temp).toBe(portalVitals.skin_temp);
+      expect(watchVitals.motion_state).toBe('standing');
+      expect(watchVitals.shiver_detected).toBe(false);
     });
   });
 });

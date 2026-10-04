@@ -17,6 +17,8 @@ export interface DemoElder {
   baseline_day?: number;
 }
 
+export type MotionState = 'walking' | 'sitting' | 'standing' | 'lying_down';
+
 export interface DemoVitals {
   heart_rate: number;
   systolic_bp: number;
@@ -29,6 +31,7 @@ export interface DemoVitals {
   shiver_detected: boolean;
   panic_detected: boolean;
   fall_detected: boolean;
+  motion_state?: MotionState;
 }
 
 export interface DemoAlert {

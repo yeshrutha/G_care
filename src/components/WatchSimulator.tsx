@@ -21,6 +21,8 @@ import {
   Droplets,
   Thermometer,
   Brain,
+  Vibrate,
+  Shield,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -442,9 +444,10 @@ const WatchSimulator: React.FC<
   ]);
 
   const activeVitals = useMemo(() => {
-    if (!activeElder) return DEMO_VITALS['elder-1'];
+    if (!activeElder) return demoVitals['elder-1'] || DEMO_VITALS['elder-1'];
     return (
       demoVitals[activeElder.id] ||
+      demoVitals['elder-1'] ||
       DEMO_VITALS[activeElder.id] ||
       getElderBaseline(activeElder)
     );
@@ -2534,8 +2537,41 @@ const WatchSimulator: React.FC<
 
                       {watchScreenMode === 'main' ? (
                         <>
+                          {/* Motion & Shiver Monitor Live Banner */}
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1 font-medium">
+                                <Footprints className="h-3 w-3 text-teal" /> Motion
+                              </span>
+                              <span className="font-semibold text-emerald-300 capitalize">
+                                {activeVitals.motion_state === 'walking'
+                                  ? '🚶 Walking'
+                                  : activeVitals.motion_state === 'standing'
+                                    ? '🧍 Standing'
+                                    : activeVitals.motion_state === 'lying_down'
+                                      ? '🛏️ Resting'
+                                      : '🪑 Sitting'}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1 font-medium">
+                                <Vibrate className="h-3 w-3 text-purple-300" /> Shiver
+                              </span>
+                              <span
+                                className={cn(
+                                  'font-semibold',
+                                  activeVitals.shiver_detected
+                                    ? 'text-amber-400 animate-pulse'
+                                    : 'text-emerald-300',
+                                )}
+                              >
+                                {activeVitals.shiver_detected ? '⚠️ Tremor' : '✅ Normal'}
+                              </span>
+                            </div>
+                          </div>
+
                           <div className="grid grid-cols-3 gap-1.5">
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
                               <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
                                 <HeartPulse className="h-3.5 w-3.5 text-rose-400 animate-pulse" />
                                 <span>HR</span>
@@ -2546,7 +2582,7 @@ const WatchSimulator: React.FC<
                               <p className="text-[10px] text-slate-400">bpm</p>
                             </div>
 
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
                               <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
                                 <Activity className="h-3.5 w-3.5 text-cyan-300" />
                                 <span>SpO2</span>
@@ -2557,7 +2593,7 @@ const WatchSimulator: React.FC<
                               <p className="text-[10px] text-slate-400">oxygen</p>
                             </div>
 
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2.5 text-center">
+                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
                               <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
                                 <Footprints className="h-3.5 w-3.5 text-emerald-300" />
                                 <span>Steps</span>
@@ -2584,6 +2620,25 @@ const WatchSimulator: React.FC<
                               </span>
                               <span className="font-semibold text-white">
                                 {typeof activeVitals.skin_temp === 'number' ? activeVitals.skin_temp.toFixed(1) : activeVitals.skin_temp}°C
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Brain className="h-3 w-3 text-purple-300" /> Stress
+                              </span>
+                              <span className="font-semibold text-white">
+                                {Math.round(activeVitals.stress)}/100
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
+                              <span className="text-slate-400 flex items-center gap-1">
+                                <Droplets className="h-3 w-3 text-blue-300" /> Hydration
+                              </span>
+                              <span className="font-semibold text-white">
+                                {Math.round(activeVitals.hydration)}%
                               </span>
                             </div>
                           </div>

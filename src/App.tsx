@@ -58,6 +58,7 @@ const DemoEmergencyManager = () => {
         shiver_detected: false,
         panic_detected: false,
         fall_detected: false,
+        motion_state: 'sitting',
       });
 
       useAppStore.getState().setDemoStep(0);
@@ -171,7 +172,7 @@ const LiveVitalsSimulatorRunner = () => {
 
     const interval = setInterval(() => {
       runCycle();
-    }, 4000);
+    }, 3000);
 
     return () => clearInterval(interval);
   }, [simulationEnabled, updateLiveVitalsTick, setDemoVitals]);
