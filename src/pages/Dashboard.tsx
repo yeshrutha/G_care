@@ -100,7 +100,7 @@ const CARE_REPORTS: CareReport[] = [
     summary: 'Vitals stayed within baseline for most profiles, with oxygen watch needed for Venkatesh Rao.',
     generatedAt: 'Today, 7:30 AM',
     sections: [
-      'Usha: heart rate averaged 68 bpm, BP stayed near 126/82, SpO2 remained stable at 97%.',
+      'Usha: heart rate averaged 71 bpm, BP stayed near 128/82, SpO2 remained stable at 97.4%.',
       'Lakshmi Devi: BP trend is mildly elevated at 138/88. Continue routine monitoring.',
       'Venkatesh Rao: SpO2 is lower than the others at 93%, with breathing rate near 20 rpm.',
     ],

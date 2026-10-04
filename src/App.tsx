@@ -47,14 +47,14 @@ const DemoEmergencyManager = () => {
 
       // Reset Usha's vitals
       useAppStore.getState().setDemoVitals('elder-1', {
-        heart_rate: 72,
-        systolic_bp: 124,
-        diastolic_bp: 80,
-        spo2: 97,
-        stress: 35,
-        hydration: 82,
+        heart_rate: 71,
+        systolic_bp: 128,
+        diastolic_bp: 82,
+        spo2: 97.4,
+        stress: 34,
+        hydration: 72,
         breathing_rate: 16,
-        skin_temp: 36.6,
+        skin_temp: 36.5,
         shiver_detected: false,
         panic_detected: false,
         fall_detected: false,

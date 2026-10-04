@@ -83,10 +83,10 @@ const Landing: React.FC = () => {
               <div className="text-[10px] font-medium text-navy mb-2">Live Dashboard</div>
               <div className="space-y-1.5">
                 {[
-                  { color: 'bg-gw-green', text: 'HR: 68 bpm' },
-                  { color: 'bg-gw-green', text: 'BP: 126/82' },
-                  { color: 'bg-gw-green', text: 'SpO₂: 97%' },
-                  { color: 'bg-gw-amber', text: 'Stress: 45' },
+                  { color: 'bg-gw-green', text: 'HR: 71 bpm' },
+                  { color: 'bg-gw-green', text: 'BP: 128/82' },
+                  { color: 'bg-gw-green', text: 'SpO₂: 97.4%' },
+                  { color: 'bg-gw-amber', text: 'Stress: 34' },
                 ].map((item, i) => (
                   <div key={i} className="flex items-center gap-1.5">
                     <div className={`w-2 h-2 rounded-full ${item.color}`} />

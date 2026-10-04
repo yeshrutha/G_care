@@ -118,7 +118,7 @@ const FeedTab: React.FC = () => {
     { label: 'SpO₂', value: `${v.spo2.toFixed(1)}`, unit: '%', icon: Wind, low: 93, high: 100, current: v.spo2 },
     { label: 'Stress', value: `${Math.round(v.stress)}`, unit: '/100', icon: Brain, low: 0, high: 70, current: v.stress },
     { label: 'Hydration', value: `${Math.round(v.hydration)}`, unit: '%', icon: Droplets, low: 50, high: 100, current: v.hydration },
-    { label: 'Temperature', value: `${v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },
+    { label: 'Temperature', value: `${typeof v.skin_temp === 'number' ? v.skin_temp.toFixed(1) : v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },
   ];
 
   const motionInfo = MOTION_LABELS[motionState];

@@ -226,11 +226,11 @@ const ElderDetail: React.FC = () => {
   ];
 
   const baselineData = [
-    { vital: t('vitals.hr'), range: '60–80 bpm', current: vitals?.heart_rate || 68, status: 'normal' },
-    { vital: t('vitals.bp'), range: '110–130 mmHg', current: vitals?.systolic_bp || 126, status: vitals && vitals.systolic_bp > 135 ? 'elevated' : 'normal' },
-    { vital: t('vitals.spo2'), range: '95–99%', current: vitals?.spo2 || 97, status: 'normal' },
-    { vital: t('vitals.stress'), range: '10–45', current: vitals?.stress || 32, status: vitals && vitals.stress > 50 ? 'elevated' : 'normal' },
-    { vital: t('vitals.hydration'), range: '60–85%', current: vitals?.hydration || 71, status: 'normal' },
+    { vital: t('vitals.hr'), range: '60–80 bpm', current: vitals?.heart_rate || 71, status: 'normal' },
+    { vital: t('vitals.bp'), range: '110–130 mmHg', current: vitals?.systolic_bp || 128, status: vitals && vitals.systolic_bp > 135 ? 'elevated' : 'normal' },
+    { vital: t('vitals.spo2'), range: '95–99%', current: vitals?.spo2 || 97.4, status: 'normal' },
+    { vital: t('vitals.stress'), range: '10–45', current: vitals?.stress || 34, status: vitals && vitals.stress > 50 ? 'elevated' : 'normal' },
+    { vital: t('vitals.hydration'), range: '60–85%', current: vitals?.hydration || 72, status: 'normal' },
   ];
 
   const acknowledgeElderAlert = (alertId: string) => {
@@ -349,7 +349,7 @@ const ElderDetail: React.FC = () => {
       const met = medications.find(m => m.brand_name.toLowerCase().includes('metformin'));
       response = met ? `${met.brand_name} ${met.dose_amount}${met.dose_unit}. ${met.instructions}. Take it ${met.frequency}.` : 'Metformin is not in your current prescriptions.';
     } else if (command.includes('doing') || command.includes('how am')) {
-      response = `${elder.full_name} is doing well. Heart rate is ${vitals?.heart_rate || 68} bpm. Blood pressure is ${vitals?.systolic_bp || 126} over ${vitals?.diastolic_bp || 82}. Oxygen saturation is ${vitals?.spo2 || 97} percent. All vitals are within normal range.`;
+      response = `${elder.full_name} is doing well. Heart rate is ${vitals?.heart_rate || 71} bpm. Blood pressure is ${vitals?.systolic_bp || 128} over ${vitals?.diastolic_bp || 82}. Oxygen saturation is ${vitals?.spo2 || 97.4} percent. All vitals are within normal range.`;
     } else if (command.includes('call')) {
       response = 'Calling your emergency contact Priya Sharma now. Please wait.';
     } else if (command.includes('help') || command.includes('SOS')) {
@@ -884,12 +884,12 @@ const ElderDetail: React.FC = () => {
               <CardHeader><CardTitle className="font-display text-lg">Today's AI Health Summary</CardTitle></CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  {elder.full_name}'s vitals have been largely stable over the past 24 hours. Heart rate averaged 68 bpm,
+                  {elder.full_name}'s vitals have been largely stable over the past 24 hours. Heart rate averaged 71 bpm,
                   well within his personal baseline of 60-80 bpm. Blood pressure readings showed a mild upward trend,
                   averaging 128/84 mmHg compared to his baseline of 120/78 mmHg.
                 </p>
                 <p className="text-sm text-muted-foreground leading-relaxed mt-3">
-                  SpO₂ remained stable at 97%. Stress levels were slightly elevated in the evening hours, peaking at 45/100.
+                  SpO₂ remained stable at 97.4%. Stress levels were slightly elevated in the evening hours, peaking at 45/100.
                   Medication adherence was good — both Metformin doses were taken on time.
                 </p>
                 <div className="flex gap-2 mt-4">

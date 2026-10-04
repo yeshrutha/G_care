@@ -2541,7 +2541,7 @@ const WatchSimulator: React.FC<
                                 <span>HR</span>
                               </div>
                               <p className="text-base font-bold text-white tracking-tight">
-                                {activeVitals.heart_rate}
+                                {Math.round(activeVitals.heart_rate)}
                               </p>
                               <p className="text-[10px] text-slate-400">bpm</p>
                             </div>
@@ -2552,7 +2552,7 @@ const WatchSimulator: React.FC<
                                 <span>SpO2</span>
                               </div>
                               <p className="text-base font-bold text-white tracking-tight">
-                                {activeVitals.spo2}%
+                                {typeof activeVitals.spo2 === 'number' ? activeVitals.spo2.toFixed(1) : activeVitals.spo2}%
                               </p>
                               <p className="text-[10px] text-slate-400">oxygen</p>
                             </div>
@@ -2575,7 +2575,7 @@ const WatchSimulator: React.FC<
                                 <Activity className="h-3 w-3 text-teal" /> BP
                               </span>
                               <span className="font-semibold text-white">
-                                {activeVitals.systolic_bp}/{activeVitals.diastolic_bp}
+                                {Math.round(activeVitals.systolic_bp)}/{Math.round(activeVitals.diastolic_bp)}
                               </span>
                             </div>
                             <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
@@ -2583,7 +2583,7 @@ const WatchSimulator: React.FC<
                                 <Thermometer className="h-3 w-3 text-amber-300" /> Temp
                               </span>
                               <span className="font-semibold text-white">
-                                {activeVitals.skin_temp}°C
+                                {typeof activeVitals.skin_temp === 'number' ? activeVitals.skin_temp.toFixed(1) : activeVitals.skin_temp}°C
                               </span>
                             </div>
                           </div>
@@ -2596,7 +2596,7 @@ const WatchSimulator: React.FC<
                               <span>Blood Pressure</span>
                             </div>
                             <p className="text-sm font-bold text-white">
-                              {activeVitals.systolic_bp}/{activeVitals.diastolic_bp}
+                              {Math.round(activeVitals.systolic_bp)}/{Math.round(activeVitals.diastolic_bp)}
                             </p>
                             <p className="text-[9px] text-slate-400">mmHg</p>
                           </div>
@@ -2607,7 +2607,7 @@ const WatchSimulator: React.FC<
                               <span>Respiration</span>
                             </div>
                             <p className="text-sm font-bold text-white">
-                              {activeVitals.breathing_rate}
+                              {Math.round(activeVitals.breathing_rate)}
                             </p>
                             <p className="text-[9px] text-slate-400">brpm</p>
                           </div>
@@ -2618,7 +2618,7 @@ const WatchSimulator: React.FC<
                               <span>Stress Index</span>
                             </div>
                             <p className="text-sm font-bold text-white">
-                              {activeVitals.stress}
+                              {Math.round(activeVitals.stress)}
                             </p>
                             <p className="text-[9px] text-slate-400">/100</p>
                           </div>
@@ -2629,7 +2629,7 @@ const WatchSimulator: React.FC<
                               <span>Hydration</span>
                             </div>
                             <p className="text-sm font-bold text-white">
-                              {activeVitals.hydration}%
+                              {Math.round(activeVitals.hydration)}%
                             </p>
                             <p className="text-[9px] text-slate-400">level</p>
                           </div>

@@ -39,8 +39,8 @@ export const DEMO_ELDERS: DemoElder[] = [
 
 export const DEMO_VITALS: Record<string, DemoVitals> = {
   'elder-1': {
-    heart_rate: 68, systolic_bp: 126, diastolic_bp: 82, spo2: 97,
-    stress: 32, hydration: 71, breathing_rate: 16, skin_temp: 36.4,
+    heart_rate: 71, systolic_bp: 128, diastolic_bp: 82, spo2: 97.4,
+    stress: 34, hydration: 72, breathing_rate: 16, skin_temp: 36.5,
     shiver_detected: false, panic_detected: false, fall_detected: false,
   },
   'elder-2': {
