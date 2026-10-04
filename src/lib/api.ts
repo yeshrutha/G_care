@@ -71,9 +71,12 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   }
 
   const endpoint = path.startsWith('/api') ? path : `/api${path}`;
-  const origin = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
-    ? window.location.origin
-    : 'http://127.0.0.1:8787';
+  const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  const origin = envApiUrl
+    ? (envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl)
+    : (typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
+        ? window.location.origin
+        : 'http://127.0.0.1:8787');
   const fullUrl = endpoint.startsWith('http') ? endpoint : `${origin}${endpoint}`;
 
   const response = await fetch(fullUrl, {

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, unlink, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
 import { DATA_DIR, DATA_FILE } from './config.js';
@@ -164,9 +164,17 @@ export async function createSeedDb() {
   };
 }
 
+// Windows tools can prefix UTF-8 files with a byte-order mark. Strip it before
+// parsing so a valid local database is never mistaken for a corrupt one.
+function parseLocalDb(raw) {
+  return JSON.parse(raw.replace(/^\uFEFF/, ''));
+}
+
 // Database Connection Setup
 let pool = null;
 let usePostgres = false;
+let memoryDb = null;
+let writeQueue = Promise.resolve();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -193,12 +201,28 @@ export async function initDb() {
     let data;
     try {
       const raw = await readFile(DATA_FILE, 'utf8');
-      data = JSON.parse(raw);
-    } catch {
+      data = parseLocalDb(raw);
+    } catch (err) {
+      if (err && err.code === 'ENOENT') {
       data = await createSeedDb();
       await writeFile(DATA_FILE, JSON.stringify(data, null, 2));
       console.log('Local fallback JSON DB seeded.');
+      memoryDb = data;
       return;
+
+
+      }
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 60));
+        try {
+          const raw = await readFile(DATA_FILE, 'utf8');
+          data = parseLocalDb(raw);
+          break;
+        } catch {}
+      }
+      if (!data) {
+        data = memoryDb || (await createSeedDb());
+      }
     }
 
     const seed = await createSeedDb();
@@ -229,6 +253,7 @@ export async function initDb() {
       await writeFile(DATA_FILE, JSON.stringify(data, null, 2));
       console.log('Local fallback JSON DB updated with demo seeds.');
     }
+    memoryDb = data;
     return;
   }
 
@@ -441,10 +466,11 @@ export async function initDb() {
 
 // Local File DB Helper APIs
 export async function readDb() {
+  if (memoryDb) return memoryDb;
   await mkdir(DATA_DIR, { recursive: true });
   try {
     const raw = await readFile(DATA_FILE, 'utf8');
-    const data = JSON.parse(raw);
+    const data = parseLocalDb(raw);
     data.users = Array.isArray(data.users) ? data.users : [];
     data.elders = Array.isArray(data.elders) ? data.elders : [];
     data.medications = Array.isArray(data.medications) ? data.medications : [];
@@ -455,17 +481,51 @@ export async function readDb() {
     data.vitalsReadings = Array.isArray(data.vitalsReadings) ? data.vitalsReadings : [];
     data.clinicalNotes = Array.isArray(data.clinicalNotes) ? data.clinicalNotes : [];
     data.reports = Array.isArray(data.reports) ? data.reports : [];
+    memoryDb = data;
     return data;
-  } catch {
+  } catch (err) {
+    if (memoryDb) return memoryDb;
+    if (err && err.code === 'ENOENT') {
     const data = await createSeedDb();
     await writeDb(data);
     return structuredClone(data);
+    }
+    for (let retry = 0; retry < 5; retry++) {
+      await new Promise((r) => setTimeout(r, 60));
+      try {
+        const raw = await readFile(DATA_FILE, 'utf8');
+        const data = parseLocalDb(raw);
+        memoryDb = data;
+        return data;
+      } catch {}
+    }
+    if (memoryDb) return memoryDb;
+    throw err;
   }
 }
 
 export async function writeDb(data) {
+  memoryDb = data;
   await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(data, null, 2));
+  writeQueue = writeQueue.then(async () => {
+    await mkdir(DATA_DIR, { recursive: true });
+    const json = JSON.stringify(data, null, 2);
+    const tempFile = path.join(DATA_DIR, `db.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`);
+    try {
+      await writeFile(tempFile, json, 'utf8');
+      try {
+        await rename(tempFile, DATA_FILE);
+      } catch {
+        await copyFile(tempFile, DATA_FILE);
+        await unlink(tempFile).catch(() => {});
+      }
+    } catch {
+      await writeFile(DATA_FILE, json, 'utf8');
+    }
+  }).catch((err) => {
+    console.error('Failed to write local database file:', err);
+  });
+  return writeQueue;
 }
 
 // Main DB Service Class Interface

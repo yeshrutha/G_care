@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useGuardianStore } from '@/store/guardianStore';
+import { useGuardianStore, isAlertForElder } from '@/store/guardianStore';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { ShieldAlert, Phone, MapPin, Clock, Radio, Wifi } from 'lucide-react';
 
@@ -42,7 +42,8 @@ const SOSTab: React.FC = () => {
     setCountdown(5);
   };
 
-  const recentSOS = alerts.filter(a => a.type === 'sos').slice(0, 5);
+  const visibleAlerts = alerts.filter(a => isAlertForElder(a, guardianUser?.elderName));
+  const recentSOS = visibleAlerts.filter(a => a.type === 'sos').slice(0, 5);
 
   return (
     <div className="space-y-6">

@@ -33,6 +33,7 @@ export interface GuardianAlert {
   time: string;
   acknowledged: boolean;
   elderName: string;
+  elderId?: string;
 }
 
 export interface GuardianLog {
@@ -85,8 +86,48 @@ interface GuardianStore {
 
 const GUARDIAN_USER_STORAGE_KEY = 'gcare_guardian_user';
 
+export function resolveAlertElderName(alert: { elderName?: string; message?: string }): string {
+  const msg = alert.message || '';
+  if (msg.includes('Venkatesh Rao')) return 'Venkatesh Rao';
+  if (msg.includes('Lakshmi Devi')) return 'Lakshmi Devi';
+  if (msg.includes('Usha')) return 'Usha';
+  return alert.elderName || '';
+}
+
+export function isAlertForElder(alert: GuardianAlert, targetElderName?: string): boolean {
+  if (!targetElderName || targetElderName === 'Registered elder') {
+    return true;
+  }
+  const cleanTarget = targetElderName.trim().toLowerCase();
+  const trueElderName = resolveAlertElderName(alert).trim().toLowerCase();
+
+  if (trueElderName) {
+    return trueElderName === cleanTarget || trueElderName.includes(cleanTarget) || cleanTarget.includes(trueElderName);
+  }
+
+  const fallbackElder = (alert.elderName || '').trim().toLowerCase();
+  if (fallbackElder && fallbackElder !== 'registered elder') {
+    return fallbackElder === cleanTarget || fallbackElder.includes(cleanTarget) || cleanTarget.includes(fallbackElder);
+  }
+
+  const msg = (alert.message || '').toLowerCase();
+  if (msg.includes('venkatesh rao') && !cleanTarget.includes('venkatesh')) return false;
+  if (msg.includes('lakshmi devi') && !cleanTarget.includes('lakshmi')) return false;
+  if (msg.includes('usha') && !cleanTarget.includes('usha')) return false;
+
+  return true;
+}
+
+export function sanitizeAlert(alert: GuardianAlert): GuardianAlert {
+  const inferred = resolveAlertElderName(alert);
+  return {
+    ...alert,
+    elderName: inferred || alert.elderName,
+  };
+}
+
 function getStoredGuardianUser(): GuardianStore['guardianUser'] {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || !window.localStorage || typeof window.localStorage.getItem !== 'function') {
     return null;
   }
 
@@ -121,19 +162,19 @@ const INITIAL_GUARDIAN_ALERTS: GuardianAlert[] = [
 ];
 
 function getStoredGuardianAlerts(): GuardianAlert[] {
-  if (typeof window === 'undefined') return INITIAL_GUARDIAN_ALERTS;
+  if (typeof window === 'undefined' || !window.localStorage || typeof window.localStorage.getItem !== 'function') return INITIAL_GUARDIAN_ALERTS;
   const raw = window.localStorage.getItem(GUARDIAN_ALERTS_STORAGE_KEY);
   if (!raw) return INITIAL_GUARDIAN_ALERTS;
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_GUARDIAN_ALERTS;
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed.map(sanitizeAlert) : INITIAL_GUARDIAN_ALERTS;
   } catch {
     return INITIAL_GUARDIAN_ALERTS;
   }
 }
 
 function storeGuardianAlerts(alerts: GuardianAlert[]) {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
     window.localStorage.setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts.slice(0, 100)));
   }
 }
@@ -141,7 +182,7 @@ function storeGuardianAlerts(alerts: GuardianAlert[]) {
 export const useGuardianStore = create<GuardianStore>((set) => ({
   guardianUser: INITIAL_GUARDIAN_USER,
   setGuardianUser: (u) => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
       if (u) {
         window.localStorage.setItem(GUARDIAN_USER_STORAGE_KEY, JSON.stringify(u));
       } else {
@@ -149,15 +190,7 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
       }
     }
 
-    set((s) => ({
-      guardianUser: u,
-      alerts: u?.elderName
-        ? s.alerts.map((alert) => ({
-            ...alert,
-            elderName: u.elderName,
-          }))
-        : s.alerts,
-    }));
+    set({ guardianUser: u });
   },
   reminders: [
     {
@@ -209,7 +242,8 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
   setReminders: (reminders) => set({ reminders }),
   alerts: getStoredGuardianAlerts(),
   addGuardianAlert: (a) => set((s) => {
-    const nextAlerts = [a, ...s.alerts.filter((item) => item.id !== a.id)].slice(0, 100);
+    const sanitized = sanitizeAlert(a);
+    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 100);
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
@@ -234,7 +268,7 @@ if (typeof window !== 'undefined') {
       try {
         const parsed = JSON.parse(e.newValue);
         if (Array.isArray(parsed)) {
-          useGuardianStore.setState({ alerts: parsed });
+          useGuardianStore.setState({ alerts: parsed.map(sanitizeAlert) });
         }
       } catch {}
     }

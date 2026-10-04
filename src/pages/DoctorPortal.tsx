@@ -105,6 +105,7 @@ const DoctorPortal: React.FC = () => {
   } = useAppStore();
   const { user: authUser, logout } = useAuthStore();
   const setReminders = useGuardianStore((state) => state.setReminders);
+  const addGuardianAlert = useGuardianStore((state) => state.addGuardianAlert);
 
   const [addElderOpen, setAddElderOpen] = useState(false);
   const [newElder, setNewElder] = useState({
@@ -115,6 +116,13 @@ const DoctorPortal: React.FC = () => {
   const [btDeviceId, setBtDeviceId] = useState('');
   const [activeSection, setActiveSection] = useState<DashboardSection>('dashboard');
   const [demoAppointmentStatus, setDemoAppointmentStatus] = useState<DemoAppointmentStatus>('requested');
+  const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
+  const [appointmentAlert, setAppointmentAlert] = useState<DemoAlert | null>(null);
+  const [appointmentForm, setAppointmentForm] = useState({
+    date: new Date().toISOString().slice(0, 10),
+    time: '10:00',
+    notes: '',
+  });
   const [addMedicationOpen, setAddMedicationOpen] = useState(false);
   const [editingMedicationId, setEditingMedicationId] = useState<string | null>(null);
   const [deleteMedicationId, setDeleteMedicationId] = useState<string | null>(null);
@@ -495,6 +503,75 @@ const DoctorPortal: React.FC = () => {
 
   const unresolvedCount = activeAlerts.filter(a => !a.resolved).length;
 
+  const beginAlertAcknowledgement = (selectedAlert?: DemoAlert) => {
+    const alert = selectedAlert || activeAlerts.find((item) => !item.resolved);
+    if (!alert) return;
+    setAppointmentAlert(alert);
+    setAppointmentDialogOpen(true);
+  };
+
+  const scheduleAlertAppointment = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!appointmentAlert) return;
+
+    const elder = elders.find((item) => item.id === appointmentAlert.elder_id)
+      || elders.find((item) => item.full_name === appointmentAlert.elder_name)
+      || elders[0];
+    if (!elder) {
+      toast({ title: 'Unable to schedule', description: 'Choose a patient before scheduling an appointment.', variant: 'destructive' });
+      return;
+    }
+
+    const doctorName = authUser?.name || 'Assigned doctor';
+    const notification = `Appointment booked by Dr. ${doctorName} for ${elder.full_name} on ${appointmentForm.date} at ${appointmentForm.time}.`;
+
+    try {
+      const savedAlarm = await apiFetch<DashboardAlarm>('/alarms', {
+        method: 'POST',
+        body: JSON.stringify({
+          elderId: elder.id,
+          title: `Appointment with Dr. ${doctorName}`,
+          time: appointmentForm.time,
+          type: 'appointment',
+          status: 'Scheduled',
+          notes: `${notification}${appointmentForm.notes.trim() ? ` Notes: ${appointmentForm.notes.trim()}` : ''}`,
+        }),
+      });
+
+      await apiFetch('/alerts', {
+        method: 'POST',
+        body: JSON.stringify({
+          elderId: elder.id,
+          type: 'appointment',
+          severity: 'info',
+          message: notification,
+          resolved: false,
+        }),
+      });
+
+      addAlarm({ ...savedAlarm, type: 'appointment' });
+      addGuardianAlert({
+        id: `appointment-${savedAlarm.id}`,
+        type: 'vital_abnormal',
+        severity: 'info',
+        message: notification,
+        time: new Date().toISOString(),
+        acknowledged: false,
+        elderName: elder.full_name,
+      });
+      resolveAlert(appointmentAlert.id);
+      try {
+        await apiFetch(`/alerts/${appointmentAlert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+      } catch {}
+
+      setAppointmentDialogOpen(false);
+      setAppointmentAlert(null);
+      toast({ title: 'Appointment scheduled', description: 'The guardian and caretaker/nurse portals have been notified.' });
+    } catch (err: any) {
+      toast({ title: 'Unable to schedule appointment', description: err.message || 'Please try again.', variant: 'destructive' });
+    }
+  };
+
   const sparkData = useMemo(() => {
     return Array.from({ length: 12 }, (_, i) => ({ v: 65 + Math.sin(i / 1.5) * 6 + Math.random() * 3 }));
   }, []);
@@ -728,22 +805,51 @@ const DoctorPortal: React.FC = () => {
                   <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => setActiveSection('alerts')}>
                     Review All Alerts ({unresolvedCount})
                   </Button>
-                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={async () => {
-                    const firstUnresolved = activeAlerts.find(a => !a.resolved);
-                    if (firstUnresolved) {
-                      resolveAlert(firstUnresolved.id);
-                      try {
-                        await apiFetch(`/alerts/${firstUnresolved.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-                      } catch {}
-                      toast({ title: 'Acknowledged', description: `Alert marked as acknowledged.` });
-                    }
-                  }}>
+                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={beginAlertAcknowledgement}>
                     Acknowledge
                   </Button>
                 </div>
               </div>
             </Card>
           )}
+
+          <Dialog open={appointmentDialogOpen} onOpenChange={setAppointmentDialogOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Schedule urgent appointment</DialogTitle>
+                <DialogDescription>
+                  Acknowledge this alert and notify the guardian and caretaker/nurse of the appointment time.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={scheduleAlertAppointment} className="space-y-4">
+                <div className="rounded-lg bg-muted p-3 text-sm">
+                  <p className="font-medium">{appointmentAlert?.elder_name || 'Selected patient'}</p>
+                  <p className="mt-1 text-muted-foreground">{appointmentAlert?.message}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-date">Date</Label>
+                    <Input id="appointment-date" type="date" min={new Date().toISOString().slice(0, 10)} value={appointmentForm.date}
+                      onChange={(e) => setAppointmentForm({ ...appointmentForm, date: e.target.value })} required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="appointment-time">Time</Label>
+                    <Input id="appointment-time" type="time" value={appointmentForm.time}
+                      onChange={(e) => setAppointmentForm({ ...appointmentForm, time: e.target.value })} required />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="appointment-notes">Notes for guardian and nurse</Label>
+                  <Textarea id="appointment-notes" value={appointmentForm.notes} placeholder="Bring current medications and recent reports."
+                    onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })} />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setAppointmentDialogOpen(false)}>Cancel</Button>
+                  <Button type="submit" className="bg-teal hover:bg-teal/90 text-primary-foreground">Confirm & notify</Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
 
           {/* Active section rendering */}
 
@@ -1134,13 +1240,7 @@ const DoctorPortal: React.FC = () => {
 
                       <div className="flex items-center gap-2 shrink-0">
                         {!alert.resolved ? (
-                          <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={async () => {
-                            resolveAlert(alert.id);
-                            try {
-                              await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-                            } catch {}
-                            toast({ title: 'Acknowledged', description: `Alert for ${alert.elder_name} marked as acknowledged.` });
-                          }}>
+                          <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => beginAlertAcknowledgement(alert)}>
                             Acknowledge
                           </Button>
                         ) : (

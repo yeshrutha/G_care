@@ -10,11 +10,12 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { GuardianLogo } from '@/components/GuardianLogo';
-import { useGuardianStore, type EmergencyContact, type GuardianUser } from '@/store/guardianStore';
+import { useGuardianStore, type EmergencyContact, type GuardianUser, isAlertForElder } from '@/store/guardianStore';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '@/store';
 import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 import { triggerAlert } from '@/lib/audioAlerts';
+import { apiFetch } from '@/lib/api';
 import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2, Heart } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
 import LogsTab from '@/components/guardian/LogsTab';
@@ -34,7 +35,10 @@ const TAB_CONFIG = [
 
 const GuardianDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const { guardianUser, setGuardianUser, activeTab, setActiveTab, alerts, acknowledgeAlert } = useGuardianStore();
+  const {
+    guardianUser, setGuardianUser, activeTab, setActiveTab, alerts, acknowledgeAlert,
+    addGuardianAlert, reminders, addReminder,
+  } = useGuardianStore();
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState<GuardianUser>(() => ({
     name: guardianUser?.name || 'Guardian User',
@@ -55,8 +59,54 @@ const GuardianDashboard: React.FC = () => {
     }
   }, []);
 
-  const unresolvedAlerts = alerts.filter(a => !a.acknowledged).length;
-  const unresolvedVitalAlerts = alerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
+  // Doctor-scheduled appointments are shared through the API so a guardian sees
+  // them after signing in on a separate device or browser.
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([apiFetch<any[]>('/alerts'), apiFetch<any>('/dashboard-data')])
+      .then(([serverAlerts, dashboard]) => {
+        if (cancelled) return;
+        (serverAlerts || []).filter((alert) => alert.type === 'appointment').forEach((alert) => {
+          const appointmentElder = alert.elder_name || alert.elderName || guardianUser?.elderName || 'Registered elder';
+          if (guardianUser?.elderName && !isAlertForElder({ ...alert, elderName: appointmentElder }, guardianUser.elderName)) {
+            return;
+          }
+          addGuardianAlert({
+            id: `appointment-${alert.id}`,
+            type: 'vital_abnormal',
+            severity: 'info',
+            message: alert.message,
+            time: alert.time || new Date().toISOString(),
+            acknowledged: false,
+            elderName: appointmentElder,
+          });
+        });
+        (dashboard?.alarms || []).filter((alarm: any) => alarm.type === 'appointment').forEach((alarm: any) => {
+          const reminderId = `appointment-${alarm.id}`;
+          if (!reminders.some((reminder) => reminder.id === reminderId)) {
+            addReminder({
+              id: reminderId,
+              elderId: alarm.elderId,
+              elderName: alarm.elderName || guardianUser?.elderName || 'Registered elder',
+              type: 'appointment',
+              title: alarm.title,
+              time: alarm.time,
+              repeat: 'once',
+              verified: false,
+              routineDescription: alarm.notes || '',
+              createdAt: new Date().toISOString(),
+            });
+          }
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const guardianElderName = guardianUser?.elderName;
+  const visibleAlerts = alerts.filter((a) => isAlertForElder(a, guardianElderName));
+  const unresolvedAlerts = visibleAlerts.filter(a => !a.acknowledged).length;
+  const unresolvedVitalAlerts = visibleAlerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
 
   const demoMode = useAppStore((s) => s.demoMode);
   const setDemoMode = useAppStore((s) => s.setDemoMode);
@@ -71,8 +121,6 @@ const GuardianDashboard: React.FC = () => {
       }
     });
   }, [demoMode]);
-
-  const { addGuardianAlert } = useGuardianStore();
 
   useEffect(() => {
     if (demoMode && demoEmergency) {

@@ -11,14 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { LayoutDashboard, Users, Pill, Bell, ShieldAlert, FileText, Stethoscope, Settings, LogOut, Plus, Activity, Battery, Wifi, Bluetooth, X, Brain, TrendingUp, CheckCircle2, PhoneCall, MapPin, Pencil, Trash2, User, Clipboard, Watch, Radio, Sparkles } from 'lucide-react';
+import { LayoutDashboard, Users, Pill, Bell, ShieldAlert, FileText, Stethoscope, Settings, LogOut, Plus, Activity, Battery, Wifi, Bluetooth, X, Brain, TrendingUp, CheckCircle2, PhoneCall, MapPin, Pencil, Trash2, User, Clipboard, Radio, Sparkles } from 'lucide-react';
 import { GuardianLogo } from '@/components/GuardianLogo';
 import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
 import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
-import WatchSimulator from '@/components/WatchSimulator';
+
 import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert, type StoreAlarm } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
@@ -203,11 +203,11 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const {
     demoMode, setDemoMode, authUser, setAuthUser,
-    demoElders, setDemoElders, activeElderId, setActiveElderId,
+    demoElders, setDemoElders,
     demoVitals, setDemoVitals, activeAlerts, setActiveAlerts, addAlert,
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
-    setDemoStep, demoStep, stabilizeElderVitals, activeAnomalyOverrides,
+    setDemoStep, demoStep,
   } = useAppStore();
   const addGuardianReminder = useGuardianStore((state) => state.addReminder);
   const guardianUser = useGuardianStore((state) => state.guardianUser);
@@ -856,7 +856,7 @@ const Dashboard: React.FC = () => {
         <div className="sticky top-0 z-40 bg-card border-b border-border px-6 py-3 flex items-center justify-between">
           <h1 className="font-display text-2xl text-foreground">{SECTION_TITLES[activeSection]}</h1>
           <div className="flex items-center gap-3">
-            <WatchSimulator buttonVariant="outline" buttonClassName="h-8 text-xs border-teal/40 text-teal hover:bg-teal/10 gap-1.5 hidden sm:inline-flex" />
+
             <DemoModeBanner />
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">{t('dashboard.demo_mode')}</span>
@@ -976,168 +976,6 @@ const Dashboard: React.FC = () => {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Live Watch Telemetry Sync Card */}
-            <Card className="rounded-xl border border-teal/30 bg-gradient-to-r from-card via-card to-teal/5 shadow-sm">
-              <CardContent className="p-5 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-teal/15 flex items-center justify-center text-teal border border-teal/20 shrink-0">
-                      <Watch className="h-5 w-5 animate-pulse" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h2 className="font-display text-lg font-bold text-foreground">Live Watch Telemetry Sync</h2>
-                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gw-green/10 text-gw-green border border-gw-green/20">
-                          <span className="w-1.5 h-1.5 rounded-full bg-gw-green animate-ping" />
-                          SYNCED · 4S TICK
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Biometrics stream from wearable smartwatch sensors to central dashboard in real-time lockstep.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Select value={activeElderId} onValueChange={setActiveElderId}>
-                      <SelectTrigger className="h-8 w-44 text-xs bg-background border-border">
-                        <SelectValue placeholder="Select patient" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {elders.map((e) => (
-                          <SelectItem key={e.id} value={e.id} className="text-xs">
-                            {e.full_name} ({e.age}y)
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <WatchSimulator buttonVariant="default" buttonClassName="bg-teal hover:bg-teal/90 text-primary-foreground h-8 text-xs px-3" />
-                  </div>
-                </div>
-
-                {/* Live Biometrics Grid (Smartwatch vs Dashboard Lockstep) */}
-                {(() => {
-                  const syncedElder = elders.find((e) => e.id === activeElderId) || elders[0];
-                  const vitals = syncedElder ? (demoVitals[syncedElder.id] || DEMO_VITALS[syncedElder.id]) : null;
-                  const isAnomaly = activeAnomalyOverrides[syncedElder?.id || ''];
-
-                  return (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Heart Rate</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.heart_rate ?? '--'} <span className="text-xs font-normal text-muted-foreground">bpm</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Blood Pressure</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals ? `${vitals.systolic_bp}/${vitals.diastolic_bp}` : '--'}
-                            <span className="text-[10px] font-normal text-muted-foreground ml-1">mmHg</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>SpO₂ Blood O₂</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.spo2 ?? '--'} <span className="text-xs font-normal text-muted-foreground">%</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Breathing</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.breathing_rate ?? '--'} <span className="text-xs font-normal text-muted-foreground">brpm</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Stress Index</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.stress ?? '--'} <span className="text-xs font-normal text-muted-foreground">/100</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Skin Temp</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.skin_temp ? Number(vitals.skin_temp).toFixed(1) : '--'} <span className="text-xs font-normal text-muted-foreground">°C</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-
-                        <div className="bg-card border border-border/80 rounded-lg p-2.5">
-                          <div className="flex items-center justify-between text-muted-foreground text-[10px] uppercase font-semibold">
-                            <span>Hydration</span>
-                            <span className="text-teal font-mono">WATCH</span>
-                          </div>
-                          <p className="text-lg font-bold text-foreground mt-0.5 font-mono">
-                            {vitals?.hydration ?? '--'} <span className="text-xs font-normal text-muted-foreground">%</span>
-                          </p>
-                          <div className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gw-green" /> Exact Match
-                          </div>
-                        </div>
-                      </div>
-
-                      {isAnomaly && (
-                        <div className="flex items-center justify-between p-3 rounded-lg bg-gw-amber/10 border border-gw-amber/30 text-xs">
-                          <span className="text-gw-amber font-medium flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-gw-amber animate-ping" />
-                            Active physiological anomaly injected for {syncedElder?.full_name}. Watch telemetry & multi-portal alerts are synchronized.
-                          </span>
-                          <Button size="sm" variant="outline" className="h-7 text-xs border-gw-amber/40 text-foreground hover:bg-gw-amber/20"
-                            onClick={() => {
-                              stabilizeElderVitals(syncedElder?.id || '');
-                              toast({ title: 'Stabilized', description: `Normal baseline vitals restored for ${syncedElder?.full_name}` });
-                            }}>
-                            Normalize Vitals
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </CardContent>
-            </Card>
 
             <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1.9fr] gap-4">
               <Card className={`rounded-xl shadow-sm ${careIntelligence.topPriority?.risk.border || 'border-border'} ${careIntelligence.topPriority?.risk.bg || ''}`}>
@@ -2094,7 +1932,7 @@ const Dashboard: React.FC = () => {
                             <SelectContent>
                               <SelectItem value="manual">Manual Entry</SelectItem>
                               <SelectItem value="device">Device Integration</SelectItem>
-                              <SelectItem value="simulator">Watch Simulator</SelectItem>
+
                             </SelectContent>
                           </Select>
                         </div>

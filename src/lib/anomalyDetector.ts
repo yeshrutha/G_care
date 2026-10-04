@@ -304,6 +304,7 @@ export function processVitalsTickWithAlerts(
         time: anomaly.timestamp,
         acknowledged: false,
         elderName: elder.full_name,
+        elderId: elder.id,
       };
       useGuardianStore.getState().addGuardianAlert(guardianAlert);
     } catch (e) {

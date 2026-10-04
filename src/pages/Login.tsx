@@ -42,6 +42,7 @@ const Login: React.FC = () => {
   const [hospital, setHospital] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [error, setError] = useState('');
+  const [emailAlreadyRegistered, setEmailAlreadyRegistered] = useState(false);
 
   const getRedirect = (r: Role) => {
     if (r === 'doctor') return '/doctor';
@@ -54,6 +55,7 @@ const Login: React.FC = () => {
   const submitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setEmailAlreadyRegistered(false);
 
     try {
       const user = isSignup
@@ -76,7 +78,12 @@ const Login: React.FC = () => {
 
       navigate(getRedirect(user.role));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Authentication failed');
+      if (err instanceof ApiError && err.status === 409) {
+        setError('An account already exists for this email. Sign in instead.');
+        setEmailAlreadyRegistered(true);
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Authentication failed');
+      }
     }
   };
 
@@ -139,7 +146,18 @@ const Login: React.FC = () => {
           )}
 
           {error && (
-            <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+              <span>{error}</span>
+              {emailAlreadyRegistered && (
+                <button
+                  type="button"
+                  onClick={() => { setIsSignup(false); setError(''); setEmailAlreadyRegistered(false); }}
+                  className="shrink-0 font-medium text-teal hover:underline"
+                >
+                  Log in
+                </button>
+              )}
+            </div>
           )}
 
           <form onSubmit={submitAuth} className="space-y-4">
@@ -268,7 +286,7 @@ const Login: React.FC = () => {
 
           <p className="text-center text-sm text-muted-foreground mt-6">
             {isSignup ? t('login.login_prompt') : t('login.signup_prompt')}{' '}
-            <button onClick={() => { setIsSignup(!isSignup); setError(''); }}
+            <button onClick={() => { setIsSignup(!isSignup); setError(''); setEmailAlreadyRegistered(false); }}
               className="text-teal hover:underline font-medium">
               {isSignup ? t('login.login_link') : t('login.signup_link')}
             </button>

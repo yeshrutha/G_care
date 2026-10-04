@@ -204,6 +204,10 @@ export async function handleRequest(req, res, pathName) {
     return handleCareTeam(req, res, pathName, user);
   }
 
+  if (pathName.startsWith('/api/device')) {
+    return handleDevice(req, res, pathName, user);
+  }
+
   return sendJson(res, 404, { error: 'Route not found' }, req);
 }
 
@@ -532,7 +536,7 @@ async function handleMedications(req, res, pathName, user) {
 }
 
 async function handleAlarms(req, res, pathName, user) {
-  if (!requireRole(user, ['caretaker', 'guardian'], res, req)) return;
+  if (!requireRole(user, ['caretaker', 'doctor', 'guardian'], res, req)) return;
 
   if (req.method === 'POST' && pathName === '/api/alarms') {
     const alarm = parseBody(alarmSchema, await readJsonBody(req), res, req);
@@ -755,4 +759,70 @@ async function handleTts(req, res) {
   } catch (err) {
     return sendJson(res, 500, { error: 'TTS request failed' }, req);
   }
+}
+
+async function handleDevice(req, res, pathName, user) {
+  if (req.method === 'POST' && (pathName === '/api/device/vitals' || pathName === '/api/device/telemetry')) {
+    const body = await readJsonBody(req);
+    const elderId = body.elderId || body.elder_id || 'elder-1';
+
+    // Parse hardware metrics (accepts camelCase and snake_case from ESP32)
+    const heart_rate = Math.round(Number(body.heartRate ?? body.heart_rate ?? 75));
+    const spo2 = Math.round(Number(body.spo2 ?? 98));
+    const skin_temp = Number(body.temperature ?? body.skin_temp ?? body.temp ?? 36.6);
+    const systolic_bp = Math.round(Number(body.systolicBp ?? body.systolic_bp ?? 120));
+    const diastolic_bp = Math.round(Number(body.diastolicBp ?? body.diastolic_bp ?? 80));
+    const stress = Math.round(Number(body.stress ?? 15));
+    const hydration = Math.round(Number(body.hydration ?? 85));
+    const breathing_rate = Math.round(Number(body.breathingRate ?? body.breathing_rate ?? 16));
+    const fall_detected = Boolean(body.fallDetected ?? body.fall_detected ?? false);
+    const panic_detected = Boolean(body.panicDetected ?? body.panic_detected ?? false);
+    const shiver_detected = Boolean(body.shiverDetected ?? body.shiver_detected ?? false);
+
+    const reading = {
+      elderId,
+      heart_rate,
+      systolic_bp,
+      diastolic_bp,
+      spo2,
+      stress,
+      hydration,
+      breathing_rate,
+      skin_temp,
+      shiver_detected,
+      panic_detected,
+      fall_detected,
+      source: 'device',
+      timestamp: body.timestamp || new Date().toISOString(),
+    };
+
+    const saved = await dbService.createVitalsReading(reading);
+
+    if (fall_detected) {
+      await dbService.createAlert(user, {
+        elder_id: elderId,
+        type: 'fall',
+        severity: 'critical',
+        message: `Wearable fall detected for elder ${elderId}!`,
+      });
+    }
+
+    return sendJson(res, 201, {
+      ok: true,
+      message: 'Hardware telemetry recorded',
+      reading: saved,
+    }, req);
+  }
+
+  if (req.method === 'GET' && pathName === '/api/device/vitals') {
+    const url = new URL(req.url || '/', `http://${req.headers.host}`);
+    const elderId = url.searchParams.get('elderId') || 'elder-1';
+    const readings = await dbService.getVitalsReadings(elderId, 1);
+    return sendJson(res, 200, {
+      ok: true,
+      latest: readings[0] || null,
+    }, req);
+  }
+
+  return sendJson(res, 404, { error: 'Route not found' }, req);
 }

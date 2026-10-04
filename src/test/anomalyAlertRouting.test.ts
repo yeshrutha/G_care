@@ -6,7 +6,7 @@ import {
   ALERT_COOLDOWN_MS,
 } from '@/lib/anomalyDetector';
 import { useAppStore } from '@/store';
-import { useGuardianStore } from '@/store/guardianStore';
+import { useGuardianStore, isAlertForElder, resolveAlertElderName } from '@/store/guardianStore';
 import { DEMO_ELDERS, DEMO_VITALS } from '@/lib/demoData';
 
 describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
@@ -144,4 +144,87 @@ describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
       expect(restoredVitals.spo2).toBeGreaterThanOrEqual(94);
     });
   });
+
+  describe('Guardian Alert Scoping & Privacy', () => {
+    const venkatesh = DEMO_ELDERS[2]; // Venkatesh Rao
+    const lakshmi = DEMO_ELDERS[1]; // Lakshmi Devi
+
+    it('prevents alerts of Venkatesh Rao and Lakshmi Devi from matching Usha guardian', () => {
+      const venkateshAlert = {
+        id: 'ga-v1',
+        type: 'vital_abnormal' as const,
+        severity: 'warning' as const,
+        message: "⚠️ Vital Alert: Venkatesh Rao's Oxygen Saturation dropped to 92%. Dr. Ramesh Kumar and caretaker have been notified.",
+        time: new Date().toISOString(),
+        acknowledged: false,
+        elderName: 'Venkatesh Rao',
+      };
+
+      const lakshmiAlert = {
+        id: 'ga-l1',
+        type: 'vital_abnormal' as const,
+        severity: 'warning' as const,
+        message: "⚠️ Vital Alert: Lakshmi Devi's BP reached 140/87 mmHg. Dr. Ramesh Kumar and caretaker have been notified.",
+        time: new Date().toISOString(),
+        acknowledged: false,
+        elderName: 'Lakshmi Devi',
+      };
+
+      const ushaAlert = {
+        id: 'ga-u1',
+        type: 'vital_abnormal' as const,
+        severity: 'warning' as const,
+        message: "⚠️ Vital Alert: Usha's Heart Rate elevated to 102 bpm. Dr. Ramesh Kumar and caretaker have been notified.",
+        time: new Date().toISOString(),
+        acknowledged: false,
+        elderName: 'Usha',
+      };
+
+      expect(isAlertForElder(venkateshAlert, 'Usha')).toBe(false);
+      expect(isAlertForElder(lakshmiAlert, 'Usha')).toBe(false);
+      expect(isAlertForElder(ushaAlert, 'Usha')).toBe(true);
+    });
+
+    it('resolves true elder from message even if alert elderName was previously corrupted', () => {
+      const corruptedAlert = {
+        id: 'ga-corrupted',
+        type: 'vital_abnormal' as const,
+        severity: 'warning' as const,
+        message: "⚠️ Vital Alert: Venkatesh Rao's Oxygen Saturation dropped to 92%. Dr. Ramesh Kumar and caretaker have been notified.",
+        time: new Date().toISOString(),
+        acknowledged: false,
+        elderName: 'Usha', // Was falsely rewritten to Usha in previous bug
+      };
+
+      expect(resolveAlertElderName(corruptedAlert)).toBe('Venkatesh Rao');
+      expect(isAlertForElder(corruptedAlert, 'Usha')).toBe(false);
+    });
+
+    it('setGuardianUser does not rewrite elderName on existing alerts', () => {
+      useGuardianStore.setState({
+        alerts: [
+          {
+            id: 'ga-v2',
+            type: 'vital_abnormal',
+            severity: 'warning',
+            message: "⚠️ Vital Alert: Venkatesh Rao's Oxygen Saturation dropped to 92%.",
+            time: new Date().toISOString(),
+            acknowledged: false,
+            elderName: 'Venkatesh Rao',
+          },
+        ],
+      });
+
+      useGuardianStore.getState().setGuardianUser({
+        name: 'Vishwa',
+        email: 'vishwa@example.com',
+        phone: '1234567890',
+        elderName: 'Usha',
+      });
+
+      const alertsAfter = useGuardianStore.getState().alerts;
+      expect(alertsAfter[0].elderName).toBe('Venkatesh Rao');
+    });
+  });
 });
+

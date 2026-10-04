@@ -7,8 +7,9 @@ const requestBuckets = new Map();
 export function sendJson(res, status, body, req) {
   const origin = req?.headers?.origin;
   const origins = CORS_ORIGIN.split(',').map((item) => item.trim()).filter(Boolean);
-  const allowOrigin = CORS_ORIGIN === '*'
-    ? '*'
+  const isVercel = origin && (origin.endsWith('.vercel.app') || origin === 'https://vercel.app');
+  const allowOrigin = (CORS_ORIGIN === '*' || origins.includes('*') || isVercel)
+    ? (origin || '*')
     : (origin && origins.includes(origin) ? origin : origins[0]);
 
   res.writeHead(status, {

@@ -153,8 +153,12 @@ const INITIAL_SEED_ALARMS: StoreAlarm[] = [
   { id: 'alarm-4', time: '18:30', title: 'Evening walk', elderId: 'elder-3', status: 'Scheduled', type: 'activity', notes: 'Evening activity reminder', repeat: 'Daily', enabled: true },
 ];
 
+function isStorageAvailable(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.localStorage) && typeof window.localStorage.getItem === 'function';
+}
+
 function getStoredActiveAlerts(): DemoAlert[] {
-  if (typeof window === 'undefined') return [];
+  if (!isStorageAvailable()) return [];
   const rawAlerts = window.localStorage.getItem(ACTIVE_ALERTS_STORAGE_KEY);
   if (!rawAlerts) return [];
   try {
@@ -166,24 +170,24 @@ function getStoredActiveAlerts(): DemoAlert[] {
 }
 
 function storeActiveAlerts(alerts: DemoAlert[]) {
-  if (typeof window !== 'undefined') {
+  if (isStorageAvailable()) {
     window.localStorage.setItem(ACTIVE_ALERTS_STORAGE_KEY, JSON.stringify(alerts));
   }
 }
 
 function getStoredDemoMode(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (!isStorageAvailable()) return false;
   return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
 }
 
 function storeDemoMode(v: boolean) {
-  if (typeof window !== 'undefined') {
+  if (isStorageAvailable()) {
     window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, String(v));
   }
 }
 
 function getStoredMedications(): Medication[] {
-  if (typeof window === 'undefined') return INITIAL_SEED_MEDICATIONS;
+  if (!isStorageAvailable()) return INITIAL_SEED_MEDICATIONS;
   const raw = window.localStorage.getItem(MEDICATIONS_STORAGE_KEY);
   if (!raw) return INITIAL_SEED_MEDICATIONS;
   try {
@@ -195,13 +199,13 @@ function getStoredMedications(): Medication[] {
 }
 
 function storeMedications(meds: Medication[]) {
-  if (typeof window !== 'undefined') {
+  if (isStorageAvailable()) {
     window.localStorage.setItem(MEDICATIONS_STORAGE_KEY, JSON.stringify(meds));
   }
 }
 
 function getStoredAlarms(): StoreAlarm[] {
-  if (typeof window === 'undefined') return INITIAL_SEED_ALARMS;
+  if (!isStorageAvailable()) return INITIAL_SEED_ALARMS;
   const raw = window.localStorage.getItem(ALARMS_STORAGE_KEY);
   if (!raw) return INITIAL_SEED_ALARMS;
   try {
@@ -213,18 +217,18 @@ function getStoredAlarms(): StoreAlarm[] {
 }
 
 function storeAlarms(alarms: StoreAlarm[]) {
-  if (typeof window !== 'undefined') {
+  if (isStorageAvailable()) {
     window.localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(alarms));
   }
 }
 
 function getStoredActiveElderId(): string {
-  if (typeof window === 'undefined') return 'elder-1';
+  if (!isStorageAvailable()) return 'elder-1';
   return window.localStorage.getItem(ACTIVE_ELDER_STORAGE_KEY) || 'elder-1';
 }
 
 function storeActiveElderId(id: string) {
-  if (typeof window !== 'undefined') {
+  if (isStorageAvailable()) {
     window.localStorage.setItem(ACTIVE_ELDER_STORAGE_KEY, id);
   }
 }
