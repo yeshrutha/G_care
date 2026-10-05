@@ -16,6 +16,7 @@ export const JWT_SECRET = process.env.JWT_SECRET || 'gcare-dev-secret-change-in-
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 export const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:8080,http://localhost:8080';
 export const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 250000);
+export const MAX_UPLOAD_BODY_BYTES = Number(process.env.MAX_UPLOAD_BODY_BYTES || 15 * 1024 * 1024);
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
 export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 120);
 export const IS_PRODUCTION = process.env.NODE_ENV === 'production';

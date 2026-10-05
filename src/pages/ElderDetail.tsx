@@ -15,7 +15,7 @@ import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
 import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
 import { useAppStore, type StoreAlarm } from '@/store';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { DEMO_VITALS, DEMO_MEDICATIONS, DEMO_HR_HISTORY, DEMO_MOOD_HISTORY, DEMO_ELDERS } from '@/lib/demoData';
 import { LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
@@ -126,6 +126,8 @@ const ElderDetail: React.FC = () => {
     enabled: true,
   });
 
+  const [medicalReports, setMedicalReports] = useState<any[]>([]);
+
   const elder = (demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS).find(e => e.id === id) || (demoElders[0] || DEMO_ELDERS[0]);
   const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
   const medications = (sharedMedications.length ? sharedMedications : getSeedMedications())
@@ -137,6 +139,20 @@ const ElderDetail: React.FC = () => {
       setActiveElderId(elder.id);
     }
   }, [elder?.id, activeElderId, setActiveElderId]);
+
+  // Fetch clinical medical reports for this elder
+  useEffect(() => {
+    if (!elder?.id) return;
+    let cancelled = false;
+    apiFetch<any[]>(`/reports?elderId=${elder.id}`)
+      .then((data) => {
+        if (!cancelled) setMedicalReports(Array.isArray(data) ? data : []);
+      })
+      .catch(() => {
+        if (!cancelled) setMedicalReports([]);
+      });
+    return () => { cancelled = true; };
+  }, [elder?.id]);
 
   const alarms: ElderAlarm[] = useMemo(() => {
     return storeAlarms
@@ -880,22 +896,79 @@ const ElderDetail: React.FC = () => {
 
           {/* TAB 8: REPORTS */}
           <TabsContent value="reports" className="space-y-6 mt-6">
+            {/* Clinical Documents & Doctor Uploaded Reports */}
+            <Card className="rounded-xl border border-border shadow-sm">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle className="font-display text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-teal" /> Verified Medical Records & Reports
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Official clinical documents and test reports uploaded by attending doctors for {elder.full_name}.
+                  </p>
+                </div>
+                <Badge variant="outline" className="border-teal/30 text-teal bg-teal/5 text-xs">
+                  {medicalReports.length} {medicalReports.length === 1 ? 'Report' : 'Reports'}
+                </Badge>
+              </CardHeader>
+              <CardContent>
+                {medicalReports.length === 0 ? (
+                  <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-xl p-6">
+                    <FileText className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
+                    <p className="font-medium text-foreground">No medical reports uploaded yet</p>
+                    <p className="text-xs mt-1">Diagnostic reports and checkup summaries uploaded by doctors will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {medicalReports.map((report) => (
+                      <div key={report.id} className="p-4 bg-muted/30 border border-border/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Badge className="bg-secondary text-teal hover:bg-secondary border-0 text-[10px]">
+                              {report.category}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(report.createdAt || report.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <h4 className="font-medium text-foreground text-sm mt-0.5">{report.title}</h4>
+                          <p className="text-xs text-muted-foreground">Doctor: {report.doctorName || report.doctor_name || 'Attending Physician'}</p>
+                          {report.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-2 bg-background/50 p-2 rounded border border-border/40 mt-1">
+                              {report.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                          <a
+                            href={getReportFileUrl(report.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-teal text-primary-foreground hover:bg-teal/90 transition-colors shadow-sm"
+                          >
+                            <FileText className="h-3.5 w-3.5" /> Open PDF
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* AI Health Summary */}
             <Card className="rounded-xl border-gw-purple/20 bg-gw-purple/5">
               <CardHeader><CardTitle className="font-display text-lg">Today's AI Health Summary</CardTitle></CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {elder.full_name}'s vitals have been largely stable over the past 24 hours. Heart rate averaged 71 bpm,
-                  well within his personal baseline of 60-80 bpm. Blood pressure readings showed a mild upward trend,
-                  averaging 128/84 mmHg compared to his baseline of 120/78 mmHg.
+                  well within personal baseline of 60-80 bpm. Blood pressure readings showed a mild trend,
+                  averaging 128/84 mmHg.
                 </p>
                 <p className="text-sm text-muted-foreground leading-relaxed mt-3">
-                  SpO₂ remained stable at 97.4%. Stress levels were slightly elevated in the evening hours, peaking at 45/100.
-                  Medication adherence was good — both Metformin doses were taken on time.
+                  SpO₂ remained stable at 97.4%. Stress levels were normal during daytime hours. Medication adherence is on track.
                 </p>
-                <div className="flex gap-2 mt-4">
-                  <Button size="sm" className="bg-teal hover:bg-teal/90 text-primary-foreground">Share with Doctor</Button>
-                  <Button size="sm" variant="outline">Download PDF</Button>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>

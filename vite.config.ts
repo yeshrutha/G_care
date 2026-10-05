@@ -61,4 +61,10 @@ export default defineConfig(({ mode }) => ({
     },
     dedupe: ["react", "react-dom", "react/jsx-runtime", "react/jsx-dev-runtime", "@tanstack/react-query", "@tanstack/query-core"],
   },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    include: ['src/test/**/*.test.ts', 'src/test/**/*.test.tsx'],
+    exclude: ['node_modules/**', 'dist/**'],
+  },
 }));

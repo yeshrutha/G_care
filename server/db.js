@@ -415,9 +415,20 @@ export async function initDb() {
         title VARCHAR(255) NOT NULL,
         description TEXT,
         file_url TEXT,
+        file_name VARCHAR(255),
+        file_data TEXT,
+        file_type VARCHAR(100),
+        file_size INTEGER,
         category VARCHAR(100),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    await client.query(`
+      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_name VARCHAR(255);
+      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_data TEXT;
+      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_type VARCHAR(100);
+      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_size INTEGER;
     `);
 
     await client.query(`
@@ -688,13 +699,16 @@ export const dbService = {
         const { rows: rels } = await pool.query('SELECT elder_id FROM user_elders WHERE user_id = $1', [user.id]);
         const explicitIds = rels.map((r) => r.elder_id);
 
-        const { rows: namedElders } = await pool.query('SELECT id FROM elders WHERE LOWER(TRIM(full_name)) = $1', [elderName]);
-        const namedIds = namedElders.map((r) => r.id);
+        let namedIds = [];
+        if (elderName) {
+          const { rows: namedElders } = await pool.query('SELECT id FROM elders WHERE LOWER(TRIM(full_name)) = $1', [elderName]);
+          namedIds = namedElders.map((r) => r.id);
+        }
 
-        const combined = [...new Set([...explicitIds, ...namedIds, ...demoElderIds])];
+        const combined = [...new Set([...explicitIds, ...namedIds])];
         if (combined.length > 0) return combined;
-        const { rows: allElders } = await pool.query('SELECT id FROM elders');
-        return allElders.map((r) => r.id);
+        if (user.id === DEMO_GUARDIAN_ID) return ['elder-1'];
+        return [];
       }
       if (user.role === 'doctor') {
         const { rows: rels } = await pool.query('SELECT elder_id FROM user_elders WHERE user_id = $1', [user.id]);
@@ -718,12 +732,15 @@ export const dbService = {
       if (user.role === 'guardian') {
         const elderName = String(user.profile?.elderName || '').trim().toLowerCase();
         const byAssignment = user.assignedElderIds || [];
-        const byName = fileDb.elders
-          .filter((elder) => elder.full_name.trim().toLowerCase() === elderName)
-          .map((elder) => elder.id);
-        const combined = [...new Set([...byAssignment, ...byName, ...demoElderIds])];
+        const byName = elderName
+          ? fileDb.elders
+              .filter((elder) => elder.full_name.trim().toLowerCase() === elderName)
+              .map((elder) => elder.id)
+          : [];
+        const combined = [...new Set([...byAssignment, ...byName])];
         if (combined.length > 0) return combined;
-        return fileDb.elders.map((elder) => elder.id);
+        if (user.id === DEMO_GUARDIAN_ID) return ['elder-1'];
+        return [];
       }
       if (user.role === 'doctor') {
         const byAssignment = user.assignedElderIds || [];
@@ -1292,7 +1309,7 @@ export const dbService = {
     }
   },
 
-  createReport: async (doctor, elderId, title, description, category, fileUrl) => {
+  createReport: async (doctor, elderId, title, description, category, fileUrl = '', fileName = '', fileData = '', fileType = 'application/pdf', fileSize = 0) => {
     const id = `rep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const saved = {
       id,
@@ -1302,29 +1319,35 @@ export const dbService = {
       title,
       description: description || '',
       category: category || 'General',
-      fileUrl: fileUrl || '',
+      fileUrl: fileUrl || fileName || '',
+      fileName: fileName || '',
+      fileData: fileData || '',
+      fileType: fileType || 'application/pdf',
+      fileSize: fileSize || 0,
       createdAt: new Date().toISOString(),
     };
 
     if (usePostgres) {
       await pool.query(
-        'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.createdAt]
+        'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, file_name, file_data, file_type, file_size, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.fileName, saved.fileData, saved.fileType, saved.fileSize, saved.createdAt]
       );
-      return saved;
+      const { fileData: _, ...meta } = saved;
+      return meta;
     } else {
       const fileDb = await readDb();
       fileDb.reports = fileDb.reports || [];
       fileDb.reports.unshift(saved);
       await writeDb(fileDb);
-      return saved;
+      const { fileData: _, ...meta } = saved;
+      return meta;
     }
   },
 
   getReports: async (elderId, limit = 50) => {
     if (usePostgres) {
       const { rows } = await pool.query(
-        'SELECT * FROM reports WHERE elder_id = $1 ORDER BY created_at DESC LIMIT $2',
+        'SELECT id, elder_id, doctor_id, doctor_name, title, description, category, file_url, file_name, file_type, file_size, created_at FROM reports WHERE elder_id = $1 ORDER BY created_at DESC LIMIT $2',
         [elderId, limit]
       );
       return rows.map((r) => ({
@@ -1336,6 +1359,9 @@ export const dbService = {
         description: r.description,
         category: r.category,
         fileUrl: r.file_url,
+        fileName: r.file_name,
+        fileType: r.file_type,
+        fileSize: r.file_size,
         createdAt: r.created_at ? r.created_at.toISOString() : null,
       }));
     } else {
@@ -1343,7 +1369,38 @@ export const dbService = {
       fileDb.reports = fileDb.reports || [];
       return fileDb.reports
         .filter((r) => r.elderId === elderId)
-        .slice(0, limit);
+        .slice(0, limit)
+        .map(({ fileData: _, ...meta }) => meta);
+    }
+  },
+
+  getReportById: async (id) => {
+    if (usePostgres) {
+      const { rows } = await pool.query(
+        'SELECT * FROM reports WHERE id = $1',
+        [id]
+      );
+      if (!rows.length) return null;
+      const r = rows[0];
+      return {
+        id: r.id,
+        elderId: r.elder_id,
+        doctorId: r.doctor_id,
+        doctorName: r.doctor_name,
+        title: r.title,
+        description: r.description,
+        category: r.category,
+        fileUrl: r.file_url,
+        fileName: r.file_name,
+        fileData: r.file_data,
+        fileType: r.file_type,
+        fileSize: r.file_size,
+        createdAt: r.created_at ? r.created_at.toISOString() : null,
+      };
+    } else {
+      const fileDb = await readDb();
+      fileDb.reports = fileDb.reports || [];
+      return fileDb.reports.find((r) => r.id === id) || null;
     }
   },
 

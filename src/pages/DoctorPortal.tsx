@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,7 +19,7 @@ import { MedSmartInput } from '@/components/MedSmartInput';
 import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert, type StoreAlarm } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
@@ -39,6 +39,9 @@ interface ClinicalReport {
   description: string;
   category: string;
   fileUrl: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
   createdAt: string;
 }
 
@@ -160,7 +163,8 @@ const DoctorPortal: React.FC = () => {
     category: 'Lab Report',
     description: '',
   });
-  const [selectedFile, setSelectedFile] = useState<{ name: string; size: string } | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewReport, setPreviewReport] = useState<ClinicalReport | null>(null);
   const [careTeam, setCareTeam] = useState<DoctorCareTeam[]>([]);
@@ -315,8 +319,33 @@ const DoctorPortal: React.FC = () => {
     }
   };
 
-  const simulateFileUpload = () => {
-    setSelectedFile({ name: `${newReport.title.toLowerCase().replace(/\s+/g, '_') || 'medical_record'}.pdf`, size: '1.2 MB' });
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
+      toast({
+        title: 'Invalid File',
+        description: 'Please select a valid PDF clinical document.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      toast({
+        title: 'File Too Large',
+        description: 'The selected report exceeds the 10 MB limit.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    if (!newReport.title) {
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
+      setNewReport((prev) => ({ ...prev, title: cleanTitle }));
+    }
   };
 
   const handleUploadReport = async (e: React.FormEvent) => {
@@ -326,21 +355,24 @@ const DoctorPortal: React.FC = () => {
       return;
     }
 
-    try {
-      setUploadProgress(10);
-      const timer = setInterval(() => {
-        setUploadProgress((p) => {
-          if (p === null) return null;
-          if (p >= 100) {
-            clearInterval(timer);
-            return 100;
-          }
-          return p + 30;
-        });
-      }, 150);
+    if (!selectedFile) {
+      toast({ title: 'Validation Error', description: 'Please select a medical report PDF from your computer.', variant: 'destructive' });
+      return;
+    }
 
-      await new Promise((r) => setTimeout(r, 600));
-      const fileUrl = selectedFile ? selectedFile.name : 'uploaded_report.pdf';
+    try {
+      setUploadProgress(15);
+
+      // Read local file as base64
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to read document from disk'));
+      });
+      reader.readAsDataURL(selectedFile);
+      const base64Data = await base64Promise;
+
+      setUploadProgress(50);
 
       const saved = await apiFetch<ClinicalReport>('/reports', {
         method: 'POST',
@@ -349,18 +381,27 @@ const DoctorPortal: React.FC = () => {
           title: newReport.title,
           category: newReport.category,
           description: newReport.description,
-          fileUrl,
+          fileName: selectedFile.name,
+          fileType: selectedFile.type || 'application/pdf',
+          fileSize: selectedFile.size,
+          fileData: base64Data,
         }),
       });
 
+      setUploadProgress(100);
       setReportsList((prev) => [saved, ...prev]);
       setNewReport({ title: '', category: 'Lab Report', description: '' });
       setSelectedFile(null);
-      setUploadProgress(null);
-      toast({ title: 'Success', description: 'Clinical report uploaded successfully' });
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      setTimeout(() => setUploadProgress(null), 400);
+      toast({ title: 'Report Verified & Uploaded', description: 'Clinical report validated and attached to patient history successfully.' });
     } catch (err: any) {
       setUploadProgress(null);
-      toast({ title: 'Error', description: err.message || 'Failed to upload report', variant: 'destructive' });
+      toast({
+        title: 'Upload Rejected',
+        description: err.message || 'Invalid medical report. Please upload a valid clinical/checkup report.',
+        variant: 'destructive',
+      });
     }
   };
 
@@ -1319,16 +1360,42 @@ const DoctorPortal: React.FC = () => {
                           </div>
 
                           <div className="space-y-2">
-                            <Label>Attach Report Document</Label>
+                            <Label>Attach Medical Report Document (PDF) *</Label>
+                            <input
+                              type="file"
+                              ref={fileInputRef}
+                              accept=".pdf,application/pdf"
+                              onChange={handleFileChange}
+                              className="hidden"
+                            />
                             {selectedFile ? (
                               <div className="flex items-center justify-between p-3 bg-secondary/35 rounded-lg border border-teal/20 text-xs">
-                                <span className="font-medium text-teal">{selectedFile.name} ({selectedFile.size})</span>
-                                <Button type="button" variant="ghost" size="sm" className="h-6 text-destructive px-2" onClick={() => setSelectedFile(null)}>Remove</Button>
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                  <FileText className="h-4 w-4 text-teal shrink-0" />
+                                  <span className="font-medium text-teal truncate">{selectedFile.name}</span>
+                                  <span className="text-muted-foreground shrink-0">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 text-destructive px-2 shrink-0"
+                                  onClick={() => {
+                                    setSelectedFile(null);
+                                    if (fileInputRef.current) fileInputRef.current.value = '';
+                                  }}
+                                >
+                                  Remove
+                                </Button>
                               </div>
                             ) : (
-                              <div onClick={simulateFileUpload} className="border-2 border-dashed border-border hover:border-teal/50 cursor-pointer rounded-lg p-5 flex flex-col items-center justify-center text-xs text-muted-foreground gap-1.5">
-                                <Folder className="h-6 w-6 text-muted-foreground/60" />
-                                <span>Click to select PDF/Doc file for upload simulation</span>
+                              <div
+                                onClick={() => fileInputRef.current?.click()}
+                                className="border-2 border-dashed border-border hover:border-teal/50 cursor-pointer rounded-lg p-5 flex flex-col items-center justify-center text-xs text-muted-foreground gap-1.5 transition-colors"
+                              >
+                                <UploadCloud className="h-6 w-6 text-teal" />
+                                <span className="font-medium text-foreground">Click to select PDF from local computer</span>
+                                <span className="text-[11px] text-muted-foreground">Supported: PDF (up to 10 MB) · Diagnostic & Lab Reports</span>
                               </div>
                             )}
                           </div>
@@ -1336,17 +1403,21 @@ const DoctorPortal: React.FC = () => {
                           {uploadProgress !== null && (
                             <div className="space-y-1">
                               <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Uploading file...</span>
+                                <span>Verifying & uploading document...</span>
                                 <span>{Math.min(uploadProgress, 100)}%</span>
                               </div>
                               <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-                                <div className="h-full bg-teal" style={{ width: `${uploadProgress}%` }} />
+                                <div className="h-full bg-teal transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
                               </div>
                             </div>
                           )}
 
-                          <Button type="submit" disabled={!newReport.title} className="w-full bg-teal hover:bg-teal/90 text-primary-foreground">
-                            Add Report to Patient History
+                          <Button
+                            type="submit"
+                            disabled={!newReport.title || !selectedFile || uploadProgress !== null}
+                            className="w-full bg-teal hover:bg-teal/90 text-primary-foreground font-medium"
+                          >
+                            {uploadProgress !== null ? 'Validating & Uploading...' : 'Add Report to Patient History'}
                           </Button>
                         </form>
                       </CardContent>
@@ -1366,17 +1437,27 @@ const DoctorPortal: React.FC = () => {
                           <div className="space-y-3">
                             {reportsList.map((report) => (
                               <div key={report.id} className="p-3 bg-muted/40 border border-border/60 rounded-xl flex items-center justify-between gap-3">
-                                <div>
+                                <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     <Badge className="bg-secondary text-teal hover:bg-secondary border-0 text-[10px]">{report.category}</Badge>
                                     <span className="text-[10px] text-muted-foreground">{new Date(report.createdAt).toLocaleDateString()}</span>
                                   </div>
-                                  <h4 className="font-medium text-foreground text-sm mt-1">{report.title}</h4>
+                                  <h4 className="font-medium text-foreground text-sm mt-1 truncate">{report.title}</h4>
                                   <p className="text-[10px] text-muted-foreground">Doctor: {report.doctorName}</p>
                                 </div>
-                                <Button size="sm" variant="outline" className="border-teal text-teal hover:bg-teal/5 text-xs" onClick={() => setPreviewReport(report)}>
-                                  View Details
-                                </Button>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <a
+                                    href={getReportFileUrl(report.id)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-teal/10 text-teal hover:bg-teal/20 transition-colors"
+                                  >
+                                    <FileText className="h-3.5 w-3.5" /> Open PDF
+                                  </a>
+                                  <Button size="sm" variant="outline" className="border-border text-foreground hover:bg-secondary/40 text-xs" onClick={() => setPreviewReport(report)}>
+                                    Details
+                                  </Button>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -1479,9 +1560,15 @@ const DoctorPortal: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-semibold text-muted-foreground block mb-0.5">Attached File</span>
-                  <span className="text-teal font-medium hover:underline cursor-pointer flex items-center gap-1">
-                    <FileText className="h-3.5 w-3.5" /> {previewReport.fileUrl || 'No file attached'}
-                  </span>
+                  <a
+                    href={getReportFileUrl(previewReport.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-teal font-medium hover:underline flex items-center gap-1.5"
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    <span className="truncate max-w-[200px]">{previewReport.fileName || previewReport.fileUrl || 'View Attached PDF'}</span>
+                  </a>
                 </div>
               </div>
               
@@ -1492,8 +1579,16 @@ const DoctorPortal: React.FC = () => {
                 </p>
               </div>
 
-              <div className="flex justify-end pt-2">
-                <Button onClick={() => setPreviewReport(null)} className="bg-teal hover:bg-teal/90 text-primary-foreground">Close</Button>
+              <div className="flex justify-between items-center pt-2">
+                <a
+                  href={getReportFileUrl(previewReport.id)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-teal text-primary-foreground hover:bg-teal/90 transition-colors shadow-sm"
+                >
+                  <FileText className="h-4 w-4" /> Open Document in New Tab
+                </a>
+                <Button onClick={() => setPreviewReport(null)} variant="outline">Close</Button>
               </div>
             </div>
           </DialogContent>

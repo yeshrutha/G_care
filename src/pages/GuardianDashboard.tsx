@@ -16,17 +16,19 @@ import { useAppStore } from '@/store';
 import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
-import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2, Heart } from 'lucide-react';
+import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, Tv, LogOut, User, Pencil, Plus, Trash2, Heart, FileText } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
 import LogsTab from '@/components/guardian/LogsTab';
 import AlertsTab from '@/components/guardian/AlertsTab';
 import RemindersTab from '@/components/guardian/RemindersTab';
 import SOSTab from '@/components/guardian/SOSTab';
 import SmartTVTab from '@/components/guardian/SmartTVTab';
+import ReportsTab from '@/components/guardian/ReportsTab';
 import WatchSimulator from '@/components/WatchSimulator';
 
 const TAB_CONFIG = [
   { id: 'feed', label: 'Feed', icon: BarChart3 },
+  { id: 'reports', label: 'Medical Records', icon: FileText },
   { id: 'logs', label: 'Logs', icon: ScrollText },
   { id: 'alerts', label: 'Alerts', icon: AlertTriangle },
   { id: 'reminders', label: 'Reminders', icon: Bell },
@@ -441,6 +443,7 @@ const GuardianDashboard: React.FC = () => {
           </TabsList>
 
           <TabsContent value="feed"><FeedTab /></TabsContent>
+          <TabsContent value="reports"><ReportsTab /></TabsContent>
           <TabsContent value="logs"><LogsTab /></TabsContent>
           <TabsContent value="alerts"><AlertsTab /></TabsContent>
           <TabsContent value="reminders"><RemindersTab /></TabsContent>

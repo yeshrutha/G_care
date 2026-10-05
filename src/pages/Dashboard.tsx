@@ -22,7 +22,7 @@ import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
 import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert, type StoreAlarm } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
@@ -1771,11 +1771,14 @@ const Dashboard: React.FC = () => {
                                     <h4 className="font-medium text-foreground">{report.title}</h4>
                                     {report.description && <p className="text-xs text-muted-foreground line-clamp-1">{report.description}</p>}
                                   </div>
-                                  {report.fileUrl && (
-                                    <a href={`/api/files/${report.fileUrl}`} target="_blank" rel="noreferrer" className="text-xs text-teal font-medium hover:underline flex items-center gap-1">
-                                      View Report
-                                    </a>
-                                  )}
+                                  <a
+                                    href={getReportFileUrl(report.id)}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-xs text-teal font-medium hover:underline flex items-center gap-1"
+                                  >
+                                    <FileText className="h-3.5 w-3.5" /> View Report
+                                  </a>
                                 </div>
                               ))}
                             </div>

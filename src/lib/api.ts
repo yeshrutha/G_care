@@ -60,10 +60,22 @@ export class ApiError extends Error {
   }
 }
 
+export function getReportFileUrl(reportId: string): string {
+  const token = getStoredToken();
+  const envApiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+  const origin = envApiUrl
+    ? (envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl)
+    : (typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null'
+        ? window.location.origin
+        : 'http://127.0.0.1:8787');
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${origin}/api/reports/${reportId}/file${tokenParam}`;
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers = new Headers(options.headers || {});
-  if (!headers.has('Content-Type') && options.body) {
+  if (!headers.has('Content-Type') && options.body && !(typeof FormData !== 'undefined' && options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
   if (token) {

@@ -9,6 +9,8 @@ import {
 } from './auth.js';
 import { dbService, newId } from './db.js';
 import { AssistantServiceError, generateAssistantReply } from './ai.js';
+import { MAX_UPLOAD_BODY_BYTES } from './config.js';
+import { validateMedicalDocument } from './medicalValidation.js';
 import {
   authenticate,
   getBearerToken,
@@ -16,6 +18,7 @@ import {
   requireAuth,
   requireRole,
   requireSession,
+  sendBinary,
   sendJson,
 } from './http.js';
 
@@ -112,6 +115,10 @@ const reportSchema = z.object({
   description: z.string().max(5000).optional().default(''),
   category: z.string().min(1).max(100).default('General'),
   fileUrl: z.string().max(500).optional().default(''),
+  fileName: z.string().max(255).optional().default(''),
+  fileData: z.string().min(1, 'Please attach a document file.'),
+  fileType: z.string().max(100).optional().default('application/pdf'),
+  fileSize: z.coerce.number().optional().default(0),
 });
 
 const assistantChatSchema = z.object({
@@ -196,7 +203,7 @@ export async function handleRequest(req, res, pathName) {
     return handleClinicalNotes(req, res, pathName, user);
   }
 
-  if (pathName.startsWith('/api/reports')) {
+  if (pathName.startsWith('/api/reports') || pathName.startsWith('/api/medical-records')) {
     return handleReports(req, res, pathName, user);
   }
 
@@ -648,10 +655,40 @@ async function handleClinicalNotes(req, res, pathName, user) {
 }
 
 async function handleReports(req, res, pathName, user) {
-  if (req.method === 'POST' && pathName === '/api/reports') {
+  // 1. Stream/download report document file: GET /api/reports/:id/file or /api/medical-records/:id/file
+  const fileMatch = pathName.match(/^\/api\/(?:reports|medical-records)\/([^/]+)\/file$/);
+  if (req.method === 'GET' && fileMatch) {
+    const reportId = fileMatch[1];
+    const report = await dbService.getReportById(reportId);
+    if (!report) {
+      return sendJson(res, 404, { error: 'Medical report not found' }, req);
+    }
+
+    const owns = await dbService.userOwnsElder(user, report.elderId);
+    if (!owns) {
+      return sendJson(res, 403, { error: 'Not authorized to access this patient medical report' }, req);
+    }
+
+    if (!report.fileData) {
+      return sendJson(res, 404, { error: 'No attached document found for this report' }, req);
+    }
+
+    const buffer = Buffer.from(report.fileData, 'base64');
+    return sendBinary(res, buffer, report.fileType || 'application/pdf', report.fileName || `${report.title}.pdf`, req);
+  }
+
+  // 2. Upload clinical report: POST /api/reports or /api/medical-records
+  if (req.method === 'POST' && (pathName === '/api/reports' || pathName === '/api/medical-records' || pathName === '/api/reports/upload' || pathName === '/api/medical-records/upload')) {
     if (!requireRole(user, ['doctor'], res, req)) return;
 
-    const parsed = parseBody(reportSchema, await readJsonBody(req), res, req);
+    let body;
+    try {
+      body = await readJsonBody(req, MAX_UPLOAD_BODY_BYTES);
+    } catch (err) {
+      return sendJson(res, err.statusCode || 400, { error: err.message || 'Invalid request body' }, req);
+    }
+
+    const parsed = parseBody(reportSchema, body, res, req);
     if (!parsed) return;
 
     const owns = await dbService.userOwnsElder(user, parsed.elderId);
@@ -659,12 +696,58 @@ async function handleReports(req, res, pathName, user) {
       return sendJson(res, 403, { error: 'Not allowed to add clinical reports for this patient' }, req);
     }
 
-    const saved = await dbService.createReport(user, parsed.elderId, parsed.title, parsed.description, parsed.category, parsed.fileUrl);
-    await dbService.addAuditLog(user, 'add_clinical_report', 'report', saved.id, { elderId: saved.elderId });
+    if (!parsed.fileData || typeof parsed.fileData !== 'string') {
+      return sendJson(res, 400, { error: 'Please attach a valid document file.' }, req);
+    }
+
+    // Strip optional data URI prefix
+    const cleanBase64 = parsed.fileData.replace(/^data:[^;]+;base64,/, '').trim();
+    if (!cleanBase64) {
+      return sendJson(res, 400, { error: 'Attached document is empty.' }, req);
+    }
+
+    let fileBuffer;
+    try {
+      fileBuffer = Buffer.from(cleanBase64, 'base64');
+    } catch {
+      return sendJson(res, 400, { error: 'Corrupted document data.' }, req);
+    }
+
+    const fileName = parsed.fileName || `${parsed.title.toLowerCase().replace(/\s+/g, '_')}.pdf`;
+    const mimeType = parsed.fileType || 'application/pdf';
+
+    const validation = await validateMedicalDocument(fileBuffer, fileName, mimeType);
+    if (!validation.isValid) {
+      return sendJson(res, 400, {
+        error: validation.error || 'Invalid medical report. Please upload a valid clinical/checkup report.',
+      }, req);
+    }
+
+    const saved = await dbService.createReport(
+      user,
+      parsed.elderId,
+      parsed.title,
+      parsed.description,
+      parsed.category,
+      parsed.fileUrl || fileName,
+      fileName,
+      cleanBase64,
+      mimeType,
+      fileBuffer.length
+    );
+
+    await dbService.addAuditLog(user, 'add_clinical_report', 'report', saved.id, {
+      elderId: saved.elderId,
+      fileName,
+      category: saved.category,
+      fileSize: fileBuffer.length,
+    });
+
     return sendJson(res, 201, saved, req);
   }
 
-  if (req.method === 'GET' && pathName === '/api/reports') {
+  // 3. List reports for an elder: GET /api/reports or /api/medical-records
+  if (req.method === 'GET' && (pathName === '/api/reports' || pathName === '/api/medical-records')) {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     const elderId = url.searchParams.get('elderId');
     if (!elderId) return sendJson(res, 400, { error: 'elderId parameter is required' }, req);

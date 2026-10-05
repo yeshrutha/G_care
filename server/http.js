@@ -22,13 +22,36 @@ export function sendJson(res, status, body, req) {
   res.end(status === 204 ? undefined : JSON.stringify(body));
 }
 
-export async function readJsonBody(req) {
+export function sendBinary(res, buffer, contentType = 'application/pdf', filename = 'document.pdf', req) {
+  const origin = req?.headers?.origin;
+  const origins = CORS_ORIGIN.split(',').map((item) => item.trim()).filter(Boolean);
+  const isVercel = origin && (origin.endsWith('.vercel.app') || origin === 'https://vercel.app');
+  const allowOrigin = (CORS_ORIGIN === '*' || origins.includes('*') || isVercel)
+    ? (origin || '*')
+    : (origin && origins.includes(origin) ? origin : origins[0]);
+
+  const safeFilename = filename.replace(/["\r\n]/g, '');
+
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': buffer.length,
+    'Content-Disposition': `inline; filename="${safeFilename}"`,
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Cache-Control': 'private, max-age=3600',
+    'Vary': 'Origin',
+  });
+  res.end(buffer);
+}
+
+export async function readJsonBody(req, maxLimit = MAX_JSON_BODY_BYTES) {
   const chunks = [];
   let size = 0;
 
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > MAX_JSON_BODY_BYTES) {
+    if (size > maxLimit) {
       const error = new Error('Request body is too large');
       error.statusCode = 413;
       throw error;
@@ -48,9 +71,19 @@ export async function readJsonBody(req) {
 }
 
 export function getBearerToken(req) {
-  const header = req.headers.authorization || '';
+  const header = req.headers?.authorization || '';
   const [scheme, token] = header.split(' ');
-  return scheme?.toLowerCase() === 'bearer' && token ? token : null;
+  if (scheme?.toLowerCase() === 'bearer' && token) {
+    return token;
+  }
+  if (req?.url) {
+    try {
+      const url = new URL(req.url, `http://${req.headers?.host || 'localhost'}`);
+      const queryToken = url.searchParams.get('token');
+      if (queryToken) return queryToken;
+    } catch {}
+  }
+  return null;
 }
 
 export async function authenticate(req) {
