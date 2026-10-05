@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { calculateMinutesBefore } from '@/lib/syncChannel';
+import { getAlertEpisodeKey, markEpisodeAcknowledged } from '@/lib/anomalyDetector';
 
 export interface Reminder {
   id: string;
@@ -80,6 +81,7 @@ interface GuardianStore {
   setReminders: (reminders: Reminder[]) => void;
   alerts: GuardianAlert[];
   addGuardianAlert: (a: GuardianAlert) => void;
+  updateGuardianAlertInPlace: (id: string, updates: Partial<GuardianAlert>) => void;
   acknowledgeAlert: (id: string) => void;
   clearAlerts: (mode?: 'all' | 'resolved') => void;
   removeAlert: (id: string) => void;
@@ -303,15 +305,44 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     const sanitized = sanitizeAlert(a);
     // Prevent duplicate unacknowledged alerts for the same elder & condition
     if (!sanitized.acknowledged) {
-      const alreadyHas = s.alerts.some(
+      const incomingKey = getAlertEpisodeKey({
+        elderId: sanitized.elderId,
+        elderName: sanitized.elderName,
+        type: sanitized.type,
+        message: sanitized.message,
+      });
+
+      const existingIdx = s.alerts.findIndex(
         (existing) =>
           !existing.acknowledged &&
-          existing.elderName?.trim().toLowerCase() === sanitized.elderName?.trim().toLowerCase() &&
-          existing.type === sanitized.type
+          getAlertEpisodeKey({
+            elderId: existing.elderId,
+            elderName: existing.elderName,
+            type: existing.type,
+            message: existing.message,
+          }) === incomingKey
       );
-      if (alreadyHas) return s;
+
+      if (existingIdx >= 0) {
+        const updated = [...s.alerts];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          ...sanitized,
+          id: sanitized.id || updated[existingIdx].id,
+          time: sanitized.time,
+          message: sanitized.message,
+          severity: sanitized.severity === 'critical' ? 'critical' : updated[existingIdx].severity,
+        };
+        storeGuardianAlerts(updated);
+        return { alerts: updated };
+      }
     }
-    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 15);
+    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 20);
+    storeGuardianAlerts(nextAlerts);
+    return { alerts: nextAlerts };
+  }),
+  updateGuardianAlertInPlace: (id, updates) => set((s) => {
+    const nextAlerts = s.alerts.map((item) => (item.id === id ? { ...item, ...updates } : item));
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
@@ -319,6 +350,11 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     const target = s.alerts.find(a => a.id === id);
     const nextAlerts = s.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a);
     storeGuardianAlerts(nextAlerts);
+
+    if (target) {
+      markEpisodeAcknowledged(getAlertEpisodeKey({ elderId: target.elderId, elderName: target.elderName, type: target.type, message: target.message }));
+      markEpisodeAcknowledged(target.id);
+    }
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(

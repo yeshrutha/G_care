@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { initializePatientVitals, simulateNextVitals, getElderBaseline } from '@/lib/vitalsSimulator';
 import { DEMO_ELDERS, DEMO_ALERTS } from '@/lib/demoData';
-import { processVitalsTickWithAlerts, clearAnomalyCooldowns } from '@/lib/anomalyDetector';
+import { processVitalsTickWithAlerts, clearAnomalyCooldowns, getAlertEpisodeKey, markEpisodeAcknowledged } from '@/lib/anomalyDetector';
 import { calculateMinutesBefore, formatTime12Hour } from '@/lib/syncChannel';
 
 export interface DemoElder {
@@ -97,8 +97,9 @@ interface AppStore {
   activeAlerts: DemoAlert[];
   setActiveAlerts: (a: DemoAlert[]) => void;
   addAlert: (a: DemoAlert) => void;
+  updateAlertInPlace: (id: string, updates: Partial<DemoAlert>) => void;
   resolveAlert: (id: string) => void;
-  clearAlerts: (mode?: 'all' | 'resolved') => void;
+  clearAlerts: (mode?: 'all' | 'resolved', elderId?: string) => void;
   removeAlert: (id: string) => void;
   demoElders: DemoElder[];
   setDemoElders: (e: DemoElder[]) => void;
@@ -337,7 +338,33 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ activeAlerts: a });
   },
   addAlert: (a) => set((s) => {
-    const activeAlerts = [a, ...s.activeAlerts.filter((x) => x.id !== a.id)].slice(0, 15);
+    // If incoming alert is active (unresolved), check if an active alert already exists for this canonical episode
+    if (!a.resolved) {
+      const incomingKey = getAlertEpisodeKey(a);
+      const existingIdx = s.activeAlerts.findIndex(
+        (x) => !x.resolved && getAlertEpisodeKey(x) === incomingKey
+      );
+      if (existingIdx >= 0) {
+        const nextAlerts = [...s.activeAlerts];
+        nextAlerts[existingIdx] = {
+          ...nextAlerts[existingIdx],
+          ...a,
+          id: a.id || nextAlerts[existingIdx].id,
+          time: a.time || new Date().toISOString(),
+          message: a.message,
+          severity: a.severity === 'critical' ? 'critical' : nextAlerts[existingIdx].severity,
+        };
+        storeActiveAlerts(nextAlerts);
+        return { activeAlerts: nextAlerts };
+      }
+    }
+
+    const activeAlerts = [a, ...s.activeAlerts.filter((x) => x.id !== a.id)].slice(0, 20);
+    storeActiveAlerts(activeAlerts);
+    return { activeAlerts };
+  }),
+  updateAlertInPlace: (id, updates) => set((s) => {
+    const activeAlerts = s.activeAlerts.map((a) => (a.id === id ? { ...a, ...updates } : a));
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
@@ -345,6 +372,11 @@ export const useAppStore = create<AppStore>((set) => ({
     const targetAlert = s.activeAlerts.find(a => a.id === id);
     const activeAlerts = s.activeAlerts.map(a => a.id === id ? { ...a, resolved: true } : a);
     storeActiveAlerts(activeAlerts);
+
+    if (targetAlert) {
+      markEpisodeAcknowledged(getAlertEpisodeKey(targetAlert));
+      markEpisodeAcknowledged(targetAlert.id);
+    }
 
     if (typeof window !== 'undefined') {
       const elderId = targetAlert?.elder_id || (targetAlert?.elder_name ? s.demoElders.find(e => e.full_name === targetAlert.elder_name)?.id : null);
@@ -490,10 +522,8 @@ export const useAppStore = create<AppStore>((set) => ({
       const next = simulateNextVitals(current, undefined, elder, override);
       nextVitals[elder.id] = next;
 
-      // Only trigger alert evaluation if an active override is ongoing or fall/panic is detected!
-      if (override || next.panic_detected || next.fall_detected) {
-        processVitalsTickWithAlerts(elder, next);
-      }
+      // Evaluates telemetry: detects safe recovery or deduplicated anomalies
+      processVitalsTickWithAlerts(elder, next);
     });
 
     const updatedElders = elders.map((e) => ({

@@ -612,7 +612,7 @@ const Dashboard: React.FC = () => {
     });
   };
 
-  const handleClearAlertHistory = async (mode: 'all' | 'resolved' = 'all') => {
+  const handleClearAlertHistory = async (mode: 'all' | 'resolved' = 'resolved') => {
     clearAlerts(mode);
     try {
       await apiFetch(`/alerts${mode === 'resolved' ? '?resolved=true' : ''}`, { method: 'DELETE' });
@@ -1631,17 +1631,16 @@ const Dashboard: React.FC = () => {
                     <CheckCircle2 className="h-4 w-4 text-gw-green" />
                     Alert History ({activeAlerts.filter((a) => a.resolved).length})
                   </h3>
-                  {activeAlerts.some((a) => a.resolved) && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
-                      onClick={() => setClearAlertHistoryConfirmOpen(true)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                      Clear Alert History
-                    </Button>
-                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+                    onClick={() => setClearAlertHistoryConfirmOpen(true)}
+                    disabled={activeAlerts.filter((a) => a.resolved).length === 0}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Clear Alert History
+                  </Button>
                 </div>
 
                 {activeAlerts.filter((a) => a.resolved).length === 0 ? (

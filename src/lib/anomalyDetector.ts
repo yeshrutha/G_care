@@ -3,6 +3,7 @@ import { useAppStore, type DemoAlert } from '@/store';
 import { useGuardianStore, type GuardianAlert } from '@/store/guardianStore';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
+import { broadcastGcareMessage } from '@/lib/syncChannel';
 
 export type AnomalyMetric =
   | 'heart_rate'
@@ -26,37 +27,232 @@ export interface VitalsAnomaly {
   timestamp: string;
 }
 
-interface ConditionEpisode {
-  inEpisode: boolean;
-  hasReturnedToSafe: boolean;
-  lastAlertId?: string;
-  lastDispatchedTime: number;
-  lastSeverity: 'warning' | 'critical';
+export type CanonicalAnomalyType =
+  | 'LOW_SPO2'
+  | 'HIGH_SPO2'
+  | 'HIGH_BP'
+  | 'LOW_BP'
+  | 'HIGH_HEART_RATE'
+  | 'LOW_HEART_RATE'
+  | 'HIGH_TEMPERATURE'
+  | 'LOW_TEMPERATURE'
+  | 'SOS'
+  | 'FALL'
+  | 'GEOFENCE'
+  | 'MISSED_MED'
+  | 'VITAL_ABNORMAL';
+
+/**
+ * Maps any alert or anomaly object to its canonical anomaly type.
+ */
+export function getCanonicalAnomalyType(alert: {
+  type?: string;
+  message?: string;
+  metric?: string;
+  title?: string;
+}): CanonicalAnomalyType {
+  const t = (alert.type || '').toUpperCase();
+  const m = `${alert.message || ''} ${alert.title || ''}`.toUpperCase();
+  const metric = (alert.metric || '').toUpperCase();
+
+  if (t === 'LOW_SPO2' || metric === 'SPO2' || m.includes('SPO2') || m.includes('OXYGEN') || m.includes('HYPOXEMIA')) {
+    return 'LOW_SPO2';
+  }
+  if (t === 'HIGH_BP' || (metric.includes('BP') && (m.includes('SPIKE') || m.includes('ELEVATED') || m.includes('HYPERTENSIVE') || m.includes('CRISIS')))) {
+    return 'HIGH_BP';
+  }
+  if (t === 'LOW_BP' || (metric.includes('BP') && (m.includes('DROPPED') || m.includes('HYPOTENSION') || m.includes('SHOCK')))) {
+    return 'LOW_BP';
+  }
+  if (t === 'HIGH_HR' || t === 'HIGH_HEART_RATE' || (metric === 'HEART_RATE' && (m.includes('TACHYCARDIA') || m.includes('SURGE') || m.includes('ELEVATED')))) {
+    return 'HIGH_HEART_RATE';
+  }
+  if (t === 'LOW_HR' || t === 'LOW_HEART_RATE' || (metric === 'HEART_RATE' && (m.includes('BRADYCARDIA') || m.includes('DECREASED')))) {
+    return 'LOW_HEART_RATE';
+  }
+  if (t === 'HIGH_TEMPERATURE' || t === 'HIGH_TEMP' || m.includes('FEVER') || m.includes('HYPERTHERMIA')) {
+    return 'HIGH_TEMPERATURE';
+  }
+  if (t === 'LOW_TEMPERATURE' || t === 'LOW_TEMP' || m.includes('HYPOTHERMIA')) {
+    return 'LOW_TEMPERATURE';
+  }
+  if (t === 'SOS' || m.includes('SOS')) {
+    return 'SOS';
+  }
+  if (t === 'FALL' || m.includes('FALL')) {
+    return 'FALL';
+  }
+  if (t === 'GEOFENCE' || m.includes('GEOFENCE')) {
+    return 'GEOFENCE';
+  }
+  if (t === 'MISSED_MED' || m.includes('MEDICINE') || m.includes('MEDICATION')) {
+    return 'MISSED_MED';
+  }
+  return 'VITAL_ABNORMAL';
 }
 
-// Memory map for tracking condition episodes per elder: key = `${elderId}:${metric}`
-const conditionEpisodeMap = new Map<string, ConditionEpisode>();
+/**
+ * Returns a stable episode identity key: `${elderId}:${anomalyType}`.
+ * For example: "elder-3:LOW_SPO2" or "elder-2:HIGH_BP".
+ */
+export function getAlertEpisodeKey(alert: {
+  elder_id?: string;
+  elderId?: string;
+  elder_name?: string;
+  elderName?: string;
+  type?: string;
+  message?: string;
+  metric?: string;
+  title?: string;
+}): string {
+  const elderIdentifier = (
+    alert.elder_id ||
+    alert.elderId ||
+    alert.elder_name ||
+    alert.elderName ||
+    'unknown'
+  ).trim().toLowerCase();
+  const anomalyType = getCanonicalAnomalyType(alert);
+  return `${elderIdentifier}:${anomalyType}`;
+}
+
+export type EpisodeLifecycleStatus =
+  | 'NORMAL'
+  | 'ACTIVE_ALERT'
+  | 'ACKNOWLEDGED_AWAITING_RECOVERY';
+
+export interface ConditionEpisodeRecord {
+  episodeKey: string;
+  elderId: string;
+  anomalyType: CanonicalAnomalyType;
+  status: EpisodeLifecycleStatus;
+  activeAlertId?: string;
+  lastDispatchedTime: number;
+  lastSeverity: 'warning' | 'critical';
+  lastTelemetryValue?: number;
+}
+
+const EPISODE_STORAGE_KEY = 'gcare_episode_lifecycle';
+
+export function loadEpisodeRecords(): Map<string, ConditionEpisodeRecord> {
+  const map = new Map<string, ConditionEpisodeRecord>();
+  if (typeof window === 'undefined' || !window.localStorage) return map;
+  try {
+    const raw = window.localStorage.getItem(EPISODE_STORAGE_KEY);
+    if (!raw) return map;
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) {
+      arr.forEach((rec) => {
+        if (rec && rec.episodeKey) map.set(rec.episodeKey, rec);
+      });
+    }
+  } catch {}
+  return map;
+}
+
+export function saveEpisodeRecords(map: Map<string, ConditionEpisodeRecord>) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    const arr = Array.from(map.values());
+    window.localStorage.setItem(EPISODE_STORAGE_KEY, JSON.stringify(arr));
+  } catch {}
+}
+
+export function markEpisodeAcknowledged(targetIdentifier: string) {
+  const records = loadEpisodeRecords();
+  const cleanTarget = targetIdentifier.trim().toLowerCase();
+  let changed = false;
+
+  for (const [key, ep] of records.entries()) {
+    const keyLower = key.toLowerCase();
+    if (
+      keyLower === cleanTarget ||
+      keyLower.includes(cleanTarget) ||
+      cleanTarget.includes(keyLower) ||
+      ep.activeAlertId === targetIdentifier ||
+      (ep.elderId && cleanTarget.includes(ep.elderId.toLowerCase()))
+    ) {
+      ep.status = 'ACKNOWLEDGED_AWAITING_RECOVERY';
+      ep.activeAlertId = undefined;
+      records.set(key, ep);
+      changed = true;
+    }
+  }
+
+  if (!changed && cleanTarget.includes(':')) {
+    const [elderPart, ...anomalyParts] = cleanTarget.split(':');
+    const normKey = `${elderPart}:${anomalyParts.join(':').toUpperCase()}`;
+    records.set(normKey, {
+      episodeKey: normKey,
+      elderId: elderPart,
+      anomalyType: anomalyParts.join(':').toUpperCase() as any,
+      status: 'ACKNOWLEDGED_AWAITING_RECOVERY',
+      lastDispatchedTime: Date.now(),
+      lastSeverity: 'warning',
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    saveEpisodeRecords(records);
+  }
+}
+
+export function markEpisodeRecovered(elderId: string, metric: AnomalyMetric) {
+  const records = loadEpisodeRecords();
+  const cleanElder = elderId.trim().toLowerCase();
+  let changed = false;
+
+  const relevantTypes: CanonicalAnomalyType[] =
+    metric === 'spo2' ? ['LOW_SPO2', 'HIGH_SPO2'] :
+    metric === 'systolic_bp' || metric === 'diastolic_bp' ? ['HIGH_BP', 'LOW_BP'] :
+    metric === 'heart_rate' ? ['HIGH_HEART_RATE', 'LOW_HEART_RATE'] : ['VITAL_ABNORMAL'];
+
+  for (const anomalyType of relevantTypes) {
+    const key = `${cleanElder}:${anomalyType}`;
+    const ep = records.get(key);
+    if (ep && ep.status !== 'NORMAL') {
+      ep.status = 'NORMAL';
+      ep.activeAlertId = undefined;
+      records.set(key, ep);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    saveEpisodeRecords(records);
+  }
+}
 
 // Global cooldown buffer before a new episode can trigger if rapidly oscillating (5 minutes)
 export const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
 
 export function clearAnomalyCooldowns(elderId?: string) {
+  const records = loadEpisodeRecords();
   if (elderId) {
-    for (const key of conditionEpisodeMap.keys()) {
-      if (key.startsWith(`${elderId}:`)) {
-        const episode = conditionEpisodeMap.get(key);
-        if (episode) {
-          episode.inEpisode = false;
-          episode.hasReturnedToSafe = true;
-        }
+    const cleanElder = elderId.trim().toLowerCase();
+    for (const [key, ep] of records.entries()) {
+      if (key.startsWith(`${cleanElder}:`)) {
+        ep.lastDispatchedTime = 0;
+        records.set(key, ep);
       }
     }
   } else {
-    for (const episode of conditionEpisodeMap.values()) {
-      episode.inEpisode = false;
-      episode.hasReturnedToSafe = true;
+    for (const ep of records.values()) {
+      ep.lastDispatchedTime = 0;
     }
   }
+  saveEpisodeRecords(records);
+}
+
+export function resetAllEpisodeRecords() {
+  const records = loadEpisodeRecords();
+  for (const ep of records.values()) {
+    ep.status = 'NORMAL';
+    ep.activeAlertId = undefined;
+    ep.lastDispatchedTime = 0;
+  }
+  saveEpisodeRecords(records);
 }
 
 /**
@@ -279,6 +475,10 @@ export function detectVitalsAnomalies(
 
 /**
  * Checks de-bounce cooldowns, episode hysteresis, and dispatches alerts to AppStore, GuardianStore, and Audio.
+ * Enforces:
+ * - Exactly ONE active alert per continuous abnormal episode.
+ * - Ongoing telemetry fluctuations update the existing active alert rather than creating duplicates.
+ * - Acknowledging an alert moves it to history and requires vital to return to safe baseline before another alert can be created.
  */
 export function processVitalsTickWithAlerts(
   elder: { id: string; full_name: string },
@@ -288,145 +488,178 @@ export function processVitalsTickWithAlerts(
   const anomalies = detectVitalsAnomalies(elder, vitals);
   const now = Date.now();
   const dispatched: VitalsAnomaly[] = [];
+  const episodeRecords = loadEpisodeRecords();
 
   // 1. Check for conditions that have safely recovered to their healthy baseline
   const allMetrics: AnomalyMetric[] = ['heart_rate', 'spo2', 'systolic_bp', 'breathing_rate', 'stress'];
   for (const metric of allMetrics) {
     if (isConditionInSafeRange(metric, vitals)) {
-      const key = `${elder.id}:${metric}`;
-      const ep = conditionEpisodeMap.get(key);
-      if (ep) {
-        ep.inEpisode = false;
-        ep.hasReturnedToSafe = true;
-      }
+      markEpisodeRecovered(elder.id, metric);
     }
   }
 
   // 2. Process detected anomalies
   for (const anomaly of anomalies) {
-    const key = `${elder.id}:${anomaly.metric}`;
-    let episode = conditionEpisodeMap.get(key);
-    if (!episode) {
-      episode = {
-        inEpisode: false,
-        hasReturnedToSafe: true,
-        lastDispatchedTime: 0,
-        lastSeverity: 'warning',
-      };
-      conditionEpisodeMap.set(key, episode);
-    }
-
     const alertType: DemoAlert['type'] =
       anomaly.metric === 'heart_rate' ? 'high_hr' :
       anomaly.metric === 'spo2' ? 'low_spo2' :
       anomaly.severity === 'critical' ? 'sos' : 'vital_abnormal';
 
-    // Check if an unresolved alert for this elder and condition already exists
-    const currentAppAlerts = useAppStore.getState().activeAlerts;
-    const hasExistingUnresolved = currentAppAlerts.some(
-      (a) =>
-        !a.resolved &&
-        (a.elder_id === elder.id || a.elder_name?.trim().toLowerCase() === elder.full_name?.trim().toLowerCase()) &&
-        (a.type === alertType ||
-          a.message?.toLowerCase().includes(anomaly.title.toLowerCase()) ||
-          a.message?.toLowerCase().includes(anomaly.metric.toLowerCase()))
-    );
+    const episodeKey = getAlertEpisodeKey({
+      elder_id: elder.id,
+      elder_name: elder.full_name,
+      type: alertType,
+      metric: anomaly.metric,
+      message: anomaly.message,
+      title: anomaly.title,
+    });
 
-    // Escalation check: warning -> critical
-    const isEscalationToCritical =
-      episode.lastSeverity === 'warning' &&
-      anomaly.severity === 'critical' &&
-      now - episode.lastDispatchedTime > 15000;
-
-    // Decision rule:
-    // Dispatches IF:
-    // 1. Forced by manual test trigger (options?.force)
-    // 2. OR: Condition escalated to critical
-    // 3. OR: No unresolved alert exists AND patient had returned to safe range AND not currently in an active episode
-    let shouldDispatch = false;
-
-    if (options?.force) {
-      shouldDispatch = true;
-    } else if (hasExistingUnresolved) {
-      // Patient still has an ongoing unacknowledged alert.
-      // Do NOT create another alert unless it escalated from warning to critical.
-      shouldDispatch = isEscalationToCritical;
-    } else {
-      // Previous alert has been acknowledged/resolved!
-      // Only dispatch if the patient had returned to safe baseline before this new abnormal episode.
-      if (!episode.inEpisode && episode.hasReturnedToSafe) {
-        shouldDispatch = true;
-      } else if (isEscalationToCritical) {
-        shouldDispatch = true;
-      }
+    let episode = episodeRecords.get(episodeKey);
+    if (!episode) {
+      episode = {
+        episodeKey,
+        elderId: elder.id,
+        anomalyType: getCanonicalAnomalyType({ type: alertType, metric: anomaly.metric, message: anomaly.message }),
+        status: 'NORMAL',
+        lastDispatchedTime: 0,
+        lastSeverity: anomaly.severity,
+      };
+      episodeRecords.set(episodeKey, episode);
     }
 
-    if (!shouldDispatch) {
+    // Check if an unresolved alert for this elder and canonical episode already exists
+    const currentAppAlerts = useAppStore.getState().activeAlerts;
+    const existingActiveAlert = currentAppAlerts.find(
+      (a) => !a.resolved && getAlertEpisodeKey(a) === episodeKey
+    );
+
+    // CASE 1: Active alert already exists for this ongoing episode -> UPDATE IN PLACE
+    if (existingActiveAlert) {
+      const updatedMessage = `${anomaly.title}: ${anomaly.message}`;
+      const nextSeverity = anomaly.severity === 'critical' ? 'critical' : existingActiveAlert.severity;
+
+      // Update in AppStore
+      useAppStore.getState().updateAlertInPlace(existingActiveAlert.id, {
+        message: updatedMessage,
+        time: anomaly.timestamp,
+        severity: nextSeverity,
+      });
+
+      // Update in GuardianStore
+      const guardianAlerts = useGuardianStore.getState().alerts;
+      const matchingGa = guardianAlerts.find(
+        (ga) => !ga.acknowledged && (ga.id === existingActiveAlert.id || getAlertEpisodeKey({ elderName: ga.elderName, elderId: ga.elderId, type: ga.type, message: ga.message }) === episodeKey)
+      );
+      if (matchingGa) {
+        useGuardianStore.getState().updateGuardianAlertInPlace(matchingGa.id, {
+          message: `⚠️ Vital Alert: ${anomaly.message} Dr. Ramesh Kumar and caretaker have been notified.`,
+          time: anomaly.timestamp,
+          severity: nextSeverity,
+        });
+      }
+
+      // Sync cross-window
+      broadcastGcareMessage({
+        type: 'ALERT_UPDATED',
+        id: existingActiveAlert.id,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        episodeKey,
+        alert: {
+          ...existingActiveAlert,
+          message: updatedMessage,
+          time: anomaly.timestamp,
+          severity: nextSeverity,
+        },
+        timestamp: now,
+      });
+
+      // Update backend record
+      apiFetch(`/alerts/${existingActiveAlert.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          message: updatedMessage,
+          severity: nextSeverity,
+          time: anomaly.timestamp,
+        }),
+      }).catch(() => {});
+
+      episode.status = 'ACTIVE_ALERT';
+      episode.activeAlertId = existingActiveAlert.id;
+      episode.lastDispatchedTime = now;
+      episode.lastSeverity = nextSeverity;
+      episode.lastTelemetryValue = anomaly.value;
+      saveEpisodeRecords(episodeRecords);
+
+      // Do NOT insert a duplicate alert; updated existing active alert in place
       continue;
     }
 
-    // Update episode state
-    episode.inEpisode = true;
-    episode.hasReturnedToSafe = false;
+    // CASE 2: No active alert exists, BUT episode is ACKNOWLEDGED_AWAITING_RECOVERY
+    // Acknowledging an alert must NOT allow the exact same still-abnormal condition to immediately recreate an alert!
+    if (!options?.force && episode.status === 'ACKNOWLEDGED_AWAITING_RECOVERY') {
+      const isCriticalEscalation = episode.lastSeverity === 'warning' && anomaly.severity === 'critical';
+      if (!isCriticalEscalation) {
+        // Still inside unrecovered condition; stay quiet in history until safe baseline recovery
+        continue;
+      }
+    }
+
+    // CASE 3: Genuinely new abnormal episode (or critical escalation / forced trigger)
+    episode.status = 'ACTIVE_ALERT';
     episode.lastDispatchedTime = now;
     episode.lastSeverity = anomaly.severity;
+    episode.lastTelemetryValue = anomaly.value;
 
     dispatched.push(anomaly);
 
-    // 1. Dispatch to useAppStore (for Doctor Portal, Caretaker Dashboard, and Patient Detail)
-    try {
-      const appAlert: DemoAlert = {
-        id: `alert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    const appAlert: DemoAlert = {
+      id: `alert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      elder_id: elder.id,
+      elder_name: elder.full_name,
+      type: alertType,
+      severity: anomaly.severity,
+      message: `${anomaly.title}: ${anomaly.message}`,
+      time: anomaly.timestamp,
+      resolved: false,
+    };
+    episode.activeAlertId = appAlert.id;
+    saveEpisodeRecords(episodeRecords);
+
+    // 1. Dispatch to useAppStore
+    useAppStore.getState().addAlert(appAlert);
+
+    // Persist to server backend (writes to data/db.json)
+    apiFetch('/alerts', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: appAlert.id,
         elder_id: elder.id,
         elder_name: elder.full_name,
-        type: alertType,
+        type: appAlert.type,
         severity: anomaly.severity,
         message: `${anomaly.title}: ${anomaly.message}`,
         time: anomaly.timestamp,
         resolved: false,
-      };
-      episode.lastAlertId = appAlert.id;
-      useAppStore.getState().addAlert(appAlert);
-
-      // Persist to server backend (writes to data/db.json)
-      apiFetch('/alerts', {
-        method: 'POST',
-        body: JSON.stringify({
-          id: appAlert.id,
-          elder_id: elder.id,
-          elder_name: elder.full_name,
-          type: appAlert.type,
-          severity: anomaly.severity,
-          message: `${anomaly.title}: ${anomaly.message}`,
-          time: anomaly.timestamp,
-          resolved: false,
-        }),
-      }).catch((err) => {
-        console.warn('Backend alert persistence notice:', err);
-      });
-    } catch (e) {
-      console.warn('Failed to add app alert:', e);
-    }
+      }),
+    }).catch((err) => {
+      console.warn('Backend alert persistence notice:', err);
+    });
 
     // 2. Dispatch to useGuardianStore (for Guardian Portal)
-    try {
-      const guardianAlert: GuardianAlert = {
-        id: `ga-vital-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        type: 'vital_abnormal',
-        severity: anomaly.severity,
-        message: `⚠️ Vital Alert: ${anomaly.message} Dr. Ramesh Kumar and caretaker have been notified.`,
-        time: anomaly.timestamp,
-        acknowledged: false,
-        elderName: elder.full_name,
-        elderId: elder.id,
-      };
-      useGuardianStore.getState().addGuardianAlert(guardianAlert);
-    } catch (e) {
-      console.warn('Failed to add guardian alert:', e);
-    }
+    const guardianAlert: GuardianAlert = {
+      id: `ga-vital-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type: 'vital_abnormal',
+      severity: anomaly.severity,
+      message: `⚠️ Vital Alert: ${anomaly.message} Dr. Ramesh Kumar and caretaker have been notified.`,
+      time: anomaly.timestamp,
+      acknowledged: false,
+      elderName: elder.full_name,
+      elderId: elder.id,
+    };
+    useGuardianStore.getState().addGuardianAlert(guardianAlert);
 
-    // 3. Audio & Haptic Alarm
-    // Sound alarm if the user currently has this patient's watch simulator open
+    // 3. Audio & Haptic Alarm if watch simulator is open for this elder
     try {
       const activeWatchElderId = useAppStore.getState().activeWatchElderId;
       if (activeWatchElderId && elder.id === activeWatchElderId) {

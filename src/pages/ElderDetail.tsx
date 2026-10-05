@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
@@ -275,6 +276,7 @@ const ElderDetail: React.FC = () => {
 
   const unresolvedAlerts = elderAlerts.filter(a => !a.acknowledged);
   const resolvedAlerts = elderAlerts.filter(a => a.acknowledged);
+  const [clearAlertHistoryConfirmOpen, setClearAlertHistoryConfirmOpen] = useState(false);
 
   const resetAlarmForm = () => {
     setAlarmForm({ label: '', time: '08:00', period: 'AM', repeat: 'Daily', enabled: true });
@@ -808,24 +810,32 @@ const ElderDetail: React.FC = () => {
               </div>
             </div>
 
-            {/* Resolved Alerts */}
-            {resolvedAlerts.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-display text-lg text-foreground flex items-center gap-2">
-                    <CheckCircle className="h-5 w-5 text-gw-green" />
-                    Resolved ({resolvedAlerts.length})
-                  </h3>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-xs text-muted-foreground hover:text-destructive h-7 px-2"
-                    onClick={() => clearElderAlertHistory('resolved')}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1" />
-                    Clear History
-                  </Button>
-                </div>
+            {/* Resolved Alerts / Alert History */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-display text-lg text-foreground flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-gw-green" />
+                  Alert History ({resolvedAlerts.length})
+                </h3>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+                  onClick={() => setClearAlertHistoryConfirmOpen(true)}
+                  disabled={resolvedAlerts.length === 0}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Clear Alert History
+                </Button>
+              </div>
+
+              {resolvedAlerts.length === 0 ? (
+                <Card className="rounded-xl border-dashed border-border bg-muted/20">
+                  <CardContent className="p-4 text-center text-xs text-muted-foreground">
+                    No resolved alerts in history for this patient.
+                  </CardContent>
+                </Card>
+              ) : (
                 <div className="space-y-2">
                   {resolvedAlerts.map(alert => (
                     <Card key={alert.id} className="rounded-xl opacity-75 hover:opacity-100 transition-opacity">
@@ -856,8 +866,8 @@ const ElderDetail: React.FC = () => {
                     </Card>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Alert Types Reference */}
             <Card className="rounded-xl bg-secondary/50">
@@ -1044,6 +1054,30 @@ const ElderDetail: React.FC = () => {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Clear Alert History Confirmation */}
+      <AlertDialog open={clearAlertHistoryConfirmOpen} onOpenChange={setClearAlertHistoryConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Alert History?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove resolved alerts for {elder.full_name} from your history view. Active emergency alerts will remain safe and visible.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                clearElderAlertHistory('resolved');
+                setClearAlertHistoryConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Clear History
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -1088,15 +1088,87 @@ export const dbService = {
   },
 
   createAlert: async (user, alert) => {
+    const elderId = alert.elderId || alert.elder_id;
+    const resolved = alert.resolved !== undefined ? alert.resolved : false;
+
+    // Canonical anomaly type helper
+    const getCanonicalType = (a) => {
+      const t = (a.type || '').toUpperCase();
+      const m = `${a.message || ''}`.toUpperCase();
+      if (t === 'LOW_SPO2' || m.includes('SPO2') || m.includes('OXYGEN') || m.includes('HYPOXEMIA')) return 'LOW_SPO2';
+      if (t === 'HIGH_BP' || m.includes('SPIKE') || m.includes('ELEVATED') || m.includes('HYPERTENSIVE') || m.includes('CRISIS')) return 'HIGH_BP';
+      if (t === 'LOW_BP' || m.includes('DROPPED') || m.includes('HYPOTENSION') || m.includes('SHOCK')) return 'LOW_BP';
+      if (t === 'HIGH_HR' || m.includes('TACHYCARDIA') || m.includes('SURGE')) return 'HIGH_HEART_RATE';
+      if (t === 'LOW_HR' || m.includes('BRADYCARDIA') || m.includes('DECREASED')) return 'LOW_HEART_RATE';
+      if (t === 'HIGH_TEMPERATURE' || m.includes('FEVER')) return 'HIGH_TEMPERATURE';
+      if (t === 'LOW_TEMPERATURE' || m.includes('HYPOTHERMIA')) return 'LOW_TEMPERATURE';
+      if (t === 'SOS' || m.includes('SOS')) return 'SOS';
+      if (t === 'FALL' || m.includes('FALL')) return 'FALL';
+      if (t === 'GEOFENCE' || m.includes('GEOFENCE')) return 'GEOFENCE';
+      if (t === 'MISSED_MED' || m.includes('MEDICINE') || m.includes('MEDICATION')) return 'MISSED_MED';
+      return t || 'VITAL_ABNORMAL';
+    };
+
+    const canonicalType = getCanonicalType(alert);
+
+    // Episode deduplication: If creating an active alert and one already exists for this elder & type
+    if (!resolved) {
+      if (usePostgres) {
+        const { rows } = await pool.query(
+          'SELECT * FROM alerts WHERE elder_id = $1 AND resolved = false ORDER BY time DESC',
+          [elderId]
+        );
+        const existing = rows.find((r) => getCanonicalType(r) === canonicalType);
+        if (existing) {
+          const updatedTime = alert.time || new Date().toISOString();
+          const nextSeverity = alert.severity === 'critical' ? 'critical' : existing.severity;
+          await pool.query(
+            'UPDATE alerts SET time = $1, message = $2, severity = $3 WHERE id = $4',
+            [updatedTime, alert.message, nextSeverity, existing.id]
+          );
+          const { rows: elderRows } = await pool.query('SELECT full_name FROM elders WHERE id = $1', [elderId]);
+          return {
+            ...existing,
+            time: updatedTime,
+            message: alert.message,
+            severity: nextSeverity,
+            elder_id: elderId,
+            elderName: elderRows[0]?.full_name || '',
+            elder_name: elderRows[0]?.full_name || '',
+          };
+        }
+      } else {
+        const fileDb = await readDb();
+        fileDb.alerts = fileDb.alerts || [];
+        const existingIdx = fileDb.alerts.findIndex(
+          (a) => !a.resolved && (a.elderId === elderId || a.elder_id === elderId) && getCanonicalType(a) === canonicalType
+        );
+        if (existingIdx >= 0) {
+          const updatedTime = alert.time || new Date().toISOString();
+          fileDb.alerts[existingIdx].time = updatedTime;
+          fileDb.alerts[existingIdx].message = alert.message;
+          if (alert.severity === 'critical') fileDb.alerts[existingIdx].severity = 'critical';
+          await writeDb(fileDb);
+          const elder = (fileDb.elders || []).find((e) => e.id === elderId);
+          return {
+            ...fileDb.alerts[existingIdx],
+            elder_id: elderId,
+            elderName: elder?.full_name || '',
+            elder_name: elder?.full_name || '',
+          };
+        }
+      }
+    }
+
     const saved = {
       id: alert.id || `alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      elderId: alert.elderId || alert.elder_id,
+      elderId,
       ownerId: user.id,
       type: alert.type,
       severity: alert.severity,
       message: alert.message,
       location: alert.location || '',
-      resolved: alert.resolved !== undefined ? alert.resolved : false,
+      resolved,
       time: alert.time || new Date().toISOString(),
     };
 

@@ -116,9 +116,17 @@ describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
       expect(secondDispatched.length).toBe(0);
       expect(useAppStore.getState().activeAlerts.length).toBe(alertCountAfterFirst);
 
-      // Forced tick overrides cooldown
-      const forcedDispatched = processVitalsTickWithAlerts(usha, anomalousVitals, { force: true });
-      expect(forcedDispatched.length).toBe(1);
+      // Third immediate tick within ongoing episode also does not insert duplicate alerts
+      const thirdDispatched = processVitalsTickWithAlerts(usha, anomalousVitals);
+      expect(thirdDispatched.length).toBe(0);
+      expect(useAppStore.getState().activeAlerts.length).toBe(alertCountAfterFirst);
+
+      // Resolving the alert and returning vitals to safe baseline allows a new episode alert
+      const activeAlert = useAppStore.getState().activeAlerts[0];
+      useAppStore.getState().resolveAlert(activeAlert.id);
+      processVitalsTickWithAlerts(usha, DEMO_VITALS[usha.id]); // returns to safe range
+      const newEpisodeDispatched = processVitalsTickWithAlerts(usha, anomalousVitals);
+      expect(newEpisodeDispatched.length).toBe(1);
       expect(useAppStore.getState().activeAlerts.length).toBe(alertCountAfterFirst + 1);
     });
   });

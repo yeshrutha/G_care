@@ -54,7 +54,7 @@ const AlertsTab: React.FC = () => {
     return () => { clearTimeout(timer1); };
   }, [demoMode, addGuardianAlert, elderName, alerts]);
 
-  const handleClearAlertHistory = (mode: 'all' | 'resolved' = 'all') => {
+  const handleClearAlertHistory = (mode: 'all' | 'resolved' = 'resolved') => {
     clearAlerts(mode);
     broadcastGcareMessage({
       type: 'ALERTS_CLEARED',
@@ -183,24 +183,32 @@ const AlertsTab: React.FC = () => {
         </div>
       </div>
 
-      {/* Resolved Alerts */}
-      {resolved.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-display text-lg text-foreground flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-gw-green" />
-              Resolved ({resolved.length})
-            </h3>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-xs text-muted-foreground hover:text-destructive h-7 px-2"
-              onClick={() => setClearAlertHistoryConfirmOpen(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-1" />
-              Clear History
-            </Button>
-          </div>
+      {/* Resolved Alerts / Alert History */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-lg text-foreground flex items-center gap-2">
+            <CheckCircle className="h-5 w-5 text-gw-green" />
+            Alert History ({resolved.length})
+          </h3>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+            onClick={() => setClearAlertHistoryConfirmOpen(true)}
+            disabled={resolved.length === 0}
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+            Clear Alert History
+          </Button>
+        </div>
+
+        {resolved.length === 0 ? (
+          <Card className="rounded-xl border-dashed border-border bg-muted/20">
+            <CardContent className="p-4 text-center text-xs text-muted-foreground">
+              No resolved alerts in history.
+            </CardContent>
+          </Card>
+        ) : (
           <div className="space-y-2">
             {resolved.map(alert => (
               <Card key={alert.id} className="rounded-xl opacity-75 hover:opacity-100 transition-opacity">
@@ -226,8 +234,8 @@ const AlertsTab: React.FC = () => {
               </Card>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Alert Types Reference */}
       <Card className="rounded-xl bg-secondary/50">
