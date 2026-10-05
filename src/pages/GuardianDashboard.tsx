@@ -16,7 +16,7 @@ import { useAppStore } from '@/store';
 import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
-import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, LogOut, User, Pencil, Plus, Trash2, Heart, FileText } from 'lucide-react';
+import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, LogOut, User, Pencil, Plus, Trash2, Heart, FileText, Settings as SettingsIcon } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
 import LogsTab from '@/components/guardian/LogsTab';
 import AlertsTab from '@/components/guardian/AlertsTab';
@@ -347,7 +347,10 @@ const GuardianDashboard: React.FC = () => {
               </div>
             </DialogContent>
           </Dialog>
-          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => { setGuardianUser(null); navigate('/login'); }}>
+          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => navigate('/settings')} title="Settings">
+            <SettingsIcon className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => { setGuardianUser(null); navigate('/login'); }} title="Log out">
             <LogOut className="h-4 w-4" />
           </Button>
         </div>

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { initializePatientVitals, simulateNextVitals, getElderBaseline } from '@/lib/vitalsSimulator';
-import { DEMO_ELDERS } from '@/lib/demoData';
+import { DEMO_ELDERS, DEMO_ALERTS } from '@/lib/demoData';
 import { processVitalsTickWithAlerts, clearAnomalyCooldowns } from '@/lib/anomalyDetector';
+import { calculateMinutesBefore, formatTime12Hour } from '@/lib/syncChannel';
 
 export interface DemoElder {
   id: string;
@@ -57,6 +58,12 @@ export interface StoreAlarm {
   notes?: string;
   repeat?: string;
   enabled?: boolean;
+  appointmentId?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+  doctorName?: string;
+  reminderType?: 'appointment';
+  isOneHourReminder?: boolean;
 }
 
 export interface Medication {
@@ -91,6 +98,8 @@ interface AppStore {
   setActiveAlerts: (a: DemoAlert[]) => void;
   addAlert: (a: DemoAlert) => void;
   resolveAlert: (id: string) => void;
+  clearAlerts: (mode?: 'all' | 'resolved') => void;
+  removeAlert: (id: string) => void;
   demoElders: DemoElder[];
   setDemoElders: (e: DemoElder[]) => void;
   activeElderId: string;
@@ -161,14 +170,32 @@ function isStorageAvailable(): boolean {
 }
 
 function getStoredActiveAlerts(): DemoAlert[] {
-  if (!isStorageAvailable()) return [];
+  if (!isStorageAvailable()) return DEMO_ALERTS;
   const rawAlerts = window.localStorage.getItem(ACTIVE_ALERTS_STORAGE_KEY);
-  if (!rawAlerts) return [];
+  if (rawAlerts === null) return DEMO_ALERTS;
   try {
     const alerts = JSON.parse(rawAlerts);
-    return Array.isArray(alerts) ? alerts : [];
+    if (!Array.isArray(alerts)) return DEMO_ALERTS;
+    if (alerts.length === 0) return [];
+
+    // Filter out duplicate repetitive alerts and keep a clean realistic list (max 15)
+    const seen = new Set<string>();
+    const cleaned = alerts.filter((a) => {
+      const cleanName = (a.elder_name || a.elder_id || '').toLowerCase().trim();
+      const cleanType = (a.type || '').toLowerCase();
+      const status = a.resolved ? 'resolved' : 'unresolved';
+      const key = `${cleanName}:${cleanType}:${status}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 15);
+
+    if (cleaned.length !== alerts.length) {
+      storeActiveAlerts(cleaned);
+    }
+    return cleaned;
   } catch {
-    return [];
+    return DEMO_ALERTS;
   }
 }
 
@@ -310,12 +337,44 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ activeAlerts: a });
   },
   addAlert: (a) => set((s) => {
-    const activeAlerts = [a, ...s.activeAlerts].slice(0, 100);
+    const activeAlerts = [a, ...s.activeAlerts.filter((x) => x.id !== a.id)].slice(0, 15);
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
   resolveAlert: (id) => set((s) => {
+    const targetAlert = s.activeAlerts.find(a => a.id === id);
     const activeAlerts = s.activeAlerts.map(a => a.id === id ? { ...a, resolved: true } : a);
+    storeActiveAlerts(activeAlerts);
+
+    if (typeof window !== 'undefined') {
+      const elderId = targetAlert?.elder_id || (targetAlert?.elder_name ? s.demoElders.find(e => e.full_name === targetAlert.elder_name)?.id : null);
+      window.dispatchEvent(
+        new CustomEvent('gcare:acknowledge-alert', {
+          detail: { id, elderId, elderName: targetAlert?.elder_name },
+        })
+      );
+    }
+
+    return { activeAlerts };
+  }),
+  clearAlerts: (mode: 'all' | 'resolved' = 'resolved', elderId?: string) => set((s) => {
+    const activeAlerts = s.activeAlerts.filter((a) => {
+      // If elderId is passed, only clear alerts for that elder
+      if (elderId && a.elder_id && a.elder_id !== elderId) {
+        return true;
+      }
+      if (mode === 'resolved') {
+        // Keep unacknowledged/unresolved alerts safe!
+        return !a.resolved;
+      }
+      // Mode 'all': clears all
+      return false;
+    });
+    storeActiveAlerts(activeAlerts);
+    return { activeAlerts };
+  }),
+  removeAlert: (id: string) => set((s) => {
+    const activeAlerts = s.activeAlerts.filter((a) => a.id !== id);
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
@@ -367,12 +426,42 @@ export const useAppStore = create<AppStore>((set) => ({
     return { alarms: next };
   }),
   updateAlarm: (id, a) => set((s) => {
-    const next = s.alarms.map((x) => x.id === id ? { ...x, ...a } : x);
+    const target = s.alarms.find(x => x.id === id);
+    const appointmentId = target?.appointmentId || a.appointmentId;
+    let next = s.alarms.map((x) => x.id === id ? { ...x, ...a } : x);
+
+    // If an appointment alarm was rescheduled, update its linked 1-hour prep alarm!
+    if (appointmentId && (a.time || a.appointmentTime)) {
+      const newTime = a.time || a.appointmentTime || target?.time || '10:00';
+      const newDate = a.appointmentDate || target?.appointmentDate;
+      const newPrepTime = calculateMinutesBefore(newTime, 60);
+
+      next = next.map((item) => {
+        if (item.appointmentId === appointmentId && item.isOneHourReminder) {
+          return {
+            ...item,
+            time: newPrepTime,
+            appointmentTime: newTime,
+            appointmentDate: newDate || item.appointmentDate,
+            notes: `Preparation reminder: Leave 60 minutes early for checkup at ${formatTime12Hour(newTime)}${newDate ? ` on ${newDate}` : ''}.`,
+          };
+        }
+        return item;
+      });
+    }
+
     storeAlarms(next);
     return { alarms: next };
   }),
   deleteAlarm: (id) => set((s) => {
-    const next = s.alarms.filter((x) => x.id !== id);
+    const target = s.alarms.find(x => x.id === id);
+    const appointmentId = target?.appointmentId;
+    // Remove both the main appointment alarm and its associated 1-hour prep reminder
+    const next = s.alarms.filter((x) => {
+      if (x.id === id) return false;
+      if (appointmentId && x.appointmentId === appointmentId) return false;
+      return true;
+    });
     storeAlarms(next);
     return { alarms: next };
   }),
@@ -400,7 +489,11 @@ export const useAppStore = create<AppStore>((set) => ({
       const override = (activeOverride && activeOverride.expiresAt > nowMs) ? activeOverride.overrides : undefined;
       const next = simulateNextVitals(current, undefined, elder, override);
       nextVitals[elder.id] = next;
-      processVitalsTickWithAlerts(elder, next);
+
+      // Only trigger alert evaluation if an active override is ongoing or fall/panic is detected!
+      if (override || next.panic_detected || next.fall_detected) {
+        processVitalsTickWithAlerts(elder, next);
+      }
     });
 
     const updatedElders = elders.map((e) => ({
@@ -496,4 +589,46 @@ if (typeof window !== 'undefined') {
       }
     };
   }
+
+  window.addEventListener('gcare:acknowledge-alert', (event: Event) => {
+    const customEvent = event as CustomEvent<{ id?: string; elderId?: string; elderName?: string }>;
+    const { id, elderId, elderName } = customEvent.detail || {};
+    const state = useAppStore.getState();
+
+    let changed = false;
+    const nextAlerts = state.activeAlerts.map((a) => {
+      const matchesId = id && a.id === id;
+      const matchesElder =
+        (elderId && a.elder_id === elderId) ||
+        (elderName && a.elder_name?.trim().toLowerCase() === elderName.trim().toLowerCase());
+      if ((matchesId || matchesElder) && !a.resolved) {
+        changed = true;
+        return { ...a, resolved: true };
+      }
+      return a;
+    });
+
+    if (changed) {
+      storeActiveAlerts(nextAlerts);
+      useAppStore.setState({ activeAlerts: nextAlerts });
+    }
+
+    const targetElderId =
+      elderId ||
+      (elderName
+        ? state.demoElders.find((e) => e.full_name?.trim().toLowerCase() === elderName.trim().toLowerCase())?.id
+        : null);
+
+    if (targetElderId) {
+      state.stabilizeElderVitals(targetElderId);
+    }
+  });
+
+  window.addEventListener('gcare:cross-event', (e: Event) => {
+    const custom = e as CustomEvent<{ type?: string; mode?: 'all' | 'resolved' }>;
+    if (custom.detail?.type === 'ALERTS_CLEARED') {
+      const mode = custom.detail.mode || 'all';
+      useAppStore.getState().clearAlerts(mode);
+    }
+  });
 }

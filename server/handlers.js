@@ -71,6 +71,13 @@ const alarmSchema = z.object({
   type: z.enum(['medication', 'food', 'activity', 'appointment']),
   status: z.enum(['Due soon', 'Scheduled', 'Paused']).default('Scheduled'),
   notes: z.string().max(500).default(''),
+  appointmentId: z.string().optional(),
+  appointmentDate: z.string().optional(),
+  appointmentTime: z.string().optional(),
+  doctorName: z.string().optional(),
+  reminderType: z.string().optional(),
+  isOneHourReminder: z.boolean().optional(),
+  repeat: z.string().optional(),
 });
 
 const alertSchema = z.object({
@@ -481,6 +488,13 @@ async function handleAlerts(req, res, pathName, user) {
     return sendJson(res, 201, saved, req);
   }
 
+  if (req.method === 'DELETE' && pathName === '/api/alerts') {
+    const onlyResolved = req.url ? req.url.includes('resolved=true') : false;
+    const cleared = await dbService.clearAlerts(user, onlyResolved);
+    await dbService.addAuditLog(user, 'delete', 'alert', 'batch', { count: cleared.count, onlyResolved });
+    return sendJson(res, 200, { success: true, count: cleared.count }, req);
+  }
+
   const alertMatch = pathName.match(/^\/api\/alerts\/([^/]+)$/);
   if (alertMatch && req.method === 'PUT') {
     const id = decodeURIComponent(alertMatch[1]);
@@ -491,6 +505,14 @@ async function handleAlerts(req, res, pathName, user) {
     const updated = await dbService.updateAlert(id, updates);
     await dbService.addAuditLog(user, 'update', 'alert', id, updates);
     return sendJson(res, 200, updated, req);
+  }
+
+  if (alertMatch && req.method === 'DELETE') {
+    const id = decodeURIComponent(alertMatch[1]);
+    const deleted = await dbService.deleteAlert(id);
+    if (!deleted) return sendJson(res, 404, { error: 'Alert not found' }, req);
+    await dbService.addAuditLog(user, 'delete', 'alert', id, {});
+    return sendJson(res, 200, { success: true }, req);
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);

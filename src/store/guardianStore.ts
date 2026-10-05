@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { calculateMinutesBefore } from '@/lib/syncChannel';
 
 export interface Reminder {
   id: string;
@@ -20,9 +21,12 @@ export interface Reminder {
   videoUrl?: string;
   routineDescription?: string;
   // Appointment specific
+  appointmentId?: string;
   doctorName?: string;
   hospitalName?: string;
   appointmentDate?: string;
+  appointmentTime?: string;
+  isOneHourReminder?: boolean;
 }
 
 export interface GuardianAlert {
@@ -77,7 +81,8 @@ interface GuardianStore {
   alerts: GuardianAlert[];
   addGuardianAlert: (a: GuardianAlert) => void;
   acknowledgeAlert: (id: string) => void;
-  clearAlerts: () => void;
+  clearAlerts: (mode?: 'all' | 'resolved') => void;
+  removeAlert: (id: string) => void;
   activeTab: string;
   setActiveTab: (t: string) => void;
   smartTvMode: boolean;
@@ -150,24 +155,45 @@ const GUARDIAN_ALERTS_STORAGE_KEY = 'gcare_guardian_alerts';
 
 const INITIAL_GUARDIAN_ALERTS: GuardianAlert[] = [
   {
-    id: 'ga-1', type: 'medicine_missed', severity: 'warning',
-    message: 'Metformin 500mg was not taken at 8:00 AM', time: new Date(Date.now() - 3600000).toISOString(),
-    acknowledged: false, elderName: INITIAL_ELDER_NAME,
+    id: 'ga-appt-1', type: 'vital_abnormal', severity: 'info',
+    message: 'Appointment booked & resolved: Follow-up consultation for Usha with Dr. Ramesh Kumar.',
+    time: new Date(Date.now() - 3600000).toISOString(),
+    acknowledged: true, elderName: 'Usha',
   },
   {
-    id: 'ga-2', type: 'vital_abnormal', severity: 'warning',
-    message: 'Heart rate elevated to 98 bpm for 10 minutes', time: new Date(Date.now() - 7200000).toISOString(),
-    acknowledged: false, elderName: INITIAL_ELDER_NAME,
+    id: 'ga-appt-2', type: 'vital_abnormal', severity: 'info',
+    message: 'Appointment booked & resolved: Cardiology review for Lakshmi Devi with Dr. Ramesh Kumar.',
+    time: new Date(Date.now() - 7200000).toISOString(),
+    acknowledged: true, elderName: 'Lakshmi Devi',
+  },
+  {
+    id: 'ga-appt-3', type: 'vital_abnormal', severity: 'info',
+    message: 'Appointment booked & resolved: Pulmonology review for Venkatesh Rao with Dr. Ramesh Kumar.',
+    time: new Date(Date.now() - 10800000).toISOString(),
+    acknowledged: true, elderName: 'Venkatesh Rao',
   },
 ];
 
 function getStoredGuardianAlerts(): GuardianAlert[] {
   if (typeof window === 'undefined' || !window.localStorage || typeof window.localStorage.getItem !== 'function') return INITIAL_GUARDIAN_ALERTS;
   const raw = window.localStorage.getItem(GUARDIAN_ALERTS_STORAGE_KEY);
-  if (!raw) return INITIAL_GUARDIAN_ALERTS;
+  if (raw === null) return INITIAL_GUARDIAN_ALERTS;
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed.map(sanitizeAlert) : INITIAL_GUARDIAN_ALERTS;
+    if (!Array.isArray(parsed)) return INITIAL_GUARDIAN_ALERTS;
+    if (parsed.length === 0) return [];
+    const sanitized = parsed.map(sanitizeAlert);
+    // Deduplicate repetitive alerts for the same elder and type to eliminate accumulated spam
+    const seen = new Set<string>();
+    const deduplicated: GuardianAlert[] = [];
+    for (const a of sanitized) {
+      const key = `${a.elderName || ''}-${a.type}-${a.severity}-${a.acknowledged}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduplicated.push(a);
+      }
+    }
+    return deduplicated.slice(0, 15);
   } catch {
     return INITIAL_GUARDIAN_ALERTS;
   }
@@ -175,7 +201,7 @@ function getStoredGuardianAlerts(): GuardianAlert[] {
 
 function storeGuardianAlerts(alerts: GuardianAlert[]) {
   if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
-    window.localStorage.setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts.slice(0, 100)));
+    window.localStorage.setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts.slice(0, 15)));
   }
 }
 
@@ -232,30 +258,98 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     },
   ],
   addReminder: (r) => set((s) => ({ reminders: [...s.reminders, r] })),
-  removeReminder: (id) => set((s) => ({ reminders: s.reminders.filter(r => r.id !== id) })),
-  updateReminder: (id, updates) => set((s) => ({
-    reminders: s.reminders.map(r => r.id === id ? { ...r, ...updates } : r),
-  })),
+  removeReminder: (id) => set((s) => {
+    const target = s.reminders.find(r => r.id === id);
+    const appointmentId = target?.appointmentId;
+    return {
+      reminders: s.reminders.filter(r => {
+        if (r.id === id) return false;
+        if (appointmentId && r.appointmentId === appointmentId) return false;
+        return true;
+      }),
+    };
+  }),
+  updateReminder: (id, updates) => set((s) => {
+    const target = s.reminders.find(r => r.id === id);
+    const appointmentId = target?.appointmentId || updates.appointmentId;
+    let next = s.reminders.map(r => r.id === id ? { ...r, ...updates } : r);
+
+    // If an appointment was rescheduled, update its associated 1-hour prep alarm!
+    if (appointmentId && (updates.time || updates.appointmentTime)) {
+      const newTime = updates.time || updates.appointmentTime || target?.time || '10:00';
+      const newDate = updates.appointmentDate || target?.appointmentDate;
+      const newPrepTime = calculateMinutesBefore(newTime, 60);
+
+      next = next.map((item) => {
+        if (item.appointmentId === appointmentId && item.isOneHourReminder) {
+          return {
+            ...item,
+            time: newPrepTime,
+            appointmentTime: newTime,
+            appointmentDate: newDate || item.appointmentDate,
+          };
+        }
+        return item;
+      });
+    }
+
+    return { reminders: next };
+  }),
   verifyReminder: (id) => set((s) => ({
     reminders: s.reminders.map(r => r.id === id ? { ...r, verified: true } : r),
   })),
   setReminders: (reminders) => set({ reminders }),
-  alerts: getStoredGuardianAlerts(),
   addGuardianAlert: (a) => set((s) => {
     const sanitized = sanitizeAlert(a);
-    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 100);
+    // Prevent duplicate unacknowledged alerts for the same elder & condition
+    if (!sanitized.acknowledged) {
+      const alreadyHas = s.alerts.some(
+        (existing) =>
+          !existing.acknowledged &&
+          existing.elderName?.trim().toLowerCase() === sanitized.elderName?.trim().toLowerCase() &&
+          existing.type === sanitized.type
+      );
+      if (alreadyHas) return s;
+    }
+    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 15);
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
   acknowledgeAlert: (id) => set((s) => {
+    const target = s.alerts.find(a => a.id === id);
     const nextAlerts = s.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a);
+    storeGuardianAlerts(nextAlerts);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gcare:acknowledge-alert', {
+          detail: { id, elderName: target?.elderName, elderId: target?.elderId },
+        })
+      );
+    }
+
+    return { alerts: nextAlerts };
+  }),
+  clearAlerts: (mode: 'all' | 'resolved' = 'resolved', elderName?: string) => set((s) => {
+    const nextAlerts = s.alerts.filter((a) => {
+      // If elderName is specified, only clear for that elder (RBAC)
+      if (elderName && a.elderName && a.elderName.trim().toLowerCase() !== elderName.trim().toLowerCase()) {
+        return true;
+      }
+      if (mode === 'resolved') {
+        // Keep active emergency alerts untouched!
+        return !a.acknowledged;
+      }
+      return false;
+    });
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
-  clearAlerts: () => {
-    storeGuardianAlerts([]);
-    set({ alerts: [] });
-  },
+  removeAlert: (id: string) => set((s) => {
+    const nextAlerts = s.alerts.filter((a) => a.id !== id);
+    storeGuardianAlerts(nextAlerts);
+    return { alerts: nextAlerts };
+  }),
   activeTab: 'feed',
   setActiveTab: (t) => set({ activeTab: t }),
   smartTvMode: false,
@@ -271,6 +365,37 @@ if (typeof window !== 'undefined') {
           useGuardianStore.setState({ alerts: parsed.map(sanitizeAlert) });
         }
       } catch {}
+    }
+  });
+
+  window.addEventListener('gcare:cross-event', (e: Event) => {
+    const custom = e as CustomEvent<{ type?: string; mode?: 'all' | 'resolved' }>;
+    if (custom.detail?.type === 'ALERTS_CLEARED') {
+      const mode = custom.detail.mode || 'all';
+      useGuardianStore.getState().clearAlerts(mode);
+    }
+  });
+
+  window.addEventListener('gcare:acknowledge-alert', (e: Event) => {
+    const customEvent = e as CustomEvent<{ id?: string; elderId?: string; elderName?: string }>;
+    const { id, elderId, elderName } = customEvent.detail || {};
+    const state = useGuardianStore.getState();
+    let changed = false;
+    const nextAlerts = state.alerts.map((a) => {
+      const matchesId = id && a.id === id;
+      const matchesElder =
+        (elderName && a.elderName?.trim().toLowerCase() === elderName.trim().toLowerCase()) ||
+        (elderId && a.elderId === elderId);
+      if ((matchesId || matchesElder) && !a.acknowledged) {
+        changed = true;
+        return { ...a, acknowledged: true };
+      }
+      return a;
+    });
+
+    if (changed) {
+      storeGuardianAlerts(nextAlerts);
+      useGuardianStore.setState({ alerts: nextAlerts });
     }
   });
 }

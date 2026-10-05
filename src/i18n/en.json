@@ -182,6 +182,7 @@
   "settings": {
     "profile": "Profile",
     "notifications": "Notifications",
+    "alert_history": "Alert History",
     "emergency_contacts": "Emergency Contacts",
     "language_accessibility": "Language & Accessibility",
     "security": "Security"

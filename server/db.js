@@ -1034,11 +1034,17 @@ export const dbService = {
 
   deleteAlarm: async (id) => {
     if (usePostgres) {
-      await pool.query('DELETE FROM alarms WHERE id = $1', [id]);
+      await pool.query('DELETE FROM alarms WHERE id = $1 OR appointment_id = $1', [id]);
       return { id };
     } else {
       const fileDb = await readDb();
-      fileDb.alarms = fileDb.alarms.filter((a) => a.id !== id);
+      const target = (fileDb.alarms || []).find((a) => a.id === id);
+      const apptId = target?.appointmentId;
+      fileDb.alarms = (fileDb.alarms || []).filter((a) => {
+        if (a.id === id) return false;
+        if (apptId && a.appointmentId === apptId) return false;
+        return true;
+      });
       await writeDb(fileDb);
       return { id };
     }
@@ -1181,6 +1187,50 @@ export const dbService = {
         elder_name: elder?.full_name || '',
         elderName: elder?.full_name || '',
       };
+    }
+  },
+
+  clearAlerts: async (user, onlyResolved = false) => {
+    const elderIds = await dbService.getAccessibleElderIds(user);
+    if (usePostgres) {
+      let query = 'DELETE FROM alerts WHERE (owner_id = $1 OR elder_id = ANY($2))';
+      const params = [user.id, elderIds];
+      if (onlyResolved) {
+        query += ' AND resolved = true';
+      }
+      const res = await pool.query(query, params);
+      return { count: res.rowCount };
+    } else {
+      const fileDb = await readDb();
+      const initialCount = (fileDb.alerts || []).length;
+      fileDb.alerts = (fileDb.alerts || []).filter((alert) => {
+        const belongsToUser =
+          user.role === 'caretaker' ||
+          user.role === 'doctor' ||
+          alert.ownerId === user.id ||
+          (alert.elder_id && elderIds.includes(alert.elder_id)) ||
+          (alert.elderId && elderIds.includes(alert.elderId));
+        if (!belongsToUser) return true;
+        if (onlyResolved) {
+          return !alert.resolved;
+        }
+        return false;
+      });
+      await writeDb(fileDb);
+      return { count: initialCount - fileDb.alerts.length };
+    }
+  },
+
+  deleteAlert: async (id) => {
+    if (usePostgres) {
+      const res = await pool.query('DELETE FROM alerts WHERE id = $1', [id]);
+      return res.rowCount > 0;
+    } else {
+      const fileDb = await readDb();
+      const before = (fileDb.alerts || []).length;
+      fileDb.alerts = (fileDb.alerts || []).filter((a) => a.id !== id);
+      await writeDb(fileDb);
+      return fileDb.alerts.length < before;
     }
   },
 

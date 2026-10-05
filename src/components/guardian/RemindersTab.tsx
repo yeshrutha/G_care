@@ -83,14 +83,22 @@ const ReminderCard: React.FC<{ reminder: Reminder; onVerify: () => void; onDelet
           {iconMap[reminder.type]}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="font-semibold text-foreground text-sm truncate">{reminder.title}</span>
             <Badge variant="outline" className="text-[10px] shrink-0">{reminder.type}</Badge>
+            {reminder.isOneHourReminder && (
+              <Badge variant="outline" className="text-[10px] text-teal border-teal/40 bg-teal/10 shrink-0">
+                60-Min Prep
+              </Badge>
+            )}
             {reminder.verified && <Badge className="text-[10px] bg-gw-green text-primary-foreground">Verified ✓</Badge>}
           </div>
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatTime12Hour(reminder.time)}</span>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1 font-mono"><Clock className="h-3 w-3" />{formatTime12Hour(reminder.time)}</span>
             <span>{reminder.repeat}</span>
+            {reminder.isOneHourReminder && reminder.appointmentTime && (
+              <span className="text-teal font-medium">For Appt at {formatTime12Hour(reminder.appointmentTime)}</span>
+            )}
             {reminder.dosage && <span>{reminder.dosage}</span>}
             {reminder.doctorName && <span>{reminder.doctorName}</span>}
             {reminder.appointmentDate && <span>{reminder.appointmentDate}</span>}

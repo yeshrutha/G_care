@@ -121,4 +121,34 @@ describe('Data Persistence & Telemetry Synchronization', () => {
     const activeVitals = state.demoVitals[activeId];
     expect(activeVitals).toEqual(state.demoVitals[activeId]);
   });
+
+  it('clears all active alerts from store and persists empty state', () => {
+    useAppStore.getState().setActiveAlerts([
+      { id: 'al-1', elder_id: 'elder-1', elder_name: 'Usha', title: 'High HR', message: 'Heart rate high', severity: 'critical', resolved: false, timestamp: new Date().toISOString() },
+      { id: 'al-2', elder_id: 'elder-2', elder_name: 'Lakshmi', title: 'Low SpO2', message: 'SpO2 low', severity: 'warning', resolved: true, timestamp: new Date().toISOString() },
+    ]);
+
+    expect(useAppStore.getState().activeAlerts.length).toBe(2);
+
+    // Clear resolved only
+    useAppStore.getState().clearAlerts('resolved');
+    expect(useAppStore.getState().activeAlerts.length).toBe(1);
+    expect(useAppStore.getState().activeAlerts[0].id).toBe('al-1');
+
+    // Clear all
+    useAppStore.getState().clearAlerts('all');
+    expect(useAppStore.getState().activeAlerts.length).toBe(0);
+  });
+
+  it('removes single alert from activeAlerts by id', () => {
+    useAppStore.getState().setActiveAlerts([
+      { id: 'al-del-1', elder_id: 'elder-1', elder_name: 'Usha', title: 'High HR', message: 'Heart rate high', severity: 'critical', resolved: false, timestamp: new Date().toISOString() },
+      { id: 'al-del-2', elder_id: 'elder-2', elder_name: 'Lakshmi', title: 'Low SpO2', message: 'SpO2 low', severity: 'warning', resolved: true, timestamp: new Date().toISOString() },
+    ]);
+
+    useAppStore.getState().removeAlert('al-del-1');
+    const remaining = useAppStore.getState().activeAlerts;
+    expect(remaining.length).toBe(1);
+    expect(remaining[0].id).toBe('al-del-2');
+  });
 });

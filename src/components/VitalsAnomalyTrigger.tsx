@@ -13,9 +13,11 @@ import {
   AlertTriangle,
   ArrowUpRight,
   ArrowDownRight,
-  Wind
+  Wind,
+  ShieldAlert,
 } from 'lucide-react';
 import { detectVitalsAnomalies } from '@/lib/anomalyDetector';
+import { broadcastGcareMessage } from '@/lib/syncChannel';
 
 interface VitalsAnomalyTriggerProps {
   elderId?: string;
@@ -34,6 +36,7 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
     demoVitals,
     injectVitalsAnomaly,
     stabilizeElderVitals,
+    addAlert,
   } = useAppStore();
 
   const targetId = propElderId || activeElderId || 'elder-1';
@@ -47,9 +50,71 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
   const handleTrigger = (name: string, overrides: Parameters<typeof injectVitalsAnomaly>[1]) => {
     injectVitalsAnomaly(targetId, overrides);
 
+    if (overrides.systolic_bp && overrides.systolic_bp < 85) {
+      const sosAlert = {
+        id: `sos-bp-${Date.now()}`,
+        elder_id: targetElder.id,
+        elder_name: targetElder.full_name,
+        type: 'sos' as const,
+        severity: 'critical' as const,
+        message: `🚨 CRITICAL EMERGENCY — ${targetElder.full_name}'s Blood Pressure dropped dangerously to ${overrides.systolic_bp}/${overrides.diastolic_bp || 48} mmHg (Severe Hypotension / Shock risk). Immediate doctor consultation needed.`,
+        location: targetElder.room || 'Sadashivanagar, Bangalore',
+        time: new Date().toISOString(),
+        resolved: false,
+      };
+      addAlert(sosAlert);
+      broadcastGcareMessage({
+        type: 'SOS_TRIGGERED',
+        id: sosAlert.id,
+        elderId: targetElder.id,
+        elderName: targetElder.full_name,
+        alert: sosAlert,
+        timestamp: Date.now(),
+      });
+    }
+
     toast({
       title: `🚨 ${name} — ${targetElder.full_name}`,
       description: `Notified Doctor (Dr. Ramesh Kumar) & Guardian. Automated alerts dispatched.`,
+      variant: 'destructive',
+    });
+  };
+
+  const handleTriggerSOS = () => {
+    injectVitalsAnomaly(targetId, {
+      panic_detected: true,
+      heart_rate: 128,
+      spo2: 89,
+      stress: 94,
+      breathing_rate: 26,
+    });
+
+    const sosAlert = {
+      id: `sos-${Date.now()}`,
+      elder_id: targetElder.id,
+      elder_name: targetElder.full_name,
+      type: 'sos' as const,
+      severity: 'critical' as const,
+      message: `🚨 EMERGENCY SOS — ${targetElder.full_name} pressed SOS button! Acute distress & low SpO2. Immediate attention required.`,
+      location: targetElder.room || 'Sadashivanagar, Bangalore',
+      time: new Date().toISOString(),
+      resolved: false,
+    };
+
+    addAlert(sosAlert);
+
+    broadcastGcareMessage({
+      type: 'SOS_TRIGGERED',
+      id: sosAlert.id,
+      elderId: targetElder.id,
+      elderName: targetElder.full_name,
+      alert: sosAlert,
+      timestamp: Date.now(),
+    });
+
+    toast({
+      title: `🚨 Emergency SOS — ${targetElder.full_name}`,
+      description: `SOS alert dispatched to Doctor Portal and Guardian. Waiting for doctor acknowledgment.`,
       variant: 'destructive',
     });
   };
@@ -100,7 +165,7 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
           </div>
 
           {/* Trigger Action Buttons */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2">
             {/* Tachycardia */}
             <Button
               type="button"
@@ -161,6 +226,21 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
               </div>
             </Button>
 
+            {/* Low BP Drop / Hypotension */}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => handleTrigger('Hypotension (Low BP Drop)', { systolic_bp: 78, diastolic_bp: 48, heart_rate: 106 })}
+              className="flex items-center justify-start gap-1.5 text-xs h-9 border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-600 hover:border-orange-500 text-left"
+            >
+              <ArrowDownRight className="h-3.5 w-3.5 text-orange-500 shrink-0" />
+              <div className="truncate">
+                <span className="font-semibold block leading-tight">Low BP Drop</span>
+                <span className="text-[10px] text-muted-foreground">78/48 mmHg</span>
+              </div>
+            </Button>
+
             {/* Panic / High Stress */}
             <Button
               type="button"
@@ -173,6 +253,21 @@ export const VitalsAnomalyTrigger: React.FC<VitalsAnomalyTriggerProps> = ({
               <div className="truncate">
                 <span className="font-semibold block leading-tight">Stress Panic</span>
                 <span className="text-[10px] text-muted-foreground">86/100, 28 brpm</span>
+              </div>
+            </Button>
+
+            {/* Emergency SOS Panic */}
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              onClick={handleTriggerSOS}
+              className="flex items-center justify-start gap-1.5 text-xs h-9 bg-red-600 hover:bg-red-700 text-white font-bold text-left shadow-sm active:scale-95"
+            >
+              <ShieldAlert className="h-3.5 w-3.5 animate-bounce shrink-0 text-white" />
+              <div className="truncate">
+                <span className="font-bold block leading-tight text-white">Emergency SOS</span>
+                <span className="text-[10px] text-red-100">Critical Alert</span>
               </div>
             </Button>
 

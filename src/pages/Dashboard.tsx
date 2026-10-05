@@ -27,6 +27,7 @@ import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
+import { broadcastGcareMessage } from '@/lib/syncChannel';
 
 type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports' | 'doctor';
 
@@ -204,7 +205,7 @@ const Dashboard: React.FC = () => {
   const {
     demoMode, setDemoMode, authUser, setAuthUser,
     demoElders, setDemoElders,
-    demoVitals, setDemoVitals, activeAlerts, setActiveAlerts, addAlert,
+    demoVitals, setDemoVitals, activeAlerts, setActiveAlerts, addAlert, resolveAlert, clearAlerts, removeAlert, stabilizeElderVitals,
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
     setDemoStep, demoStep,
@@ -245,6 +246,7 @@ const Dashboard: React.FC = () => {
   const [doctorNotes, setDoctorNotes] = useState<any[]>([]);
   const [doctorCareTeam, setDoctorCareTeam] = useState<any[]>([]);
   const [loadingDoctorData, setLoadingDoctorData] = useState(false);
+  const [clearAlertHistoryConfirmOpen, setClearAlertHistoryConfirmOpen] = useState(false);
 
   const [newMedication, setNewMedication] = useState({
     elderId: '',
@@ -402,7 +404,10 @@ const Dashboard: React.FC = () => {
           });
         }
         if (Array.isArray(data.alerts) && data.alerts.length > 0) {
-          setActiveAlerts(data.alerts);
+          const raw = typeof window !== 'undefined' ? window.localStorage.getItem('gcare_active_alerts') : null;
+          if (raw !== '[]') {
+            setActiveAlerts(data.alerts);
+          }
         }
         if (data.vitals) {
           Object.entries(data.vitals).forEach(([id, v]) => setDemoVitals(id, v));
@@ -557,6 +562,85 @@ const Dashboard: React.FC = () => {
     setBtConnected(false);
     setBtDeviceId('');
     setAddElderOpen(false);
+  };
+
+  const handleAcknowledgeAlert = (alert: DemoAlert) => {
+    resolveAlert(alert.id);
+    const elder = elders.find((e) => e.id === alert.elder_id || e.full_name === alert.elder_name);
+    if (elder) {
+      stabilizeElderVitals(elder.id);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gcare:acknowledge-alert', {
+          detail: { id: alert.id, elderId: elder?.id, elderName: alert.elder_name },
+        })
+      );
+    }
+    apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
+    toast({
+      title: 'Alert Acknowledged',
+      description: 'Alert marked as resolved. Watch and portals updated.',
+    });
+  };
+
+  const handleAcknowledgeAllAlerts = async () => {
+    const unres = activeAlerts.filter((a) => !a.resolved);
+    if (unres.length === 0) return;
+
+    for (const alert of unres) {
+      resolveAlert(alert.id);
+      apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
+      const elder = demoElders.find((e) => e.full_name === alert.elder_name || e.id === alert.elder_id);
+      if (elder) {
+        stabilizeElderVitals(elder.id);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gcare:acknowledge-alert', { detail: {} }));
+    }
+
+    broadcastGcareMessage({
+      type: 'ALERT_RESOLVED',
+      timestamp: Date.now(),
+    });
+
+    toast({
+      title: 'All Alerts Acknowledged',
+      description: `Resolved ${unres.length} alert(s) across all patients.`,
+    });
+  };
+
+  const handleClearAlertHistory = async (mode: 'all' | 'resolved' = 'all') => {
+    clearAlerts(mode);
+    try {
+      await apiFetch(`/alerts${mode === 'resolved' ? '?resolved=true' : ''}`, { method: 'DELETE' });
+    } catch {}
+
+    broadcastGcareMessage({
+      type: 'ALERTS_CLEARED',
+      mode,
+      timestamp: Date.now(),
+    });
+
+    toast({
+      title: mode === 'resolved' ? 'Resolved Alerts Cleared' : 'Alert History Cleared',
+      description: mode === 'resolved'
+        ? 'Cleared all resolved alerts from safety history.'
+        : 'All safety alert records and notifications have been cleared.',
+    });
+  };
+
+  const handleRemoveSingleAlert = async (id: string) => {
+    removeAlert(id);
+    try {
+      await apiFetch(`/alerts/${id}`, { method: 'DELETE' });
+    } catch {}
+    toast({
+      title: 'Alert Removed',
+      description: 'The selected alert was removed from history.',
+    });
   };
 
   const handleBluetoothConnect = () => {
@@ -1454,32 +1538,146 @@ const Dashboard: React.FC = () => {
           )}
 
           {activeSection === 'alerts' && (
-            <section className="space-y-4">
-              <div>
-                <h2 className="font-display text-xl text-foreground">Alert Center</h2>
-                <p className="text-sm text-muted-foreground">Unresolved and recent safety events from connected watches.</p>
+            <section className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+                <div>
+                  <h2 className="font-display text-xl text-foreground">Alert Center</h2>
+                  <p className="text-sm text-muted-foreground">Unresolved and recent safety events from connected watches.</p>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {unresolvedCount > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-8 border-teal/40 text-teal hover:bg-teal/10 font-medium"
+                      onClick={handleAcknowledgeAllAlerts}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      Acknowledge All ({unresolvedCount})
+                    </Button>
+                  )}
+                  <Badge variant="outline" className="text-teal border-teal/30">
+                    {unresolvedCount} Active
+                  </Badge>
+                  <Badge variant="outline" className="text-muted-foreground border-border">
+                    {activeAlerts.filter((a) => a.resolved).length} in History
+                  </Badge>
+                </div>
               </div>
+
+              {/* 1. ACTIVE ALERTS SECTION */}
               <div className="space-y-3">
-                {activeAlerts.length === 0 ? (
-                  <Card className="rounded-xl border-border shadow-sm">
-                    <CardContent className="p-6 text-sm text-muted-foreground">No active alerts right now. Turn on demo mode to simulate events.</CardContent>
-                  </Card>
-                ) : activeAlerts.map((alert) => (
-                  <Card key={alert.id} className={`rounded-xl shadow-sm ${getAlertCardClass(alert.severity)}`}>
-                    <CardContent className="p-5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="font-semibold text-foreground">{alert.elder_name}</h3>
-                          <p className="mt-1 text-sm text-muted-foreground">{alert.message}</p>
-                          {alert.location && <p className="mt-2 text-xs text-muted-foreground">{alert.location}</p>}
-                        </div>
-                        <Badge variant="outline" className={getAlertBadgeClass(alert)}>
-                          {getAlertLabel(alert)}
-                        </Badge>
-                      </div>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-base font-semibold text-foreground flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-destructive" />
+                    Active Alerts ({unresolvedCount})
+                  </h3>
+                </div>
+
+                {unresolvedCount === 0 ? (
+                  <Card className="rounded-xl border-border bg-card">
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                      <CheckCircle2 className="h-7 w-7 mx-auto mb-2 text-gw-green" />
+                      <p className="font-medium text-foreground text-sm">All Patients Stable</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">No active alerts right now.</p>
                     </CardContent>
                   </Card>
-                ))}
+                ) : (
+                  <div className="space-y-2.5">
+                    {activeAlerts.filter((a) => !a.resolved).map((alert) => (
+                      <Card key={alert.id} className={`rounded-xl shadow-sm ${getAlertCardClass(alert.severity)}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-foreground">{alert.elder_name}</h3>
+                                <Badge variant="outline" className={getAlertBadgeClass(alert)}>
+                                  {getAlertLabel(alert)}
+                                </Badge>
+                              </div>
+                              <p className="mt-1 text-sm text-foreground">{alert.message}</p>
+                              {alert.location && <p className="mt-1.5 text-xs text-muted-foreground">{alert.location}</p>}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                size="sm"
+                                className="bg-teal text-primary-foreground text-xs h-8"
+                                onClick={() => handleAcknowledgeAlert(alert)}
+                              >
+                                Acknowledge
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                title="Delete alert"
+                                onClick={() => handleRemoveSingleAlert(alert.id)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. ALERT HISTORY SECTION */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-base font-semibold text-foreground flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-gw-green" />
+                    Alert History ({activeAlerts.filter((a) => a.resolved).length})
+                  </h3>
+                  {activeAlerts.some((a) => a.resolved) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+                      onClick={() => setClearAlertHistoryConfirmOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                      Clear Alert History
+                    </Button>
+                  )}
+                </div>
+
+                {activeAlerts.filter((a) => a.resolved).length === 0 ? (
+                  <Card className="rounded-xl border-dashed border-border bg-muted/20">
+                    <CardContent className="p-4 text-center text-xs text-muted-foreground">
+                      No resolved alerts in history.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-2">
+                    {activeAlerts.filter((a) => a.resolved).map((alert) => (
+                      <div
+                        key={alert.id}
+                        className="p-3 border rounded-xl flex items-center justify-between gap-3 bg-muted/30 border-border opacity-85 hover:opacity-100 transition-opacity"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground text-xs">{alert.elder_name}</span>
+                            <Badge variant="outline" className="text-[10px] text-gw-green border-gw-green/40">Resolved</Badge>
+                            <span className="text-[11px] text-muted-foreground">{new Date(alert.time).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{alert.message}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Delete from history"
+                          onClick={() => handleRemoveSingleAlert(alert.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </section>
           )}
@@ -2111,6 +2309,31 @@ const Dashboard: React.FC = () => {
           )}
         </div>
       </main>
+
+      {/* Clear Alert History Confirmation */}
+      <AlertDialog open={clearAlertHistoryConfirmOpen} onOpenChange={setClearAlertHistoryConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Alert History?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove all acknowledged and resolved alerts from history.
+              Active unacknowledged emergency alerts will be safely preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                handleClearAlertHistory('resolved');
+                setClearAlertHistoryConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Clear History
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -23,7 +23,18 @@ import {
   Brain,
   Vibrate,
   Shield,
+  Check,
+  CalendarCheck,
+  Volume2,
+  ShieldAlert,
 } from 'lucide-react';
+
+import {
+  subscribeToGcareBroadcast,
+  broadcastGcareMessage,
+  calculateMinutesBefore,
+  generateAppointmentKannadaMessage,
+} from '@/lib/syncChannel';
 
 import { Button } from '@/components/ui/button';
 
@@ -266,6 +277,22 @@ const WatchSimulator: React.FC<
       (state) => state.reminders,
     );
 
+  const activeAlerts = useAppStore(
+    (state) => state.activeAlerts,
+  );
+
+  const resolveAlert = useAppStore(
+    (state) => state.resolveAlert,
+  );
+
+  const guardianAlerts = useGuardianStore(
+    (state) => state.alerts,
+  );
+
+  const acknowledgeGuardianAlert = useGuardianStore(
+    (state) => state.acknowledgeAlert,
+  );
+
   const verifyReminder =
     useGuardianStore(
       (state) => state.verifyReminder,
@@ -453,10 +480,237 @@ const WatchSimulator: React.FC<
     );
   }, [demoVitals, activeElder]);
 
+  interface WatchAppointmentNotice {
+    date: string;
+    time: string;
+    prepAlarmTime: string;
+    doctorName: string;
+    language?: string;
+    kannadaMessage?: string;
+    displayText?: string;
+    spokenText?: string;
+    speechLang?: string;
+    elderName: string;
+    receivedAt: number;
+  }
+
+  const [appointmentNotice, setAppointmentNotice] = useState<WatchAppointmentNotice | null>(null);
+  const [dismissedWatchAlerts, setDismissedWatchAlerts] = useState<Record<string, boolean>>({});
+
+  // Cross-portal real-time synchronization with Doctor Portal and other tabs/windows
+  useEffect(() => {
+    const handleAcknowledge = (event: Event) => {
+      const customEvent = event as CustomEvent<{ id?: string; elderId?: string; elderName?: string }>;
+      const { elderId, elderName } = customEvent.detail || {};
+      const targetId =
+        elderId ||
+        (elderName ? demoElders.find((e) => e.full_name?.toLowerCase() === elderName.toLowerCase())?.id : null);
+      if (targetId) {
+        setDismissedWatchAlerts((prev) => ({ ...prev, [targetId]: true }));
+      } else if (activeElder) {
+        setDismissedWatchAlerts((prev) => ({ ...prev, [activeElder.id]: true }));
+      }
+      stopAlertLoop();
+    };
+
+    window.addEventListener('gcare:acknowledge-alert', handleAcknowledge);
+
+    // Cross-window BroadcastChannel and Storage listener
+    const unsubscribeBroadcast = subscribeToGcareBroadcast((msg) => {
+      if (msg.type === 'APPOINTMENT_SCHEDULED') {
+        const targetElderId = msg.elderId;
+
+        // 1. Turn OFF the red anomaly / SOS alert on the watch
+        setDismissedWatchAlerts((prev) => ({ ...prev, [targetElderId]: true }));
+        stabilizeElderVitals(targetElderId);
+        stopAlertLoop();
+
+        const lang = msg.language || (activeElder?.language_pref || 'kn');
+        const speechLang = (msg as any).speechLang || (lang === 'hi' ? 'hi-IN' : lang === 'ta' ? 'ta-IN' : lang === 'kn' ? 'kn-IN' : 'en-IN');
+        const spoken = (msg as any).spokenText || msg.kannadaMessage || (msg as any).patientMessage || msg.englishMessage;
+        const display = (msg as any).patientMessage || msg.kannadaMessage || msg.englishMessage;
+
+        // 2. Set the appointment confirmation banner
+        setAppointmentNotice({
+          date: msg.date,
+          time: msg.time,
+          prepAlarmTime: msg.prepAlarmTime,
+          doctorName: msg.doctorName,
+          language: lang,
+          displayText: display,
+          spokenText: spoken,
+          speechLang,
+          kannadaMessage: msg.kannadaMessage || spoken,
+          elderName: msg.elderName,
+          receivedAt: Date.now(),
+        });
+
+        // 3. Audio notification chime
+        triggerAlert('medicine');
+
+        // 4. Voice output in preferred language!
+        speakText(spoken, speechLang);
+
+        toast({
+          title: lang === 'kn' ? '📅 ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ನಿಗದಿಯಾಗಿದೆ' :
+                 lang === 'hi' ? '📅 अपॉइंटमेंट निर्धारित' :
+                 lang === 'ta' ? '📅 சந்திப்பு பதிவு செய்யப்பட்டுள்ளது' :
+                 '📅 Appointment Scheduled',
+          description: `${msg.date} at ${msg.time} with ${msg.doctorName}. Prep alarm: ${msg.prepAlarmTime} (60 min prior).`,
+        });
+      } else if (msg.type === 'SOS_TRIGGERED') {
+        const targetId = msg.elderId || (activeElder ? activeElder.id : null);
+        if (targetId) {
+          setDismissedWatchAlerts((prev) => ({ ...prev, [targetId]: false }));
+        }
+      } else if (msg.type === 'ALERT_RESOLVED' || msg.type === 'ALERT_ACKNOWLEDGED') {
+        const targetId = msg.elderId || (activeElder ? activeElder.id : null);
+        if (targetId) {
+          setDismissedWatchAlerts((prev) => ({ ...prev, [targetId]: true }));
+          stabilizeElderVitals(targetId);
+        }
+        stopAlertLoop();
+      }
+    });
+
+    return () => {
+      window.removeEventListener('gcare:acknowledge-alert', handleAcknowledge);
+      unsubscribeBroadcast();
+    };
+  }, [demoElders, activeElder, stabilizeElderVitals]);
+
+  const handleTriggerWatchSos = useCallback(() => {
+    if (!activeElder) return;
+
+    // 1. Inject abnormal vitals & panic
+    injectVitalsAnomaly(activeElder.id, {
+      panic_detected: true,
+      heart_rate: 128,
+      stress: 95,
+      breathing_rate: 26,
+      spo2: 89,
+    });
+
+    // 2. Un-dismiss watch alert so red anomaly banner displays on watch
+    setDismissedWatchAlerts((prev) => ({ ...prev, [activeElder.id]: false }));
+
+    // 3. Clear previous appointment notice so emergency is prioritized
+    setAppointmentNotice(null);
+
+    // 4. Create SOS alert
+    const sosAlert = {
+      id: `sos-${Date.now()}`,
+      elder_id: activeElder.id,
+      elder_name: activeElder.full_name,
+      type: 'sos' as const,
+      severity: 'critical' as const,
+      message: `🚨 EMERGENCY SOS — ${activeElder.full_name} pressed SOS button! Acute distress & low SpO2. Immediate attention required.`,
+      location: activeElder.room || 'Sadashivanagar, Bangalore',
+      time: new Date().toISOString(),
+      resolved: false,
+    };
+
+    addAlert(sosAlert);
+    addGuardianAlert({
+      id: `guardian-${sosAlert.id}`,
+      elderId: activeElder.id,
+      elderName: activeElder.full_name,
+      type: 'sos_trigger' as any,
+      severity: 'critical',
+      message: sosAlert.message,
+      time: sosAlert.time,
+      acknowledged: false,
+    });
+
+    apiFetch('/alerts', { method: 'POST', body: JSON.stringify(sosAlert) }).catch(() => {});
+
+    // 5. Broadcast to Doctor Portal
+    broadcastGcareMessage({
+      type: 'SOS_TRIGGERED',
+      id: sosAlert.id,
+      elderId: activeElder.id,
+      elderName: activeElder.full_name,
+      alert: sosAlert,
+      timestamp: Date.now(),
+    });
+
+    // 6. Sound alert
+    triggerAlert('sos');
+
+    toast({
+      title: `🚨 ತುರ್ತು SOS / Emergency Alert Dispatched`,
+      description: `Emergency alert sent from ${activeElder.full_name}'s watch to Doctor Portal and Guardian.`,
+      variant: 'destructive',
+    });
+  }, [activeElder, injectVitalsAnomaly, addAlert, addGuardianAlert]);
+
   const activeWatchAnomalies = useMemo(() => {
     if (!activeElder || !activeVitals) return [];
-    return detectVitalsAnomalies(activeElder, activeVitals);
-  }, [activeElder, activeVitals]);
+    if (dismissedWatchAlerts[activeElder.id]) return [];
+
+    const rawAnomalies = detectVitalsAnomalies(activeElder, activeVitals);
+    if (rawAnomalies.length === 0) return [];
+
+    const elderName = activeElder.full_name?.trim().toLowerCase();
+    const elderId = activeElder.id;
+
+    // Check if there is an unacknowledged / unresolved alert for this elder
+    const hasUnresolvedAppAlert = activeAlerts.some(
+      (a) =>
+        !a.resolved &&
+        (a.elder_id === elderId ||
+          (a.elder_name && a.elder_name.trim().toLowerCase() === elderName))
+    );
+
+    const hasUnacknowledgedGuardianAlert = guardianAlerts.some(
+      (a) =>
+        !a.acknowledged &&
+        ((a.elderName && a.elderName.trim().toLowerCase() === elderName) ||
+          (a.elderId && a.elderId === elderId))
+    );
+
+    // If alerts for this elder are already acknowledged or resolved by Doctor / Caretaker / Guardian
+    if (!hasUnresolvedAppAlert && !hasUnacknowledgedGuardianAlert) {
+      return [];
+    }
+
+    return rawAnomalies;
+  }, [activeElder, activeVitals, activeAlerts, guardianAlerts, dismissedWatchAlerts]);
+
+  const handleDismissWatchAnomaly = useCallback((elderId: string) => {
+    setDismissedWatchAlerts((prev) => ({ ...prev, [elderId]: true }));
+    stabilizeElderVitals(elderId);
+    stopAlertLoop();
+
+    const elder = demoElders.find((e) => e.id === elderId) || activeElder;
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gcare:acknowledge-alert', {
+          detail: { elderId, elderName: elder?.full_name },
+        })
+      );
+    }
+
+    const matchingAppAlerts = activeAlerts.filter(
+      (a) => !a.resolved && (a.elder_id === elderId || a.elder_name === elder?.full_name)
+    );
+    matchingAppAlerts.forEach((a) => {
+      resolveAlert(a.id);
+      apiFetch(`/alerts/${a.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
+    });
+
+    const matchingGuardianAlerts = guardianAlerts.filter(
+      (a) => !a.acknowledged && (a.elderId === elderId || a.elderName === elder?.full_name)
+    );
+    matchingGuardianAlerts.forEach((a) => {
+      acknowledgeGuardianAlert(a.id);
+    });
+
+    toast({
+      title: 'Alert Turned Off on Watch',
+      description: `${elder?.full_name || 'Patient'} vitals safe & stabilized. Clinician notified.`,
+    });
+  }, [demoElders, activeElder, activeAlerts, guardianAlerts, resolveAlert, acknowledgeGuardianAlert, stabilizeElderVitals]);
 
   const profileLanguage =
     resolveSpeechLanguage(
@@ -2483,6 +2737,18 @@ const WatchSimulator: React.FC<
                     </div>
 
                     {/* -------------------------------- */}
+                    {/* EMERGENCY SOS BUTTON              */}
+                    {/* -------------------------------- */}
+                    <button
+                      type="button"
+                      onClick={handleTriggerWatchSos}
+                      className="mb-3 w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 py-2 px-3 text-xs font-bold text-white shadow-lg shadow-red-950/50 border border-red-400/40 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <ShieldAlert className="h-4 w-4 animate-bounce shrink-0 text-white" />
+                      <span>🚨 ತುರ್ತು SOS / EMERGENCY SOS</span>
+                    </button>
+
+                    {/* -------------------------------- */}
                     {/* VITALS                            */}
                     {/* -------------------------------- */}
 
@@ -2518,6 +2784,118 @@ const WatchSimulator: React.FC<
                       </div>
 
                       {/* -------------------------------- */}
+                      {/* MULTILINGUAL APPOINTMENT NOTIFICATION */}
+                      {/* -------------------------------- */}
+                      {appointmentNotice && (() => {
+                        const lang = appointmentNotice.language || 'kn';
+                        const headerTitle =
+                          lang === 'kn' ? 'ನಿಮ್ಮ ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ನಿಗದಿಯಾಗಿದೆ' :
+                          lang === 'hi' ? 'आपका अपॉइंटमेंट तय हो गया है' :
+                          lang === 'ta' ? 'உங்கள் சந்திப்பு பதிவு செய்யப்பட்டுள்ளது' :
+                          'Appointment Scheduled';
+                        const confirmedLabel =
+                          lang === 'kn' ? 'ಖಚಿತಗೊಂಡಿದೆ' :
+                          lang === 'hi' ? 'पुष्टि की गई' :
+                          lang === 'ta' ? 'உறுதிப்படுத்தப்பட்டது' :
+                          'Confirmed';
+                        const dateLabel =
+                          lang === 'kn' ? 'ದಿನಾಂಕ (Date):' :
+                          lang === 'hi' ? 'तारीख (Date):' :
+                          lang === 'ta' ? 'தேதி (Date):' :
+                          'Date:';
+                        const timeLabel =
+                          lang === 'kn' ? 'ಸಮಯ (Time):' :
+                          lang === 'hi' ? 'समय (Time):' :
+                          lang === 'ta' ? 'நேரம் (Time):' :
+                          'Time:';
+                        const doctorLabel =
+                          lang === 'kn' ? 'ವೈದ್ಯರು (Doctor):' :
+                          lang === 'hi' ? 'डॉक्टर (Doctor):' :
+                          lang === 'ta' ? 'மருத்துவர் (Doctor):' :
+                          'Doctor:';
+                        const prepLabel =
+                          lang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಯಾರಿ ಅಲಾರಾಂ:' :
+                          lang === 'hi' ? 'अस्पताल तैयारी अलार्म:' :
+                          lang === 'ta' ? 'மருத்துவமனை தயாரிப்பு அலாரம்:' :
+                          'Hospital Prep Alarm:';
+                        const prepDesc =
+                          lang === 'kn' ? 'ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್‌ಗಿಂತ 60 ನಿಮಿಷ ಮುಂಚಿತವಾಗಿ ಅಲಾರಾಂ ಹೊಂದಿಸಲಾಗಿದೆ. ಆಸ್ಪತ್ರೆಗೆ ಬೇಗನೆ ಹೊರಡಲು ಸಿದ್ಧರಾಗಿ.' :
+                          lang === 'hi' ? 'अपॉइंटमेंट से 60 मिनट पहले अलार्म सेट किया गया है। अस्पताल के लिए समय पर निकलें।' :
+                          lang === 'ta' ? 'சந்திப்புக்கு 60 நிமிடங்களுக்கு முன் அலாரம் அமைக்கப்பட்டுள்ளது. முன்கூட்டியே புறப்படவும்.' :
+                          'Alarm registered 60 minutes prior to appointment. Please leave early for checkup.';
+                        const replayLabel =
+                          lang === 'kn' ? 'ಧ್ವನಿ ಕೇಳಿ (Voice)' :
+                          lang === 'hi' ? 'आवाज़ सुनें (Voice)' :
+                          lang === 'ta' ? 'குரல் கேட்கவும் (Voice)' :
+                          'Voice Replay';
+                        const okLabel =
+                          lang === 'kn' ? 'ಸರಿ (OK)' :
+                          lang === 'hi' ? 'ठीक है (OK)' :
+                          lang === 'ta' ? 'சரி (OK)' :
+                          'OK';
+
+                        return (
+                          <div className="mb-2.5 rounded-2xl border-2 border-emerald-400/80 bg-gradient-to-br from-emerald-950/95 via-teal-950/95 to-slate-950/95 p-3 shadow-xl text-white animate-fade-in">
+                            <div className="flex items-center justify-between pb-1 border-b border-emerald-500/30">
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-300">
+                                <CalendarCheck className="h-4 w-4 text-emerald-400 shrink-0" />
+                                <span>{headerTitle}</span>
+                              </div>
+                              <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/40 text-[9px] px-1.5 py-0">
+                                {confirmedLabel}
+                              </Badge>
+                            </div>
+
+                            <div className="mt-2 space-y-1 text-xs">
+                              <div className="flex items-center justify-between text-[11px] text-emerald-100">
+                                <span className="text-slate-300">{dateLabel}</span>
+                                <span className="font-semibold text-white font-mono">{appointmentNotice.date}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-emerald-100">
+                                <span className="text-slate-300">{timeLabel}</span>
+                                <span className="font-semibold text-white font-mono">{appointmentNotice.time}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[11px] text-emerald-100">
+                                <span className="text-slate-300">{doctorLabel}</span>
+                                <span className="font-semibold text-white">{appointmentNotice.doctorName}</span>
+                              </div>
+
+                              <div className="mt-1.5 rounded-xl bg-emerald-900/60 p-2 border border-emerald-500/30 text-[10px] text-emerald-200 flex items-start gap-1.5">
+                                <Bell className="h-3.5 w-3.5 text-amber-300 shrink-0 mt-0.5 animate-pulse" />
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-bold text-amber-300">{prepLabel}</span>
+                                    <span className="font-mono text-white font-bold bg-amber-500/20 px-1 rounded text-[11px]">{appointmentNotice.prepAlarmTime}</span>
+                                  </div>
+                                  <p className="text-[9px] text-slate-200 leading-tight">
+                                    {prepDesc}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => speakText(appointmentNotice.spokenText || appointmentNotice.kannadaMessage, appointmentNotice.speechLang || 'kn-IN')}
+                                className="flex-1 rounded-xl bg-teal/25 hover:bg-teal/35 border border-teal/40 py-1.5 px-2 text-[10px] font-semibold text-teal-200 flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                              >
+                                <Volume2 className="h-3.5 w-3.5 text-teal-300 shrink-0" />
+                                <span>{replayLabel}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setAppointmentNotice(null)}
+                                className="rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-[10px] font-bold text-white transition-all active:scale-95 cursor-pointer"
+                              >
+                                {okLabel}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* -------------------------------- */}
                       {/* BIOMETRIC ANOMALY ALERT BANNER   */}
                       {/* -------------------------------- */}
                       {activeWatchAnomalies.length > 0 && (
@@ -2532,6 +2910,15 @@ const WatchSimulator: React.FC<
                           <p className="text-[9px] text-red-300/80 mt-1 font-semibold uppercase tracking-wide">
                             🚨 Alert sent to Doctor & Guardian
                           </p>
+                          <div className="mt-2 flex justify-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDismissWatchAnomaly(activeElder.id)}
+                              className="rounded-full bg-red-600 hover:bg-red-500 px-3 py-1 text-[10px] font-bold text-white shadow transition-all active:scale-95 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="h-3 w-3" /> Acknowledge & Turn Off
+                            </button>
+                          </div>
                         </div>
                       )}
 

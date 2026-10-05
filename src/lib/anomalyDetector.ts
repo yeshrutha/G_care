@@ -26,21 +26,57 @@ export interface VitalsAnomaly {
   timestamp: string;
 }
 
-// Memory map for de-bouncing alerts: key = `${elderId}:${metric}` -> timestamp ms
-const lastAlertTimestampMap = new Map<string, { timestamp: number; severity: 'warning' | 'critical' }>();
+interface ConditionEpisode {
+  inEpisode: boolean;
+  hasReturnedToSafe: boolean;
+  lastAlertId?: string;
+  lastDispatchedTime: number;
+  lastSeverity: 'warning' | 'critical';
+}
 
-// Cooldown before identical warning alert can fire again (60 seconds)
-export const ALERT_COOLDOWN_MS = 60 * 1000;
+// Memory map for tracking condition episodes per elder: key = `${elderId}:${metric}`
+const conditionEpisodeMap = new Map<string, ConditionEpisode>();
+
+// Global cooldown buffer before a new episode can trigger if rapidly oscillating (5 minutes)
+export const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
 
 export function clearAnomalyCooldowns(elderId?: string) {
   if (elderId) {
-    for (const key of lastAlertTimestampMap.keys()) {
+    for (const key of conditionEpisodeMap.keys()) {
       if (key.startsWith(`${elderId}:`)) {
-        lastAlertTimestampMap.delete(key);
+        const episode = conditionEpisodeMap.get(key);
+        if (episode) {
+          episode.inEpisode = false;
+          episode.hasReturnedToSafe = true;
+        }
       }
     }
   } else {
-    lastAlertTimestampMap.clear();
+    for (const episode of conditionEpisodeMap.values()) {
+      episode.inEpisode = false;
+      episode.hasReturnedToSafe = true;
+    }
+  }
+}
+
+/**
+ * Checks whether a patient's vital metric has fully returned to the healthy safe zone (hysteresis recovery).
+ */
+export function isConditionInSafeRange(metric: AnomalyMetric, vitals: DemoVitals): boolean {
+  switch (metric) {
+    case 'heart_rate':
+      return vitals.heart_rate >= 60 && vitals.heart_rate <= 95;
+    case 'spo2':
+      return vitals.spo2 >= 95.0;
+    case 'systolic_bp':
+    case 'diastolic_bp':
+      return vitals.systolic_bp >= 96 && vitals.systolic_bp <= 134 && vitals.diastolic_bp >= 65 && vitals.diastolic_bp <= 84;
+    case 'breathing_rate':
+      return vitals.breathing_rate >= 12 && vitals.breathing_rate <= 22;
+    case 'stress':
+      return vitals.stress <= 65;
+    default:
+      return true;
   }
 }
 
@@ -65,7 +101,7 @@ export function detectVitalsAnomalies(
       threshold: 120,
       severity: 'critical',
       title: 'Severe Tachycardia Detected',
-      message: `${elder.full_name}'s Heart Rate spiked to ${vitals.heart_rate} bpm (Safe threshold: ≤ 100 bpm).`,
+      message: `${elder.full_name}'s Heart Rate spiked dangerously to ${vitals.heart_rate} bpm (Safe threshold: ≤ 100 bpm).`,
       clinicalRecommendation: 'Immediate 12-lead ECG indicated. Check telemetry for arrhythmia and assess beta-blocker timing.',
       timestamp,
     });
@@ -173,6 +209,21 @@ export function detectVitalsAnomalies(
       clinicalRecommendation: 'Log reading, ensure quiet environment, and check salt intake or missed morning medications.',
       timestamp,
     });
+  } else if (vitals.systolic_bp < 85 || vitals.diastolic_bp < 55) {
+    // Critical Hypotension / Shock Risk
+    anomalies.push({
+      id: `anomaly-bp-crit-low-${elder.id}-${Date.now()}`,
+      elderId: elder.id,
+      elderName: elder.full_name,
+      metric: 'systolic_bp',
+      value: vitals.systolic_bp,
+      threshold: 85,
+      severity: 'critical',
+      title: 'Severe Hypotension Detected',
+      message: `${elder.full_name}'s Blood Pressure dropped critically low to ${vitals.systolic_bp}/${vitals.diastolic_bp} mmHg (Shock/emergency risk).`,
+      clinicalRecommendation: 'Immediate attention required. Elevate legs, check hydration and perfusion, and alert attending physician.',
+      timestamp,
+    });
   } else if (vitals.systolic_bp < 90 || vitals.diastolic_bp < 60) {
     anomalies.push({
       id: `anomaly-bp-low-${elder.id}-${Date.now()}`,
@@ -227,7 +278,7 @@ export function detectVitalsAnomalies(
 }
 
 /**
- * Checks de-bounce cooldowns and dispatches alerts to AppStore, GuardianStore, and Audio.
+ * Checks de-bounce cooldowns, episode hysteresis, and dispatches alerts to AppStore, GuardianStore, and Audio.
  */
 export function processVitalsTickWithAlerts(
   elder: { id: string; full_name: string },
@@ -238,30 +289,92 @@ export function processVitalsTickWithAlerts(
   const now = Date.now();
   const dispatched: VitalsAnomaly[] = [];
 
+  // 1. Check for conditions that have safely recovered to their healthy baseline
+  const allMetrics: AnomalyMetric[] = ['heart_rate', 'spo2', 'systolic_bp', 'breathing_rate', 'stress'];
+  for (const metric of allMetrics) {
+    if (isConditionInSafeRange(metric, vitals)) {
+      const key = `${elder.id}:${metric}`;
+      const ep = conditionEpisodeMap.get(key);
+      if (ep) {
+        ep.inEpisode = false;
+        ep.hasReturnedToSafe = true;
+      }
+    }
+  }
+
+  // 2. Process detected anomalies
   for (const anomaly of anomalies) {
     const key = `${elder.id}:${anomaly.metric}`;
-    const previous = lastAlertTimestampMap.get(key);
+    let episode = conditionEpisodeMap.get(key);
+    if (!episode) {
+      episode = {
+        inEpisode: false,
+        hasReturnedToSafe: true,
+        lastDispatchedTime: 0,
+        lastSeverity: 'warning',
+      };
+      conditionEpisodeMap.set(key, episode);
+    }
 
-    const shouldDispatch =
-      options?.force ||
-      !previous ||
-      now - previous.timestamp > ALERT_COOLDOWN_MS ||
-      (previous.severity === 'warning' && anomaly.severity === 'critical');
+    const alertType: DemoAlert['type'] =
+      anomaly.metric === 'heart_rate' ? 'high_hr' :
+      anomaly.metric === 'spo2' ? 'low_spo2' :
+      anomaly.severity === 'critical' ? 'sos' : 'vital_abnormal';
+
+    // Check if an unresolved alert for this elder and condition already exists
+    const currentAppAlerts = useAppStore.getState().activeAlerts;
+    const hasExistingUnresolved = currentAppAlerts.some(
+      (a) =>
+        !a.resolved &&
+        (a.elder_id === elder.id || a.elder_name?.trim().toLowerCase() === elder.full_name?.trim().toLowerCase()) &&
+        (a.type === alertType ||
+          a.message?.toLowerCase().includes(anomaly.title.toLowerCase()) ||
+          a.message?.toLowerCase().includes(anomaly.metric.toLowerCase()))
+    );
+
+    // Escalation check: warning -> critical
+    const isEscalationToCritical =
+      episode.lastSeverity === 'warning' &&
+      anomaly.severity === 'critical' &&
+      now - episode.lastDispatchedTime > 15000;
+
+    // Decision rule:
+    // Dispatches IF:
+    // 1. Forced by manual test trigger (options?.force)
+    // 2. OR: Condition escalated to critical
+    // 3. OR: No unresolved alert exists AND patient had returned to safe range AND not currently in an active episode
+    let shouldDispatch = false;
+
+    if (options?.force) {
+      shouldDispatch = true;
+    } else if (hasExistingUnresolved) {
+      // Patient still has an ongoing unacknowledged alert.
+      // Do NOT create another alert unless it escalated from warning to critical.
+      shouldDispatch = isEscalationToCritical;
+    } else {
+      // Previous alert has been acknowledged/resolved!
+      // Only dispatch if the patient had returned to safe baseline before this new abnormal episode.
+      if (!episode.inEpisode && episode.hasReturnedToSafe) {
+        shouldDispatch = true;
+      } else if (isEscalationToCritical) {
+        shouldDispatch = true;
+      }
+    }
 
     if (!shouldDispatch) {
       continue;
     }
 
-    lastAlertTimestampMap.set(key, { timestamp: now, severity: anomaly.severity });
+    // Update episode state
+    episode.inEpisode = true;
+    episode.hasReturnedToSafe = false;
+    episode.lastDispatchedTime = now;
+    episode.lastSeverity = anomaly.severity;
+
     dispatched.push(anomaly);
 
     // 1. Dispatch to useAppStore (for Doctor Portal, Caretaker Dashboard, and Patient Detail)
     try {
-      const alertType: DemoAlert['type'] =
-        anomaly.metric === 'heart_rate' ? 'high_hr' :
-        anomaly.metric === 'spo2' ? 'low_spo2' :
-        'high_hr';
-
       const appAlert: DemoAlert = {
         id: `alert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
         elder_id: elder.id,
@@ -272,6 +385,7 @@ export function processVitalsTickWithAlerts(
         time: anomaly.timestamp,
         resolved: false,
       };
+      episode.lastAlertId = appAlert.id;
       useAppStore.getState().addAlert(appAlert);
 
       // Persist to server backend (writes to data/db.json)
@@ -288,7 +402,7 @@ export function processVitalsTickWithAlerts(
           resolved: false,
         }),
       }).catch((err) => {
-        console.warn('Backend alert persistence skipped/failed:', err);
+        console.warn('Backend alert persistence notice:', err);
       });
     } catch (e) {
       console.warn('Failed to add app alert:', e);
@@ -312,7 +426,7 @@ export function processVitalsTickWithAlerts(
     }
 
     // 3. Audio & Haptic Alarm
-    // The alarm of a person should ONLY be heard when currently in that person's watch simulator!
+    // Sound alarm if the user currently has this patient's watch simulator open
     try {
       const activeWatchElderId = useAppStore.getState().activeWatchElderId;
       if (activeWatchElderId && elder.id === activeWatchElderId) {

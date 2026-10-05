@@ -23,6 +23,22 @@ import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import {
+  broadcastGcareMessage,
+  subscribeToGcareBroadcast,
+  calculateMinutesBefore,
+  formatTime12Hour,
+  generateAppointmentKannadaMessage,
+  generateAppointmentMultilingualMessage,
+} from '@/lib/syncChannel';
+
+const FREE_SCHEDULER_SLOTS = [
+  { label: 'Slot 1', time: '09:30' },
+  { label: 'Slot 2', time: '10:00' },
+  { label: 'Slot 3', time: '11:30' },
+  { label: 'Slot 4', time: '14:00' },
+  { label: 'Slot 5', time: '16:30' },
+];
 
 type DashboardSection = 'dashboard' | 'elders' | 'medications' | 'alarms' | 'alerts' | 'reports';
 
@@ -101,7 +117,7 @@ const DoctorPortal: React.FC = () => {
   const navigate = useNavigate();
   const {
     demoMode, setDemoMode, demoElders, setDemoElders, demoVitals, setDemoVitals,
-    activeAlerts, setActiveAlerts, addAlert, resolveAlert,
+    activeAlerts, setActiveAlerts, addAlert, resolveAlert, clearAlerts, removeAlert, stabilizeElderVitals,
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
     setDemoStep, demoStep,
@@ -109,6 +125,8 @@ const DoctorPortal: React.FC = () => {
   const { user: authUser, logout } = useAuthStore();
   const setReminders = useGuardianStore((state) => state.setReminders);
   const addGuardianAlert = useGuardianStore((state) => state.addGuardianAlert);
+  const addGuardianReminder = useGuardianStore((state) => state.addReminder);
+  const acknowledgeGuardianAlert = useGuardianStore((state) => state.acknowledgeAlert);
 
   const [addElderOpen, setAddElderOpen] = useState(false);
   const [newElder, setNewElder] = useState({
@@ -133,6 +151,7 @@ const DoctorPortal: React.FC = () => {
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [deleteAlarmId, setDeleteAlarmId] = useState<string | null>(null);
   const [deleteReportId, setDeleteReportId] = useState<string | null>(null);
+  const [clearAlertHistoryConfirmOpen, setClearAlertHistoryConfirmOpen] = useState(false);
   const [newMedication, setNewMedication] = useState({
     elderId: '',
     tabletName: '',
@@ -294,12 +313,41 @@ const DoctorPortal: React.FC = () => {
         })).filter(a => !currentIds.has(a.id));
 
         if (newItems.length > 0) {
-          useAppStore.setState((s) => ({
-            activeAlerts: [...newItems, ...s.activeAlerts].slice(0, 100),
-          }));
+          useAppStore.setState((s) => {
+            const combined = [...newItems, ...s.activeAlerts];
+            const seen = new Set<string>();
+            const deduped: DemoAlert[] = [];
+            for (const a of combined) {
+              const key = `${a.elder_name || ''}-${a.type}-${a.severity}-${a.resolved}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                deduped.push(a);
+              }
+            }
+            return { activeAlerts: deduped.slice(0, 15) };
+          });
         }
       })
       .catch(() => {});
+
+    // Prune existing alerts in state on mount to purge accumulated repetitive warning spam
+    const state = useAppStore.getState();
+    const seen = new Set<string>();
+    const deduped: DemoAlert[] = [];
+    let changed = false;
+    for (const a of state.activeAlerts) {
+      const key = `${a.elder_name || ''}-${a.type}-${a.severity}-${a.resolved}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(a);
+      } else {
+        changed = true;
+      }
+    }
+    if (changed || state.activeAlerts.length > 15) {
+      useAppStore.getState().setActiveAlerts(deduped.slice(0, 15));
+    }
+
     return () => { ignore = true; };
   }, []);
 
@@ -515,7 +563,12 @@ const DoctorPortal: React.FC = () => {
             return merged;
           });
         }
-        if (Array.isArray(data.alerts) && data.alerts.length > 0) setActiveAlerts(data.alerts);
+        if (Array.isArray(data.alerts) && data.alerts.length > 0) {
+          const raw = typeof window !== 'undefined' ? window.localStorage.getItem('gcare_active_alerts') : null;
+          if (raw !== '[]') {
+            setActiveAlerts(data.alerts);
+          }
+        }
         if (data.vitals) {
           Object.entries(data.vitals).forEach(([id, v]) => setDemoVitals(id, v as any));
         }
@@ -570,11 +623,91 @@ const DoctorPortal: React.FC = () => {
 
   const demoAppointmentVisible = demoMode;
 
-  const confirmDemoAppointment = () => {
+  // Real-time cross-window listener for SOS alerts from Watch Simulator
+  useEffect(() => {
+    const unsubscribe = subscribeToGcareBroadcast((msg) => {
+      if (msg.type === 'SOS_TRIGGERED') {
+        if (msg.alert) {
+          setActiveAlerts((prev) => {
+            const exists = prev.some((a) => a.id === msg.alert.id);
+            if (exists) return prev;
+            return [msg.alert, ...prev];
+          });
+        }
+        toast({
+          title: '🚨 EMERGENCY SOS RECEIVED!',
+          description: `Urgent SOS emergency from ${msg.elderName || 'Patient'}. Open alert to schedule urgent consultation.`,
+          variant: 'destructive',
+        });
+      } else if (msg.type === 'ALERT_RESOLVED' || msg.type === 'ALERT_ACKNOWLEDGED') {
+        if (msg.id) resolveAlert(msg.id);
+      }
+    });
+
+    return unsubscribe;
+  }, [setActiveAlerts, resolveAlert]);
+
+  const confirmDemoAppointment = async () => {
     setDemoAppointmentStatus('confirmed');
+    const doctorName = authUser?.name || 'Dr. Ramesh Kumar';
+    const elder = elders.find((e) => e.full_name.toLowerCase().includes('usha')) || elders[0];
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const apptHour = (now.getHours() + 2) % 24;
+    const apptTime = `${String(apptHour).padStart(2, '0')}:00`;
+    const prepAlarmTime = calculateMinutesBefore(apptTime, 60);
+
+    const { spokenText, displayText, prepNotes } = generateAppointmentKannadaMessage(
+      elder?.full_name || 'Usha',
+      todayStr,
+      apptTime,
+      doctorName,
+      prepAlarmTime
+    );
+
+    if (elder) {
+      stabilizeElderVitals(elder.id);
+      addAlarm({
+        id: `demo-prep-alarm-${Date.now()}`,
+        elderId: elder.id,
+        title: `ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Checkup Preparation)`,
+        time: prepAlarmTime,
+        type: 'appointment',
+        status: 'Scheduled',
+        notes: `${prepNotes} (60 min prior alarm)`,
+      });
+
+      addGuardianReminder({
+        id: `demo-guardian-prep-${Date.now()}`,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        type: 'appointment',
+        title: `ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Prep)`,
+        time: prepAlarmTime,
+        repeat: 'once',
+        verified: false,
+        doctorName,
+        appointmentDate: todayStr,
+      });
+
+      broadcastGcareMessage({
+        type: 'APPOINTMENT_SCHEDULED',
+        elderId: elder.id,
+        elderName: elder.full_name,
+        language: elder.language_pref || 'kn',
+        date: todayStr,
+        time: apptTime,
+        prepAlarmTime,
+        doctorName,
+        kannadaMessage: spokenText,
+        englishMessage: `Emergency appointment confirmed for ${elder.full_name} at ${apptTime}. Preparation alarm set for ${prepAlarmTime} (60 min prior).`,
+        timestamp: Date.now(),
+      });
+    }
+
     toast({
       title: 'Emergency Appointment Confirmed',
-      description: 'Immediate appointment confirmed for Usha.',
+      description: `Immediate appointment confirmed for Usha at ${apptTime}. Watch alerted in Kannada with voice output. Prep alarm: ${prepAlarmTime}.`,
     });
   };
 
@@ -585,6 +718,208 @@ const DoctorPortal: React.FC = () => {
     if (!alert) return;
     setAppointmentAlert(alert);
     setAppointmentDialogOpen(true);
+  };
+
+  const handleDirectAcknowledge = async (selectedAlert?: DemoAlert) => {
+    const alert = selectedAlert || activeAlerts.find((item) => !item.resolved);
+    if (!alert) return;
+
+    const elder = elders.find((item) => item.id === alert.elder_id)
+      || elders.find((item) => item.full_name === alert.elder_name)
+      || elders[0];
+    const doctorName = authUser?.name || 'Dr. Ramesh Kumar';
+    const notification = `Appointment booked and resolved by Dr. ${doctorName} for ${elder?.full_name || 'Patient'}.`;
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const apptHour = (now.getHours() + 1) % 24;
+    const apptTime = `${String(apptHour).padStart(2, '0')}:30`;
+    const prepAlarmTime = calculateMinutesBefore(apptTime, 60);
+    const prefLang = elder?.language_pref || 'kn';
+    const apptId = `direct-ack-${Date.now()}`;
+
+    const { spokenText, displayText, prepNotes, speechLang } = generateAppointmentMultilingualMessage(
+      elder?.full_name || 'Usha',
+      todayStr,
+      apptTime,
+      doctorName,
+      prepAlarmTime,
+      prefLang
+    );
+
+    resolveAlert(alert.id);
+    try {
+      await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+    } catch {}
+
+    if (elder) {
+      await apiFetch('/alerts', {
+        method: 'POST',
+        body: JSON.stringify({
+          elderId: elder.id,
+          elder_id: elder.id,
+          elder_name: elder.full_name,
+          type: 'appointment',
+          severity: 'info',
+          message: notification,
+          resolved: true,
+        }),
+      }).catch(() => {});
+
+      addGuardianAlert({
+        id: `appointment-ack-${Date.now()}`,
+        type: 'vital_abnormal',
+        severity: 'info',
+        message: notification,
+        time: new Date().toISOString(),
+        acknowledged: true,
+        elderName: elder.full_name,
+      });
+
+      addAlarm({
+        id: `direct-ack-prep-${Date.now()}`,
+        elderId: elder.id,
+        title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Checkup Preparation)' :
+               prefLang === 'hi' ? 'अस्पताल जांच तैयारी (Hospital Preparation)' :
+               prefLang === 'ta' ? 'மருத்துவமனை பரிசோதனை தயாரிப்பு (Hospital Preparation)' :
+               'Hospital Checkup Preparation',
+        time: prepAlarmTime,
+        type: 'appointment',
+        status: 'Scheduled',
+        notes: `${prepNotes} (60 min prior alarm)`,
+        appointmentId: apptId,
+        appointmentDate: todayStr,
+        appointmentTime: apptTime,
+        doctorName,
+        isOneHourReminder: true,
+      });
+
+      addGuardianReminder({
+        id: `direct-ack-guardian-${Date.now()}`,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        type: 'appointment',
+        title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Prep)' :
+               prefLang === 'hi' ? 'अस्पताल तैयारी (Hospital Prep)' :
+               prefLang === 'ta' ? 'மருத்துவமனை தயாரிப்பு (Hospital Prep)' :
+               'Hospital Checkup Preparation',
+        time: prepAlarmTime,
+        repeat: 'once',
+        verified: false,
+        doctorName,
+        appointmentId: apptId,
+        appointmentDate: todayStr,
+        appointmentTime: apptTime,
+        isOneHourReminder: true,
+      });
+
+      stabilizeElderVitals(elder.id);
+
+      broadcastGcareMessage({
+        type: 'APPOINTMENT_SCHEDULED',
+        appointmentId: apptId,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        language: prefLang,
+        date: todayStr,
+        time: apptTime,
+        prepAlarmTime,
+        doctorName,
+        patientMessage: displayText,
+        spokenText,
+        speechLang,
+        kannadaMessage: spokenText,
+        englishMessage: `${notification}. Preparation alarm set for ${prepAlarmTime} (60 min prior).`,
+        alertId: alert.id,
+        timestamp: Date.now(),
+      });
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gcare:acknowledge-alert', {
+          detail: { id: alert.id, elderId: elder?.id, elderName: elder?.full_name },
+        })
+      );
+    }
+
+    toast({
+      title: 'Alert Acknowledged & Resolved',
+      description: `Appointment booked and resolved. Watch alerted in ${prefLang.toUpperCase()} with voice output. Prep alarm: ${prepAlarmTime}.`,
+    });
+  };
+
+  const handleAcknowledgeAll = async () => {
+    const unres = activeAlerts.filter((a) => !a.resolved);
+    if (unres.length === 0) return;
+
+    const handledElderIds = new Set<string>();
+
+    for (const alert of unres) {
+      resolveAlert(alert.id);
+      try {
+        await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+      } catch {}
+
+      const elder = elders.find((item) => item.id === alert.elder_id)
+        || elders.find((item) => item.full_name === alert.elder_name);
+
+      if (elder && !handledElderIds.has(elder.id)) {
+        handledElderIds.add(elder.id);
+        stabilizeElderVitals(elder.id);
+        broadcastGcareMessage({
+          type: 'ALERT_RESOLVED',
+          id: alert.id,
+          elderId: elder.id,
+          elderName: elder.full_name,
+          timestamp: Date.now(),
+        });
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('gcare:acknowledge-alert', {
+              detail: { id: alert.id, elderId: elder.id, elderName: elder.full_name },
+            })
+          );
+        }
+      }
+    }
+
+    toast({
+      title: 'All Alerts Acknowledged & Resolved',
+      description: `Resolved ${unres.length} alert(s) and stabilized patient telemetry streams.`,
+    });
+  };
+
+  const handleClearAlertHistory = async (mode: 'all' | 'resolved' = 'all') => {
+    clearAlerts(mode);
+    try {
+      await apiFetch(`/alerts${mode === 'resolved' ? '?resolved=true' : ''}`, { method: 'DELETE' });
+    } catch {}
+
+    broadcastGcareMessage({
+      type: 'ALERTS_CLEARED',
+      mode,
+      timestamp: Date.now(),
+    });
+
+    toast({
+      title: mode === 'resolved' ? 'Resolved Alerts Cleared' : 'Alert History Cleared',
+      description: mode === 'resolved'
+        ? 'Cleared all resolved alerts from clinical history.'
+        : 'All clinical alerts and notifications have been cleared.',
+    });
+  };
+
+  const handleRemoveSingleAlert = async (id: string) => {
+    removeAlert(id);
+    try {
+      await apiFetch(`/alerts/${id}`, { method: 'DELETE' });
+    } catch {}
+    toast({
+      title: 'Alert Removed',
+      description: 'The selected alert was removed from history.',
+    });
   };
 
   const scheduleAlertAppointment = async (event: React.FormEvent) => {
@@ -599,51 +934,183 @@ const DoctorPortal: React.FC = () => {
       return;
     }
 
-    const doctorName = authUser?.name || 'Assigned doctor';
+    // Past date/time validation
+    const apptDateTime = new Date(`${appointmentForm.date}T${appointmentForm.time}:00`);
+    const now = new Date();
+    if (isNaN(apptDateTime.getTime())) {
+      toast({ title: 'Invalid Date/Time', description: 'Please enter a valid appointment date and time.', variant: 'destructive' });
+      return;
+    }
+    if (apptDateTime.getTime() < now.getTime() - 60000) {
+      toast({
+        title: 'Cannot Schedule in the Past',
+        description: 'Selected appointment date and time has already passed. Please pick a future date/time.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const doctorName = authUser?.name || 'Dr. Ramesh Kumar';
+    const prepAlarmTime = calculateMinutesBefore(appointmentForm.time, 60);
+    const prefLang = elder.language_pref || 'kn';
+    const apptId = `appt-${Date.now()}`;
+
+    const { spokenText, displayText, prepNotes, speechLang } = generateAppointmentMultilingualMessage(
+      elder.full_name,
+      appointmentForm.date,
+      appointmentForm.time,
+      doctorName,
+      prepAlarmTime,
+      prefLang
+    );
+
     const notification = `Appointment booked by Dr. ${doctorName} for ${elder.full_name} on ${appointmentForm.date} at ${appointmentForm.time}.`;
 
     try {
+      // 1. Save Main Appointment Alarm
       const savedAlarm = await apiFetch<DashboardAlarm>('/alarms', {
         method: 'POST',
         body: JSON.stringify({
+          id: apptId,
           elderId: elder.id,
           title: `Appointment with Dr. ${doctorName}`,
           time: appointmentForm.time,
           type: 'appointment',
           status: 'Scheduled',
           notes: `${notification}${appointmentForm.notes.trim() ? ` Notes: ${appointmentForm.notes.trim()}` : ''}`,
+          appointmentId: apptId,
+          appointmentDate: appointmentForm.date,
+          appointmentTime: appointmentForm.time,
+          doctorName,
         }),
       });
+
+      // 2. Save 60-Minute-Prior Hospital Checkup Preparation Alarm
+      const prepAlarmId = `prep-${Date.now()}`;
+      const prepAlarm = await apiFetch<DashboardAlarm>('/alarms', {
+        method: 'POST',
+        body: JSON.stringify({
+          id: prepAlarmId,
+          elderId: elder.id,
+          title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Checkup Preparation)' :
+                 prefLang === 'hi' ? 'अस्पताल जांच तैयारी (Hospital Preparation)' :
+                 prefLang === 'ta' ? 'மருத்துவமனை பரிசோதனை தயாரிப்பு (Hospital Preparation)' :
+                 'Hospital Checkup Preparation',
+          time: prepAlarmTime,
+          type: 'appointment',
+          status: 'Scheduled',
+          notes: `${prepNotes} Appointment at ${appointmentForm.time} on ${appointmentForm.date} with Dr. ${doctorName}. Leave early!`,
+          appointmentId: apptId,
+          appointmentDate: appointmentForm.date,
+          appointmentTime: appointmentForm.time,
+          doctorName,
+          isOneHourReminder: true,
+        }),
+      }).catch(() => null);
 
       await apiFetch('/alerts', {
         method: 'POST',
         body: JSON.stringify({
           elderId: elder.id,
+          elder_id: elder.id,
+          elder_name: elder.full_name,
           type: 'appointment',
           severity: 'info',
-          message: notification,
-          resolved: false,
+          message: `${notification} (Appointment booked & resolved)`,
+          resolved: true,
         }),
+      }).catch(() => {});
+
+      addAlarm({
+        ...savedAlarm,
+        type: 'appointment',
+        appointmentId: apptId,
+        appointmentDate: appointmentForm.date,
+        appointmentTime: appointmentForm.time,
+        doctorName,
+      });
+      if (prepAlarm) {
+        addAlarm({
+          ...prepAlarm,
+          type: 'appointment',
+          appointmentId: apptId,
+          appointmentDate: appointmentForm.date,
+          appointmentTime: appointmentForm.time,
+          doctorName,
+          isOneHourReminder: true,
+        });
+      }
+
+      addGuardianReminder({
+        id: `guardian-prep-alarm-${Date.now()}`,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        type: 'appointment',
+        title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Prep - 60 min early)' :
+               prefLang === 'hi' ? 'अस्पताल तैयारी (Hospital Prep - 60 min early)' :
+               prefLang === 'ta' ? 'மருத்துவமனை தயாரிப்பு (Hospital Prep - 60 min early)' :
+               'Hospital Checkup Preparation (60 min early)',
+        time: prepAlarmTime,
+        repeat: 'once',
+        verified: false,
+        doctorName,
+        appointmentId: apptId,
+        appointmentDate: appointmentForm.date,
+        appointmentTime: appointmentForm.time,
+        isOneHourReminder: true,
       });
 
-      addAlarm({ ...savedAlarm, type: 'appointment' });
       addGuardianAlert({
         id: `appointment-${savedAlarm.id}`,
         type: 'vital_abnormal',
         severity: 'info',
-        message: notification,
+        message: `${notification} (Appointment booked & resolved)`,
         time: new Date().toISOString(),
-        acknowledged: false,
+        acknowledged: true,
         elderName: elder.full_name,
       });
+
       resolveAlert(appointmentAlert.id);
       try {
         await apiFetch(`/alerts/${appointmentAlert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
       } catch {}
 
+      stabilizeElderVitals(elder.id);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('gcare:acknowledge-alert', {
+            detail: { id: appointmentAlert.id, elderId: elder.id, elderName: elder.full_name },
+          })
+        );
+      }
+
+      // Cross-window / Split-screen broadcast
+      broadcastGcareMessage({
+        type: 'APPOINTMENT_SCHEDULED',
+        appointmentId: apptId,
+        elderId: elder.id,
+        elderName: elder.full_name,
+        language: prefLang,
+        date: appointmentForm.date,
+        time: appointmentForm.time,
+        prepAlarmTime,
+        doctorName,
+        patientMessage: displayText,
+        spokenText,
+        speechLang,
+        kannadaMessage: spokenText,
+        englishMessage: `${notification}. Preparation alarm set for ${prepAlarmTime} (60 mins prior).`,
+        alertId: appointmentAlert.id,
+        timestamp: Date.now(),
+      });
+
       setAppointmentDialogOpen(false);
       setAppointmentAlert(null);
-      toast({ title: 'Appointment scheduled', description: 'The guardian and caretaker/nurse portals have been notified.' });
+      toast({
+        title: 'Appointment scheduled & resolved',
+        description: `Patient watch updated in ${prefLang.toUpperCase()} with voice output. Preparation alarm registered for ${prepAlarmTime} (60 min prior).`,
+      });
     } catch (err: any) {
       toast({ title: 'Unable to schedule appointment', description: err.message || 'Please try again.', variant: 'destructive' });
     }
@@ -860,7 +1327,18 @@ const DoctorPortal: React.FC = () => {
                 {activeSection === 'dashboard' ? 'Overview of all monitored patient profiles.' : 'Manage details for ' + SECTION_TITLES[activeSection]}
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              {activeSection === 'alerts' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium text-xs h-8 shadow-sm"
+                  onClick={() => handleClearAlertHistory('all')}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Clear Alert History
+                </Button>
+              )}
               <div className="flex items-center gap-2 border border-gw-purple/30 bg-gw-purple/5 px-3 py-1.5 rounded-lg">
                 <span className="text-xs text-muted-foreground">{t('dashboard.demo_mode')}</span>
                 <Switch checked={demoMode} onCheckedChange={setDemoMode} />
@@ -892,12 +1370,35 @@ const DoctorPortal: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                <div className="flex items-center gap-2 self-end sm:self-center shrink-0 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium bg-background/80"
+                    onClick={() => setClearAlertHistoryConfirmOpen(true)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear History
+                  </Button>
+                  {unresolvedCount > 1 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-8 border-teal/40 text-teal hover:bg-teal/10"
+                      onClick={handleAcknowledgeAll}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      Resolve All ({unresolvedCount})
+                    </Button>
+                  )}
                   <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => setActiveSection('alerts')}>
                     Review All Alerts ({unresolvedCount})
                   </Button>
-                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={beginAlertAcknowledgement}>
+                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => handleDirectAcknowledge()}>
                     Acknowledge
+                  </Button>
+                  <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => beginAlertAcknowledgement()}>
+                    Schedule Appt
                   </Button>
                 </div>
               </div>
@@ -917,6 +1418,33 @@ const DoctorPortal: React.FC = () => {
                   <p className="font-medium">{appointmentAlert?.elder_name || 'Selected patient'}</p>
                   <p className="mt-1 text-muted-foreground">{appointmentAlert?.message}</p>
                 </div>
+
+                {/* Free Scheduler Slots */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <Label className="text-muted-foreground">Free Scheduler Slots</Label>
+                    <span className="text-[10px] text-teal font-medium">Doctor Available</span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {FREE_SCHEDULER_SLOTS.map((slot) => (
+                      <Button
+                        key={slot.time}
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={`text-xs h-7 px-1 justify-center transition-all ${
+                          appointmentForm.time === slot.time
+                            ? 'border-teal bg-teal/15 text-teal font-bold shadow-sm'
+                            : 'hover:border-teal/40'
+                        }`}
+                        onClick={() => setAppointmentForm({ ...appointmentForm, time: slot.time })}
+                      >
+                        <span className="font-mono text-[11px]">{slot.time}</span>
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="appointment-date">Date</Label>
@@ -929,6 +1457,18 @@ const DoctorPortal: React.FC = () => {
                       onChange={(e) => setAppointmentForm({ ...appointmentForm, time: e.target.value })} required />
                   </div>
                 </div>
+
+                {/* 60-Minute Preparation Alarm Info Box */}
+                <div className="rounded-lg bg-teal/10 border border-teal/20 p-2.5 text-xs text-teal-900 dark:text-teal-200">
+                  <p className="font-semibold flex items-center gap-1.5 text-teal">
+                    <Bell className="h-3.5 w-3.5 shrink-0" />
+                    <span>Automatic 60-Minute Preparation Alarm</span>
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground leading-relaxed">
+                    Alarm will be registered on the patient's watch for <span className="font-mono font-bold text-foreground">{calculateMinutesBefore(appointmentForm.time, 60)}</span> (60 minutes prior) with Kannada voice notification to leave early for checkup.
+                  </p>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="appointment-notes">Notes for guardian and nurse</Label>
                   <Textarea id="appointment-notes" value={appointmentForm.notes} placeholder="Bring current medications and recent reports."
@@ -1266,8 +1806,18 @@ const DoctorPortal: React.FC = () => {
                   <Card key={alarm.id} className="rounded-xl border-border shadow-sm">
                     <CardContent className="p-4 flex items-center justify-between">
                       <div>
-                        <h3 className="font-semibold text-foreground">{alarm.title}</h3>
-                        <p className="text-sm text-muted-foreground">Time: {alarm.time} · Type: {alarm.type}</p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-foreground">{alarm.title}</h3>
+                          {alarm.isOneHourReminder && (
+                            <Badge variant="outline" className="text-[10px] text-teal border-teal/40 bg-teal/10">
+                              60-Min Prep Alarm
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          Time: <span className="font-mono font-medium text-foreground">{formatTime12Hour(alarm.time)}</span> · Type: {alarm.type}
+                          {alarm.appointmentTime && <span className="text-teal ml-1.5 font-medium">(For Appt at {formatTime12Hour(alarm.appointmentTime)})</span>}
+                        </p>
                         {alarm.notes && <p className="text-xs text-muted-foreground mt-1">{alarm.notes}</p>}
                       </div>
                       <div className="flex gap-2">
@@ -1287,61 +1837,154 @@ const DoctorPortal: React.FC = () => {
 
           {/* ALERTS SECTION */}
           {activeSection === 'alerts' && (
-            <section className="space-y-4">
-              <div className="flex items-center justify-between">
+            <section className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
                 <div>
                   <h2 className="font-display text-xl text-foreground">Clinical Notifications & Alerts</h2>
                   <p className="text-sm text-muted-foreground">Real-time physiological alerts, threshold violations, and urgent events.</p>
                 </div>
-                <Badge variant="outline" className="text-teal border-teal/30">
-                  {unresolvedCount} Unresolved
-                </Badge>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {unresolvedCount > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-8 border-teal/40 text-teal hover:bg-teal/10 font-medium"
+                      onClick={handleAcknowledgeAll}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      Acknowledge All ({unresolvedCount})
+                    </Button>
+                  )}
+                  <Badge variant="outline" className="text-teal border-teal/30">
+                    {unresolvedCount} Active
+                  </Badge>
+                  <Badge variant="outline" className="text-muted-foreground border-border">
+                    {activeAlerts.filter((a) => a.resolved).length} in History
+                  </Badge>
+                </div>
               </div>
 
-              {activeAlerts.length === 0 ? (
-                <Card className="rounded-xl border-border bg-card">
-                  <CardContent className="p-8 text-center text-muted-foreground">
-                    <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-gw-green" />
-                    <p className="font-medium text-foreground">All Patients Stable</p>
-                    <p className="text-xs text-muted-foreground mt-1">No active abnormal vital notifications across connected patient watches.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {activeAlerts.map((alert) => (
-                    <div key={alert.id} className={`p-4 border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                      alert.severity === 'critical'
-                        ? 'border-gw-red/40 bg-gw-red/10'
-                        : 'border-gw-amber/40 bg-gw-amber/10'
-                    }`}>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-foreground text-sm">{alert.elder_name}</span>
-                          <Badge className={`text-[10px] uppercase font-semibold ${
-                            alert.severity === 'critical' ? 'bg-gw-red text-white' : 'bg-gw-amber text-slate-950'
-                          }`}>
-                            {alert.severity}
-                          </Badge>
-                          <span className="text-xs text-muted-foreground">
-                            {new Date(alert.time).toLocaleTimeString()}
-                          </span>
-                        </div>
-                        <p className="font-medium text-sm text-foreground">{alert.message}</p>
-                      </div>
+              {/* 1. ACTIVE ALERTS SECTION */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-base font-semibold text-foreground flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4 text-destructive" />
+                    Active Alerts ({unresolvedCount})
+                  </h3>
+                </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {!alert.resolved ? (
-                          <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => beginAlertAcknowledgement(alert)}>
+                {unresolvedCount === 0 ? (
+                  <Card className="rounded-xl border-border bg-card">
+                    <CardContent className="p-6 text-center text-muted-foreground">
+                      <CheckCircle2 className="h-7 w-7 mx-auto mb-2 text-gw-green" />
+                      <p className="font-medium text-foreground text-sm">All Patients Stable</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">No active abnormal vital notifications across connected patient watches.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-2.5">
+                    {activeAlerts.filter((a) => !a.resolved).map((alert) => (
+                      <div
+                        key={alert.id}
+                        className={`p-3.5 border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm ${
+                          alert.severity === 'critical'
+                            ? 'border-gw-red/40 bg-gw-red/10'
+                            : 'border-gw-amber/40 bg-gw-amber/10'
+                        }`}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-foreground text-sm">{alert.elder_name}</span>
+                            <Badge className={`text-[10px] uppercase font-semibold ${
+                              alert.severity === 'critical' ? 'bg-gw-red text-white' : 'bg-gw-amber text-slate-950'
+                            }`}>
+                              {alert.severity}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(alert.time).toLocaleTimeString()}
+                            </span>
+                          </div>
+                          <p className="font-medium text-sm text-foreground">{alert.message}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => handleDirectAcknowledge(alert)}>
                             Acknowledge
                           </Button>
-                        ) : (
-                          <Badge variant="outline" className="text-xs text-gw-green border-gw-green/40">Resolved</Badge>
-                        )}
+                          <Button size="sm" className="bg-teal text-primary-foreground text-xs h-8" onClick={() => beginAlertAcknowledgement(alert)}>
+                            Schedule Appt
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                            title="Delete alert"
+                            onClick={() => handleRemoveSingleAlert(alert.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. ALERT HISTORY SECTION */}
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-display text-base font-semibold text-foreground flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-gw-green" />
+                    Alert History ({activeAlerts.filter((a) => a.resolved).length})
+                  </h3>
+                  {activeAlerts.some((a) => a.resolved) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+                      onClick={() => setClearAlertHistoryConfirmOpen(true)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                      Clear Alert History
+                    </Button>
+                  )}
                 </div>
-              )}
+
+                {activeAlerts.filter((a) => a.resolved).length === 0 ? (
+                  <Card className="rounded-xl border-dashed border-border bg-muted/20">
+                    <CardContent className="p-4 text-center text-xs text-muted-foreground">
+                      No resolved alerts in history.
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-2">
+                    {activeAlerts.filter((a) => a.resolved).map((alert) => (
+                      <div
+                        key={alert.id}
+                        className="p-3 border rounded-xl flex items-center justify-between gap-3 bg-muted/30 border-border opacity-85 hover:opacity-100 transition-opacity"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-foreground text-xs">{alert.elder_name}</span>
+                            <Badge variant="outline" className="text-[10px] text-gw-green border-gw-green/40">Resolved</Badge>
+                            <span className="text-[11px] text-muted-foreground">{new Date(alert.time).toLocaleTimeString()}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground">{alert.message}</p>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          title="Delete from history"
+                          onClick={() => handleRemoveSingleAlert(alert.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </section>
           )}
 
@@ -1836,6 +2479,31 @@ const DoctorPortal: React.FC = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteReport} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear Alert History Confirmation */}
+      <AlertDialog open={clearAlertHistoryConfirmOpen} onOpenChange={setClearAlertHistoryConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Alert History?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove all acknowledged and resolved clinical alerts from history.
+              Active unacknowledged emergency alerts will be safely preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                handleClearAlertHistory('resolved');
+                setClearAlertHistoryConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Clear History
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

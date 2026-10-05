@@ -1,10 +1,14 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { useGuardianStore, type GuardianAlert, isAlertForElder, resolveAlertElderName } from '@/store/guardianStore';
+import { useAppStore } from '@/store';
 import { triggerAlert } from '@/lib/audioAlerts';
-import { ShieldAlert, Pill, Heart, AlertTriangle, MapPin, Volume2, CheckCircle } from 'lucide-react';
+import { ShieldAlert, Pill, Heart, AlertTriangle, MapPin, Volume2, CheckCircle, Trash2 } from 'lucide-react';
+import { broadcastGcareMessage } from '@/lib/syncChannel';
+import { toast } from '@/hooks/use-toast';
 
 const alertIcon = (type: string) => {
   switch (type) {
@@ -26,11 +30,17 @@ const severityColor = (s: string) => {
 };
 
 const AlertsTab: React.FC = () => {
-  const { alerts, acknowledgeAlert, addGuardianAlert, guardianUser } = useGuardianStore();
+  const { alerts, acknowledgeAlert, addGuardianAlert, clearAlerts, removeAlert, guardianUser } = useGuardianStore();
+  const demoMode = useAppStore((s) => s.demoMode);
   const elderName = guardianUser?.elderName || 'Registered elder';
+  const [clearAlertHistoryConfirmOpen, setClearAlertHistoryConfirmOpen] = useState(false);
 
-  // Simulate incoming alerts for demo
+  // Simulate incoming alerts only in demoMode when no alerts are pending
   useEffect(() => {
+    if (!demoMode) return;
+    const currentPending = alerts.filter(a => !a.acknowledged);
+    if (currentPending.length > 0) return;
+
     const timer1 = setTimeout(() => {
       const newAlert: GuardianAlert = {
         id: `ga-live-${Date.now()}`, type: 'vital_abnormal', severity: 'warning',
@@ -39,20 +49,33 @@ const AlertsTab: React.FC = () => {
       };
       addGuardianAlert(newAlert);
       triggerAlert('vital');
-    }, 15000);
+    }, 25000);
 
-    const timer2 = setTimeout(() => {
-      const sosAlert: GuardianAlert = {
-        id: `ga-sos-${Date.now()}`, type: 'sos', severity: 'critical',
-        message: '🚨 EMERGENCY — SOS button pressed on watch. Location: Sadashivanagar, Bangalore',
-        time: new Date().toISOString(), acknowledged: false, elderName,
-      };
-      addGuardianAlert(sosAlert);
-      triggerAlert('sos');
-    }, 45000);
+    return () => { clearTimeout(timer1); };
+  }, [demoMode, addGuardianAlert, elderName, alerts]);
 
-    return () => { clearTimeout(timer1); clearTimeout(timer2); };
-  }, [addGuardianAlert, elderName]);
+  const handleClearAlertHistory = (mode: 'all' | 'resolved' = 'all') => {
+    clearAlerts(mode);
+    broadcastGcareMessage({
+      type: 'ALERTS_CLEARED',
+      mode,
+      timestamp: Date.now(),
+    });
+    toast({
+      title: mode === 'resolved' ? 'Resolved Alerts Cleared' : 'Alert History Cleared',
+      description: mode === 'resolved'
+        ? 'Cleared all resolved alerts from guardian view.'
+        : 'All safety alert history has been cleared.',
+    });
+  };
+
+  const handleRemoveSingle = (id: string) => {
+    removeAlert(id);
+    toast({
+      title: 'Alert Removed',
+      description: 'The selected alert was removed from history.',
+    });
+  };
 
   const handlePlayAlert = (type: string) => {
     triggerAlert(type === 'medicine_missed' ? 'medicine' : type === 'vital_abnormal' ? 'vital' : type);
@@ -64,6 +87,33 @@ const AlertsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Top Header & Alert History Options */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+        <div>
+          <h2 className="font-display text-xl text-foreground">Alerts & Safety Center</h2>
+          <p className="text-sm text-muted-foreground">Emergency events, vitals warnings, and notifications for {elderName}.</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant="outline" className="text-teal border-teal/30">
+            {unresolved.length} Active
+          </Badge>
+          <Badge variant="outline" className="text-muted-foreground border-border">
+            {resolved.length} in History
+          </Badge>
+          {resolved.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
+              onClick={() => setClearAlertHistoryConfirmOpen(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Clear Alert History
+            </Button>
+          )}
+        </div>
+      </div>
+
       {/* SOS Emergency Panel */}
       {unresolved.some(a => a.type === 'sos') && (
         <Card className="rounded-xl border-2 border-destructive bg-destructive/5 animate-pulse-border">
@@ -136,20 +186,42 @@ const AlertsTab: React.FC = () => {
       {/* Resolved Alerts */}
       {resolved.length > 0 && (
         <div>
-          <h3 className="font-display text-lg text-foreground mb-3 flex items-center gap-2">
-            <CheckCircle className="h-5 w-5 text-gw-green" />
-            Resolved ({resolved.length})
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display text-lg text-foreground flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 text-gw-green" />
+              Resolved ({resolved.length})
+            </h3>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-xs text-muted-foreground hover:text-destructive h-7 px-2"
+              onClick={() => setClearAlertHistoryConfirmOpen(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Clear History
+            </Button>
+          </div>
           <div className="space-y-2">
             {resolved.map(alert => (
-              <Card key={alert.id} className="rounded-xl opacity-60">
+              <Card key={alert.id} className="rounded-xl opacity-75 hover:opacity-100 transition-opacity">
                 <CardContent className="p-3 flex items-center gap-3">
                   {alertIcon(alert.type)}
                   <div className="flex-1">
-                    <p className="text-sm text-muted-foreground">{alert.message}</p>
+                    <p className="text-sm text-foreground">{alert.message}</p>
                     <p className="text-xs text-muted-foreground">{new Date(alert.time).toLocaleTimeString()}</p>
                   </div>
-                  <Badge variant="outline" className="text-xs text-gw-green border-gw-green/30">Resolved</Badge>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge variant="outline" className="text-xs text-gw-green border-gw-green/30">Resolved</Badge>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                      title="Delete from history"
+                      onClick={() => handleRemoveSingle(alert.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -181,6 +253,31 @@ const AlertsTab: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Clear Alert History Confirmation Dialog */}
+      <AlertDialog open={clearAlertHistoryConfirmOpen} onOpenChange={setClearAlertHistoryConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Alert History?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove all resolved and acknowledged safety alerts for {elderName}.
+              Active emergency alerts will be safely preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                handleClearAlertHistory('resolved');
+                setClearAlertHistoryConfirmOpen(false);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Clear History
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

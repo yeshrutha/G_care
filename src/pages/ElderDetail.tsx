@@ -253,6 +253,22 @@ const ElderDetail: React.FC = () => {
     setElderAlerts(prev => prev.map(a => a.id === alertId ? { ...a, acknowledged: true } : a));
   };
 
+  const clearElderAlertHistory = (mode: 'all' | 'resolved' = 'all') => {
+    setElderAlerts(prev => mode === 'resolved' ? prev.filter(a => !a.acknowledged) : []);
+    toast({
+      title: mode === 'resolved' ? 'Resolved Alerts Cleared' : 'Alert History Cleared',
+      description: `Alert history cleared for ${elder.full_name}.`,
+    });
+  };
+
+  const removeSingleElderAlert = (id: string) => {
+    setElderAlerts(prev => prev.filter(a => a.id !== id));
+    toast({
+      title: 'Alert Removed',
+      description: 'Alert removed from history.',
+    });
+  };
+
   const handlePlayAlert = (type: string) => {
     triggerAlert(type === 'medicine_missed' ? 'medicine' : type === 'vital_abnormal' ? 'vital' : type);
   };
@@ -691,7 +707,39 @@ const ElderDetail: React.FC = () => {
           </TabsContent>
 
           {/* TAB 5: ALERTS — Guardian-style */}
+          {/* TAB 5: ALERTS — Guardian-style */}
           <TabsContent value="alerts" className="space-y-6 mt-6">
+            {/* Top Bar with Clear Options */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-border">
+              <div>
+                <h3 className="font-display text-lg text-foreground">Alerts & Notifications</h3>
+                <p className="text-sm text-muted-foreground">Historical and active safety alerts for {elder.full_name}.</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {resolvedAlerts.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 text-muted-foreground hover:bg-muted"
+                    onClick={() => clearElderAlertHistory('resolved')}
+                  >
+                    Clear Resolved ({resolvedAlerts.length})
+                  </Button>
+                )}
+                {elderAlerts.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={() => clearElderAlertHistory('all')}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear Alert History
+                  </Button>
+                )}
+              </div>
+            </div>
+
             {/* SOS Emergency Panel */}
             {unresolvedAlerts.some(a => a.type === 'sos') && (
               <Card className="rounded-xl border-2 border-destructive bg-destructive/5 animate-pulse-border">
@@ -763,13 +811,24 @@ const ElderDetail: React.FC = () => {
             {/* Resolved Alerts */}
             {resolvedAlerts.length > 0 && (
               <div>
-                <h3 className="font-display text-lg text-foreground mb-3 flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-gw-green" />
-                  Resolved ({resolvedAlerts.length})
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-display text-lg text-foreground flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-gw-green" />
+                    Resolved ({resolvedAlerts.length})
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-xs text-muted-foreground hover:text-destructive h-7 px-2"
+                    onClick={() => clearElderAlertHistory('resolved')}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Clear History
+                  </Button>
+                </div>
                 <div className="space-y-2">
                   {resolvedAlerts.map(alert => (
-                    <Card key={alert.id} className="rounded-xl opacity-60">
+                    <Card key={alert.id} className="rounded-xl opacity-75 hover:opacity-100 transition-opacity">
                       <CardContent className="p-3 flex items-center gap-3">
                         {alertIcon(alert.type)}
                         <div className="flex-1">
@@ -781,7 +840,18 @@ const ElderDetail: React.FC = () => {
                           )}
                           <p className="text-xs text-muted-foreground">{new Date(alert.time).toLocaleString()}</p>
                         </div>
-                        <Badge variant="outline" className="text-xs text-gw-green border-gw-green/30">Resolved</Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant="outline" className="text-xs text-gw-green border-gw-green/30">Resolved</Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            title="Delete from history"
+                            onClick={() => removeSingleElderAlert(alert.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </CardContent>
                     </Card>
                   ))}

@@ -39,20 +39,20 @@ export const DEMO_ELDERS: DemoElder[] = [
 
 export const DEMO_VITALS: Record<string, DemoVitals> = {
   'elder-1': {
-    heart_rate: 71, systolic_bp: 128, diastolic_bp: 82, spo2: 97.4,
-    stress: 34, hydration: 72, breathing_rate: 16, skin_temp: 36.5,
+    heart_rate: 72, systolic_bp: 122, diastolic_bp: 78, spo2: 97.5,
+    stress: 28, hydration: 75, breathing_rate: 16, skin_temp: 36.6,
     shiver_detected: false, panic_detected: false, fall_detected: false,
     motion_state: 'sitting',
   },
   'elder-2': {
-    heart_rate: 74, systolic_bp: 138, diastolic_bp: 88, spo2: 95,
-    stress: 45, hydration: 64, breathing_rate: 18, skin_temp: 36.6,
+    heart_rate: 76, systolic_bp: 126, diastolic_bp: 80, spo2: 97.2,
+    stress: 32, hydration: 72, breathing_rate: 16, skin_temp: 36.6,
     shiver_detected: false, panic_detected: false, fall_detected: false,
     motion_state: 'sitting',
   },
   'elder-3': {
-    heart_rate: 72, systolic_bp: 118, diastolic_bp: 76, spo2: 93,
-    stress: 58, hydration: 68, breathing_rate: 20, skin_temp: 36.2,
+    heart_rate: 72, systolic_bp: 120, diastolic_bp: 78, spo2: 97.0,
+    stress: 30, hydration: 74, breathing_rate: 16, skin_temp: 36.5,
     shiver_detected: false, panic_detected: false, fall_detected: false,
     motion_state: 'sitting',
   },
@@ -100,14 +100,37 @@ export const DEMO_MOOD_HISTORY = Array.from({ length: 30 }, (_, i) => ({
 
 export const DEMO_ALERTS: DemoAlert[] = [
   {
-    id: 'alert-1', elder_name: 'Usha', type: 'high_hr', severity: 'warning',
-    message: 'Heart rate elevated to 102 bpm for 5 minutes', time: new Date(Date.now() - 3600000).toISOString(),
+    id: 'alert-appt-1',
+    elder_id: 'elder-1',
+    elder_name: 'Usha',
+    type: 'appointment',
+    severity: 'info',
+    message: 'Appointment booked & resolved: Follow-up consultation for Usha with Dr. Ramesh Kumar.',
+    location: 'Apollo Clinic',
+    time: new Date(Date.now() - 3600000).toISOString(),
     resolved: true,
   },
   {
-    id: 'alert-2', elder_name: 'Lakshmi Devi', type: 'missed_med', severity: 'warning',
-    message: 'Ecosprin 75mg missed at 9:00 AM', time: new Date(Date.now() - 7200000).toISOString(),
-    resolved: false,
+    id: 'alert-appt-2',
+    elder_id: 'elder-2',
+    elder_name: 'Lakshmi Devi',
+    type: 'appointment',
+    severity: 'info',
+    message: 'Appointment booked & resolved: Cardiology review for Lakshmi Devi with Dr. Ramesh Kumar.',
+    location: 'Cardiology OPD',
+    time: new Date(Date.now() - 7200000).toISOString(),
+    resolved: true,
+  },
+  {
+    id: 'alert-appt-3',
+    elder_id: 'elder-3',
+    elder_name: 'Venkatesh Rao',
+    type: 'appointment',
+    severity: 'info',
+    message: 'Appointment booked & resolved: Pulmonology assessment for Venkatesh Rao with Dr. Ramesh Kumar.',
+    location: 'Pulmonology Suite',
+    time: new Date(Date.now() - 10800000).toISOString(),
+    resolved: true,
   },
 ];
 
