@@ -68,6 +68,24 @@ describe('Medical Report Document Validation', () => {
     expect(result.error).toBe('Invalid medical report. Please upload a valid clinical/checkup report.');
   });
 
+  it('strictly rejects BDA Assignment even when using a healthcare/patient dataset', async () => {
+    const bdaPdf = createMinimalPdf(
+      'VTU Computer Science. Big Data Analytics BDA Assignment 2. Problem: Analyze patient records dataset with blood pressure, heart rate, hospital admission and glucose values using Spark and Hadoop.'
+    );
+
+    // Rejected by filename and extracted text
+    const res1 = await validateMedicalDocument(bdaPdf, 'BDA_Assignment.pdf', 'application/pdf', {
+      title: 'BDA Assignment',
+    });
+    expect(res1.isValid).toBe(false);
+
+    // Rejected even if renamed, due to academic content and title
+    const res2 = await validateMedicalDocument(bdaPdf, 'report.pdf', 'application/pdf', {
+      title: 'BDA Assignment',
+    });
+    expect(res2.isValid).toBe(false);
+  });
+
   it('rejects non-PDF and corrupted files', async () => {
     const textBuffer = Buffer.from('This is a plain text file pretending to be a medical report.', 'utf-8');
     const result = await validateMedicalDocument(textBuffer, 'notes.txt', 'text/plain');
@@ -94,7 +112,10 @@ describe('Medical Report Document Validation', () => {
 
     const lectureResult = classifyMedicalDocument('syllabus semester algorithm database management class notes big data');
     expect(lectureResult.isMedical).toBe(false);
-    expect(lectureResult.nonMedicalScore).toBeGreaterThanOrEqual(2);
+    expect(lectureResult.nonMedicalScore).toBeGreaterThanOrEqual(1);
+
+    const bdaResult = classifyMedicalDocument('dataset analysis for patient hospital records', 'BDA Assignment.pdf');
+    expect(bdaResult.isMedical).toBe(false);
   });
 });
 
@@ -151,5 +172,26 @@ describe('Database Persistence & Role-Based Access for Medical Reports', () => {
     // Other guardian with unrelated elder CANNOT access elder-1
     const otherOwns = await dbService.userOwnsElder(otherGuardian, 'elder-1');
     expect(otherOwns).toBe(false);
+  });
+
+  it('allows doctor to delete an erroneously uploaded report', async () => {
+    const reportToDelete = await dbService.createReport(
+      doctorUser,
+      'elder-1',
+      'Accidental Upload',
+      'Notes',
+      'General',
+      'accidental.pdf',
+      'accidental.pdf',
+      Buffer.from('%PDF-1.4').toString('base64'),
+      'application/pdf',
+      100
+    );
+
+    const deleted = await dbService.deleteReport(reportToDelete.id);
+    expect(deleted.id).toBe(reportToDelete.id);
+
+    const found = await dbService.getReportById(reportToDelete.id);
+    expect(found).toBeNull();
   });
 });

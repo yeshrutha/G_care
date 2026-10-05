@@ -716,7 +716,11 @@ async function handleReports(req, res, pathName, user) {
     const fileName = parsed.fileName || `${parsed.title.toLowerCase().replace(/\s+/g, '_')}.pdf`;
     const mimeType = parsed.fileType || 'application/pdf';
 
-    const validation = await validateMedicalDocument(fileBuffer, fileName, mimeType);
+    const validation = await validateMedicalDocument(fileBuffer, fileName, mimeType, {
+      title: parsed.title,
+      description: parsed.description,
+      category: parsed.category,
+    });
     if (!validation.isValid) {
       return sendJson(res, 400, {
         error: validation.error || 'Invalid medical report. Please upload a valid clinical/checkup report.',
@@ -758,6 +762,30 @@ async function handleReports(req, res, pathName, user) {
     const limit = Number(url.searchParams.get('limit') || 50);
     const reports = await dbService.getReports(elderId, limit);
     return sendJson(res, 200, reports, req);
+  }
+
+  // 4. Delete clinical report: DELETE /api/reports/:id or /api/medical-records/:id
+  const deleteMatch = pathName.match(/^\/api\/(?:reports|medical-records)\/([^/]+)$/);
+  if (req.method === 'DELETE' && deleteMatch) {
+    if (!requireRole(user, ['doctor'], res, req)) return;
+    const reportId = deleteMatch[1];
+    const report = await dbService.getReportById(reportId);
+    if (!report) {
+      return sendJson(res, 404, { error: 'Medical report not found' }, req);
+    }
+
+    const owns = await dbService.userOwnsElder(user, report.elderId);
+    if (!owns) {
+      return sendJson(res, 403, { error: 'Not allowed to delete reports for this patient' }, req);
+    }
+
+    await dbService.deleteReport(reportId);
+    await dbService.addAuditLog(user, 'delete_clinical_report', 'report', reportId, {
+      elderId: report.elderId,
+      title: report.title,
+    });
+
+    return sendJson(res, 200, { success: true, id: reportId }, req);
   }
 
   return sendJson(res, 404, { error: 'Route not found' }, req);

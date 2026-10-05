@@ -1404,6 +1404,18 @@ export const dbService = {
     }
   },
 
+  deleteReport: async (id) => {
+    if (usePostgres) {
+      await pool.query('DELETE FROM reports WHERE id = $1', [id]);
+      return { id };
+    } else {
+      const fileDb = await readDb();
+      fileDb.reports = (fileDb.reports || []).filter((r) => r.id !== id);
+      await writeDb(fileDb);
+      return { id };
+    }
+  },
+
   getCareTeam: async (elderId) => {
     if (usePostgres) {
       const { rows } = await pool.query(

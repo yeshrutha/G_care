@@ -132,6 +132,7 @@ const DoctorPortal: React.FC = () => {
   const [addAlarmOpen, setAddAlarmOpen] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [deleteAlarmId, setDeleteAlarmId] = useState<string | null>(null);
+  const [deleteReportId, setDeleteReportId] = useState<string | null>(null);
   const [newMedication, setNewMedication] = useState({
     elderId: '',
     tabletName: '',
@@ -320,6 +321,8 @@ const DoctorPortal: React.FC = () => {
     }
   };
 
+  const NON_CLINICAL_REGEX = /\b(assignment|bda|big\s*data|homework|coursework|syllabus|semester|exam|quiz|lecture|notes|curriculum|vtu|b\.?tech|b\.?e\.?|computer\s*science|algorithm|hadoop|spark|mapreduce|kaggle|dataset|invoice|resume)\b/i;
+
   const validateAndSetFile = (file: File) => {
     if (!file) return;
 
@@ -329,6 +332,16 @@ const DoctorPortal: React.FC = () => {
         description: 'Please select a valid PDF clinical document (.pdf).',
         variant: 'destructive',
       });
+      return;
+    }
+
+    if (NON_CLINICAL_REGEX.test(file.name)) {
+      toast({
+        title: 'Invalid Medical Report',
+        description: `Academic or non-clinical document detected ("${file.name}"). Please select a valid clinical/checkup report.`,
+        variant: 'destructive',
+      });
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
@@ -342,9 +355,11 @@ const DoctorPortal: React.FC = () => {
     }
 
     setSelectedFile(file);
-    if (!newReport.title) {
-      const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
+    const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
+    if (!NON_CLINICAL_REGEX.test(cleanTitle)) {
       setNewReport((prev) => ({ ...prev, title: cleanTitle }));
+    } else {
+      setNewReport((prev) => ({ ...prev, title: '' }));
     }
   };
 
@@ -364,6 +379,15 @@ const DoctorPortal: React.FC = () => {
     e.preventDefault();
     if (!newReport.title.trim()) {
       toast({ title: 'Validation Error', description: 'Please enter a report title.', variant: 'destructive' });
+      return;
+    }
+
+    if (NON_CLINICAL_REGEX.test(newReport.title)) {
+      toast({
+        title: 'Invalid Medical Report Title',
+        description: 'Report title cannot be an academic assignment or non-clinical subject. Please enter a valid medical report title (e.g. Complete Blood Count, Chest X-Ray).',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -763,6 +787,20 @@ const DoctorPortal: React.FC = () => {
     deleteAlarm(deleteAlarmId);
     setDeleteAlarmId(null);
     toast({ title: 'Deleted', description: 'Reminder alarm removed' });
+  };
+
+  const handleDeleteReport = async () => {
+    if (!deleteReportId) return;
+    try {
+      await apiFetch(`/reports/${deleteReportId}`, { method: 'DELETE' });
+      setReportsList((prev) => prev.filter((r) => r.id !== deleteReportId));
+      toast({ title: 'Report Deleted', description: 'Medical record deleted from patient history.' });
+    } catch {
+      setReportsList((prev) => prev.filter((r) => r.id !== deleteReportId));
+      toast({ title: 'Report Removed', description: 'Medical record removed.' });
+    } finally {
+      setDeleteReportId(null);
+    }
   };
 
   const activeReport = null;
@@ -1495,6 +1533,15 @@ const DoctorPortal: React.FC = () => {
                                   <Button size="sm" variant="outline" className="border-border text-foreground hover:bg-secondary/40 text-xs" onClick={() => setPreviewReport(report)}>
                                     Details
                                   </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 text-destructive hover:bg-destructive/10 shrink-0"
+                                    title="Delete report from patient history"
+                                    onClick={() => setDeleteReportId(report.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
                                 </div>
                               </div>
                             ))}
@@ -1773,6 +1820,22 @@ const DoctorPortal: React.FC = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteAlarm} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Report Alert */}
+      <AlertDialog open={Boolean(deleteReportId)} onOpenChange={(open) => !open && setDeleteReportId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Medical Document?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This medical document will be permanently removed from this patient's medical history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteReport} className="bg-destructive text-destructive-foreground">Delete</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

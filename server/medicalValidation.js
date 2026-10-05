@@ -1,49 +1,81 @@
 import zlib from 'node:zlib';
 import { GEMINI_API_KEY, GEMINI_MODEL } from './config.js';
 
-// Medical indicator keywords (case-insensitive)
-const MEDICAL_KEYWORDS = [
-  // Clinical document types & sections
-  'patient', 'specimen', 'physician', 'doctor', 'dr.', 'clinic', 'hospital',
-  'laboratory', 'pathology', 'diagnostic', 'diagnosis', 'prescription', 'rx',
-  'clinical', 'discharge summary', 'consultation', 'health checkup', 'medical report',
-  'outpatient', 'inpatient', 'department of',
+// Explicit non-medical indicator keywords that indicate coursework, university assignments, programming, or unrelated topics
+export const NON_MEDICAL_KEYWORDS = [
+  // Academic & Coursework
+  'assignment', 'homework', 'coursework', 'bda', 'big data', 'class notes', 'lecture notes',
+  'syllabus', 'curriculum', 'semester', 'course code', 'subject code', 'question paper',
+  'exam schedule', 'midterm', 'final exam', 'quiz', 'textbook', 'lab manual', 'study material',
+  'bachelor of engineering', 'computer science', 'information technology', 'b.tech', 'm.tech', 'bca', 'mca',
+  'b.e.', 'm.e.', 'vtu', 'visvesvaraya', 'university', 'college of engineering', 'institute of technology',
+  'polytechnic', 'student', 'roll no', 'roll number', 'reg no', 'register number', 'usn',
+  'submitted by', 'submitted to', 'guided by', 'department of cse', 'department of ise',
+  'department of ece', 'department of me', 'department of civil', 'computer science and engineering',
+  'project report', 'mini project', 'major project', 'term paper', 'dissertation', 'thesis',
+  'problem statement', 'exercise', 'practicals',
 
-  // Common clinical tests & biomarkers
-  'blood', 'hemoglobin', 'cbc', 'complete blood count', 'wbc', 'rbc', 'platelet',
-  'leukocyte', 'neutrophil', 'lymphocyte', 'eosinophil', 'monocyte', 'basophil',
-  'glucose', 'fasting blood sugar', 'postprandial', 'hba1c', 'glycated hemoglobin',
-  'lipid profile', 'cholesterol', 'triglycerides', 'hdl', 'ldl', 'vldl',
-  'creatinine', 'blood urea', 'bun', 'uric acid', 'kidney function', 'kft', 'rft',
-  'liver function', 'lft', 'bilirubin', 'sgot', 'sgpt', 'ast', 'alt', 'alkaline phosphatase',
-  'thyroid', 'tsh', 't3', 't4', 'urine analysis', 'serum', 'electrolytes', 'sodium', 'potassium',
-  'calcium', 'vitamin d', 'vitamin b12', 'iron', 'ferritin', 'crp', 'esr',
+  // Tech, Programming, Machine Learning, Data Science
+  'big data analytics', 'machine learning', 'artificial intelligence', 'distributed systems', 'deep learning',
+  'software engineering', 'algorithm', 'algorithms', 'data structure', 'data structures',
+  'python code', 'javascript code', 'git commit', 'database management', 'dbms',
+  'sql query', 'programming language', 'hadoop', 'spark', 'mapreduce', 'hdfs', 'hive', 'pig',
+  'jupyter', 'kaggle', 'dataset', 'neural network', 'linear regression', 'random forest',
+  'source code', 'github', 'repository', 'train test split', 'scikit-learn', 'pandas', 'numpy',
+  'matplotlib', 'tensorflow', 'pytorch', 'confusion matrix', 'hyperparameter', 'epoch',
 
-  // Vitals & physiology
-  'blood pressure', 'systolic', 'diastolic', 'mmhg', 'heart rate', 'bpm', 'pulse',
-  'spo2', 'oxygen saturation', 'body temperature', 'respiratory rate',
-
-  // Diagnostic imaging & cardiology
-  'ecg', 'ekg', 'electrocardiogram', 'echocardiogram', 'echo', 'sinus rhythm',
-  'x-ray', 'chest x-ray', 'radiology', 'ct scan', 'mri', 'ultrasound', 'sonography',
-  'findings', 'impression', 'observations', 'reference range', 'normal range', 'biological reference'
+  // Business, Invoicing, Legal, Resumes
+  'invoice', 'tax invoice', 'gstin', 'balance sheet', 'profit and loss',
+  'financial statement', 'rental agreement', 'tenancy contract', 'lease agreement',
+  'resume', 'curriculum vitae'
 ];
 
-// Explicit non-medical indicator keywords that indicate coursework, programming, business, or unrelated topics
-const NON_MEDICAL_KEYWORDS = [
-  'class notes', 'lecture notes', 'syllabus', 'curriculum', 'semester', 'course',
-  'homework', 'assignment', 'question paper', 'exam schedule', 'textbook',
-  'bachelor of engineering', 'computer science', 'information technology',
-  'machine learning', 'artificial intelligence', 'big data', 'distributed systems',
-  'software engineering', 'algorithm', 'data structure', 'python code', 'javascript code',
-  'git commit', 'database management', 'sql query', 'programming language',
-  'invoice', 'tax invoice', 'gstin', 'balance sheet', 'profit and loss',
-  'financial statement', 'rental agreement', 'tenancy contract', 'resume', 'curriculum vitae'
+// Primary Clinical Indicators - Specific to clinical laboratory tests, pathology, cardiology, vitals, prescriptions
+export const PRIMARY_CLINICAL_INDICATORS = [
+  'complete blood count', 'cbc', 'hemoglobin', 'lipid profile', 'cholesterol',
+  'triglycerides', 'blood glucose', 'fasting blood sugar', 'postprandial', 'hba1c',
+  'creatinine', 'blood urea', 'uric acid', 'liver function', 'lft', 'kft', 'rft',
+  'bilirubin', 'sgot', 'sgpt', 'thyroid profile', 'tsh', 't3', 't4', 'urine routine',
+  'urine analysis', 'pathology report', 'diagnostic report', 'biochemistry',
+  'wbc count', 'rbc count', 'platelet count', 'leukocyte', 'neutrophil',
+  'lymphocyte', 'eosinophil', 'monocyte', 'erythrocyte', 'hematocrit',
+  'serum electrolytes', 'sodium', 'potassium', 'vitamin d', 'vitamin b12',
+  'electrocardiogram', 'ecg', 'ekg', 'chest x-ray', 'x-ray', 'radiology report',
+  'ct scan', 'mri scan', 'ultrasound', 'sonography', '2d echo', 'echocardiogram',
+  'blood pressure', 'systolic', 'diastolic', 'spo2', 'oxygen saturation',
+  'heart rate bpm', 'pulse rate', 'respiratory rate',
+  'reference range', 'reference interval', 'biological reference', 'normal range',
+  'specimen', 'sample collected', 'sample reported', 'lab no', 'uhid',
+  'prescribed by', 'prescription', 'clinical diagnosis', 'discharge summary'
+];
+
+// General medical keywords
+export const GENERAL_MEDICAL_KEYWORDS = [
+  'patient', 'doctor', 'dr.', 'physician', 'hospital', 'clinic',
+  'laboratory', 'pathology', 'diagnostic', 'diagnosis', 'prescription',
+  'consultation', 'health checkup', 'medical report', 'outpatient', 'inpatient',
+  'blood', 'serum', 'urine', 'findings', 'impression', 'rx', 'vital signs'
 ];
 
 /**
- * Extracts readable text streams from a PDF buffer.
- * Supports uncompressed text streams as well as FlateDecode (zlib-compressed) streams.
+ * Helper to match keyword terms accurately against text.
+ * Short terms (<= 4 chars like 'bda', 'vtu', 'usn', 'cbc', 'ecg') require word boundaries.
+ */
+export function findMatches(text, keywords) {
+  const lower = String(text || '').toLowerCase();
+  return keywords.filter((kw) => {
+    if (kw.length <= 4) {
+      const escaped = kw.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const regex = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`, 'i');
+      return regex.test(lower);
+    }
+    return lower.includes(kw);
+  });
+}
+
+/**
+ * Extracts readable text and metadata strings from a PDF buffer.
+ * Supports uncompressed text, FlateDecode streams, hex strings, and PDF metadata dictionaries.
  * @param {Buffer} buffer 
  * @returns {string} Extracted text
  */
@@ -52,7 +84,7 @@ export function extractTextFromPdf(buffer) {
     const rawStr = buffer.toString('latin1');
     let decompressedStreams = '';
 
-    // Match all PDF streams: stream ... endstream
+    // 1. Extract streams (compressed and uncompressed)
     const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
     let match;
 
@@ -64,35 +96,49 @@ export function extractTextFromPdf(buffer) {
         try {
           decompressedStreams += zlib.inflateRawSync(streamBytes).toString('latin1') + ' ';
         } catch {
-          // Uncompressed text stream
           decompressedStreams += streamBytes.toString('latin1') + ' ';
         }
       }
     }
 
-    // Extract text strings from BT ... ET (Begin Text ... End Text) blocks
+    const combinedPool = decompressedStreams + ' ' + rawStr;
     let extractedText = '';
-    const btBlocks = decompressedStreams.match(/BT[\s\S]*?ET/g) || [];
 
-    for (const block of btBlocks) {
-      // PDF text strings are enclosed in parentheses: (Text) Tj or [(Text1) 20 (Text2)] TJ
-      const stringMatches = [...block.matchAll(/\(([^)]*)\)/g)];
-      for (const sm of stringMatches) {
-        // Unescape standard PDF octal or escaped chars: \( \) \\
-        const cleaned = sm[1]
-          .replace(/\\([()\\])/g, '$1')
-          .replace(/\\n/g, ' ')
-          .replace(/\\r/g, ' ')
-          .replace(/\\t/g, ' ');
-        extractedText += cleaned;
+    // 2. Extract parenthesized text: (text) Tj or [(text1) 20 (text2)] TJ
+    const stringMatches = combinedPool.matchAll(/\(([^)]{2,})\)/g);
+    for (const sm of stringMatches) {
+      const cleaned = sm[1]
+        .replace(/\\([()\\])/g, '$1')
+        .replace(/\\[nrtbf]/g, ' ')
+        .trim();
+      if (cleaned.length > 1 && !cleaned.startsWith('/')) {
+        extractedText += cleaned + ' ';
       }
-      extractedText += ' ';
     }
 
-    // Also extract document info dictionary strings if present: /Title (...) /Subject (...)
-    const metaMatches = [...rawStr.matchAll(/\/(?:Title|Subject|Keywords|Author)\s*\(([^)]*)\)/g)];
+    // 3. Extract hexadecimal encoded strings: <424441...> Tj
+    const hexMatches = combinedPool.matchAll(/<([0-9a-fA-F]{4,})>/g);
+    for (const hm of hexMatches) {
+      try {
+        let hex = hm[1];
+        if (hex.length % 2 !== 0) hex += '0';
+        const decoded = Buffer.from(hex, 'hex').toString('latin1');
+        if (/^[\x20-\x7E\s]+$/.test(decoded)) {
+          extractedText += decoded + ' ';
+        }
+      } catch {}
+    }
+
+    // 4. Extract PDF metadata dictionaries: /Title (...) /Subject (...) /Keywords (...)
+    const metaMatches = rawStr.matchAll(/\/(?:Title|Subject|Keywords|Author|Creator)\s*\(([^)]*)\)/g);
     for (const mm of metaMatches) {
-      extractedText += ' ' + mm[1];
+      extractedText += mm[1] + ' ';
+    }
+
+    // 5. Extract XMP metadata if embedded
+    const xmpMatches = rawStr.matchAll(/<dc:title>[\s\S]*?<rdf:li[^>]*>([^<]+)<\/rdf:li>/gi);
+    for (const xm of xmpMatches) {
+      extractedText += xm[1] + ' ';
     }
 
     return extractedText.trim();
@@ -104,41 +150,53 @@ export function extractTextFromPdf(buffer) {
 
 /**
  * Deterministic medical report content validation.
- * @param {string} text 
- * @param {string} fileName 
- * @returns {{ isMedical: boolean, score: number, nonMedicalScore: number, matchedMedical: string[], matchedNonMedical: string[] }}
+ * @param {string} text Extracted document text
+ * @param {string} fileName Uploaded document filename
+ * @param {{ title?: string, description?: string, category?: string }} metadata Upload form metadata
+ * @returns {{ isMedical: boolean, score: number, nonMedicalScore: number, matchedMedical: string[], matchedNonMedical: string[], reason?: string }}
  */
-export function classifyMedicalDocument(text, fileName = '') {
-  const normalizedText = (text + ' ' + fileName).toLowerCase();
+export function classifyMedicalDocument(text, fileName = '', metadata = {}) {
+  const combinedText = [
+    metadata.title || '',
+    metadata.description || '',
+    metadata.category || '',
+    fileName || '',
+    text || '',
+  ].join(' ');
 
-  const matchedMedical = MEDICAL_KEYWORDS.filter((kw) => normalizedText.includes(kw));
-  const matchedNonMedical = NON_MEDICAL_KEYWORDS.filter((kw) => normalizedText.includes(kw));
+  const matchedNonMedical = findMatches(combinedText, NON_MEDICAL_KEYWORDS);
+  const matchedPrimary = findMatches(combinedText, PRIMARY_CLINICAL_INDICATORS);
+  const matchedGeneral = findMatches(combinedText, GENERAL_MEDICAL_KEYWORDS);
 
+  const matchedMedical = [...new Set([...matchedPrimary, ...matchedGeneral])];
   const medicalScore = matchedMedical.length;
   const nonMedicalScore = matchedNonMedical.length;
 
-  // If heavy non-medical markers exist (e.g., class notes, engineering syllabus, big data notes),
-  // reject even if a minor word like "pulse" or "temperature" appears once.
-  if (nonMedicalScore >= 2 && medicalScore < 5) {
+  // STRICT RULE: If ANY non-medical / coursework / academic marker is detected,
+  // REJECT IMMEDIATELY. Even if the assignment references patient/healthcare dataset data.
+  if (nonMedicalScore > 0) {
     return {
       isMedical: false,
       score: medicalScore,
       nonMedicalScore,
       matchedMedical,
       matchedNonMedical,
+      reason: `Detected academic or non-clinical document indicator(s): ${matchedNonMedical.slice(0, 4).join(', ')}`,
     };
   }
 
-  // To be recognized as a medical/clinical document:
-  // Must match at least 2 distinct medical indicators
-  const isMedical = medicalScore >= 2;
+  // To be recognized as a valid medical/clinical document:
+  // Must have at least 1 primary clinical indicator (e.g. CBC, ECG, blood pressure, etc.)
+  // OR at least 3 general medical keywords.
+  const isMedical = matchedPrimary.length >= 1 || matchedGeneral.length >= 3;
 
   return {
     isMedical,
     score: medicalScore,
-    nonMedicalScore,
+    nonMedicalScore: 0,
     matchedMedical,
-    matchedNonMedical,
+    matchedNonMedical: [],
+    reason: isMedical ? 'Matched clinical report indicators.' : 'Insufficient clinical markers found in document.',
   };
 }
 
@@ -147,9 +205,10 @@ export function classifyMedicalDocument(text, fileName = '') {
  * Runs on backend only - never exposes GEMINI_API_KEY.
  * @param {string} text 
  * @param {string} fileName 
+ * @param {{ title?: string, description?: string, category?: string }} metadata
  * @returns {Promise<boolean | null>} true if medical, false if not, null if unavailable
  */
-async function classifyWithGemini(text, fileName) {
+async function classifyWithGemini(text, fileName, metadata = {}) {
   if (!GEMINI_API_KEY) return null;
 
   try {
@@ -157,12 +216,19 @@ async function classifyWithGemini(text, fileName) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cleanModel)}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`;
 
     const promptText = `
-You are a medical document verification system.
-Analyze the following document snippet and determine if it represents a valid clinical/medical report (such as a laboratory blood test, diagnostic scan, prescription, clinic consultation note, hospital discharge summary, or medical checkup report).
+You are a medical clinical document verification validator.
+Carefully evaluate whether this document represents a genuine CLINICAL MEDICAL REPORT (such as a laboratory blood test, complete blood count, pathology report, diagnostic scan, ECG, prescription, or hospital checkup summary).
 
+CRITICAL RULE:
+If this document is an academic assignment, student homework, coursework, project report, engineering syllabus, lecture notes, textbook excerpt, programming or big data task (even if it uses a healthcare/medical dataset such as predicting diabetes or heart disease) — it is NOT a clinical medical report and you MUST return "isMedical": false.
+
+Document metadata:
+Title: ${metadata.title || 'N/A'}
 Filename: ${fileName}
-Document Content:
-${text.slice(0, 2000)}
+Category: ${metadata.category || 'N/A'}
+
+Document text snippet:
+${text.slice(0, 3000)}
 
 Reply strictly in JSON format:
 {
@@ -206,9 +272,10 @@ Reply strictly in JSON format:
  * @param {Buffer} buffer 
  * @param {string} fileName 
  * @param {string} mimeType 
+ * @param {{ title?: string, description?: string, category?: string }} metadata
  * @returns {Promise<{ isValid: boolean, error?: string, details?: any }>}
  */
-export async function validateMedicalDocument(buffer, fileName, mimeType) {
+export async function validateMedicalDocument(buffer, fileName, mimeType, metadata = {}) {
   if (!buffer || buffer.length === 0) {
     return { isValid: false, error: 'No file uploaded or file is empty.' };
   }
@@ -237,10 +304,10 @@ export async function validateMedicalDocument(buffer, fileName, mimeType) {
   const extractedText = extractTextFromPdf(buffer);
 
   // Classify document content deterministically
-  const classification = classifyMedicalDocument(extractedText, fileName);
+  const classification = classifyMedicalDocument(extractedText, fileName, metadata);
 
-  // If clearly rejected by deterministic rules
-  if (classification.nonMedicalScore >= 2 && classification.score < 4) {
+  // If rejected by non-medical markers
+  if (classification.nonMedicalScore > 0) {
     return {
       isValid: false,
       error: 'Invalid medical report. Please upload a valid clinical/checkup report.',
@@ -252,10 +319,10 @@ export async function validateMedicalDocument(buffer, fileName, mimeType) {
     return { isValid: true, details: classification };
   }
 
-  // If deterministic score is low (e.g. image-only PDF or sparse text),
+  // If deterministic score is low (e.g. scanned image PDF or sparse text),
   // attempt Gemini classification if available.
-  if (extractedText.length > 50) {
-    const geminiResult = await classifyWithGemini(extractedText, fileName);
+  if (extractedText.length > 30) {
+    const geminiResult = await classifyWithGemini(extractedText, fileName, metadata);
     if (geminiResult === true) {
       return { isValid: true, details: { method: 'gemini' } };
     }
@@ -267,19 +334,10 @@ export async function validateMedicalDocument(buffer, fileName, mimeType) {
     }
   }
 
-  // If text is present but contains no medical markers, reject
-  if (extractedText.length > 100 && classification.score === 0) {
-    return {
-      isValid: false,
-      error: 'Invalid medical report. Please upload a valid clinical/checkup report.',
-      details: classification,
-    };
-  }
-
   // If filename itself contains clear medical indicators (e.g. blood_test.pdf, cbc_report.pdf)
-  // and PDF header is valid, accept with caution
-  const filenameHasMedical = MEDICAL_KEYWORDS.some((kw) => cleanName.includes(kw));
-  if (filenameHasMedical) {
+  // and NO non-medical keywords were found, accept with caution
+  const filenameHasPrimary = PRIMARY_CLINICAL_INDICATORS.some((kw) => cleanName.includes(kw));
+  if (filenameHasPrimary) {
     return { isValid: true, details: { method: 'filename_indicator' } };
   }
 
