@@ -11,7 +11,7 @@ services:
       name: gcare-files
       mountPath: /var/data
       sizeGB: 1
-    buildCommand: npm install --legacy-peer-deps && npm run build
+    buildCommand: npm install --include=dev --legacy-peer-deps && npm run build
     startCommand: npm run db:migrate && npm start
     envVars:
       - key: NODE_ENV
