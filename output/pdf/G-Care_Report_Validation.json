@@ -1,0 +1,30 @@
+{
+  "output": "C:\\Users\\yeshr\\OneDrive\\Desktop\\G_care\\output\\pdf\\G-Care_Complete_Revised_Report.pdf",
+  "page_count": 59,
+  "chapter_count": 8,
+  "numbered_figures": 9,
+  "named_tables": 5,
+  "appendix_pages": 5,
+  "appendix_screenshots": 9,
+  "bibliography_entries": 7,
+  "original_images": 21,
+  "pixel_identical_original_image_payloads": true,
+  "smart_tv_text_matches": 0,
+  "smart_tv_raster_labels": "visually reviewed and corrected",
+  "all_pages_rendered": true,
+  "visual_review": "All 59 pages reviewed in contact sheets; diagrams, tables, code and bibliography reviewed at higher resolution.",
+  "text_replacement_characters": 0,
+  "body_flow_overflows": 0,
+  "page_numbering": "Original printed chapter pages 1-44, bibliography45, appendix46-50; front matter retained",
+  "automated_test_result": "117 passed, 15 files",
+  "production_build": "passed, exit 0; existing chunk-size/plugin timing warnings",
+  "source_sha256": "c970778428eb84456d75fba81b55d6d60b78613dcf432857cd3fdd2852d46e43",
+  "final_sha256": "b5e6ee0ee6d1848396c2454f1adc13abe0866494e6547e6c0cc85f286d764751",
+  "source_words": 10798,
+  "final_words": 12084,
+  "limitations": [
+    "Physical demonstrations rely on explicitly supplied team history; no new physical experiment",
+    "Firmware, actual wiring and calibration logs absent",
+    "Live PostgreSQL, clinical validation and complete medication-history persistence not established"
+  ]
+}

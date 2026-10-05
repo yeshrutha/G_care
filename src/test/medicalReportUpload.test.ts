@@ -1,4 +1,15 @@
-import { describe, it, expect } from 'vitest';
+vi.mock('../../server/config.js', async () => {
+  const actual = await vi.importActual<any>('../../server/config.js');
+  const { mkdtempSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const DATA_DIR = mkdtempSync(join(tmpdir(), 'gcare-report-test-'));
+  return { ...actual, DATA_DIR, DATA_FILE: join(DATA_DIR, 'db.json') };
+});
+import { DATA_DIR } from '../../server/config.js';
+import { rm } from 'node:fs/promises';
+afterAll(async () => { await rm(DATA_DIR, { recursive: true, force: true }); });
+import { afterAll, describe, it, expect, vi } from 'vitest';
 import {
   extractTextFromPdf,
   classifyMedicalDocument,

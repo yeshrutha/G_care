@@ -824,8 +824,10 @@ export async function requestMicrophonePermission() {
 }
 
 let activeAssistantAudio: HTMLAudioElement | null = null;
+let speechSequence = 0;
 
 export function stopSpeaking() {
+  speechSequence++;
   if (activeAssistantAudio) {
     activeAssistantAudio.pause();
     activeAssistantAudio.currentTime = 0;
@@ -843,12 +845,15 @@ export function stopSpeaking() {
 export function speakText(
   text: string,
   language: SupportedLanguage = DEFAULT_LANGUAGE,
+  onComplete?: () => void,
 ) {
   if (typeof window === 'undefined' || !text?.trim()) {
     return;
   }
 
   stopSpeaking();
+  const sequence = speechSequence;
+  const completed = () => { if (sequence === speechSequence) onComplete?.(); };
 
   const cleanText = text
     .replace(/[\*\_#\`\~\[\]\(\)]/g, '')
@@ -869,20 +874,26 @@ export function speakText(
     const audio = new Audio(ttsUrl);
 
     activeAssistantAudio = audio;
+    audio.onended = () => {
+      if (sequence !== speechSequence) return;
+      activeAssistantAudio = null;
+      completed();
+    };
 
     audio.play().catch(() => {
-      fallbackSpeechSynthesis(cleanText, language);
+      if (sequence === speechSequence) fallbackSpeechSynthesis(cleanText, language, completed);
     });
 
     return;
   } catch {
-    fallbackSpeechSynthesis(cleanText, language);
+    if (sequence === speechSequence) fallbackSpeechSynthesis(cleanText, language, completed);
   }
 }
 
 function fallbackSpeechSynthesis(
   cleanText: string,
   language: SupportedLanguage,
+  onComplete?: () => void,
 ) {
   if (!isSpeechSynthesisSupported()) {
     return;
@@ -900,6 +911,7 @@ function fallbackSpeechSynthesis(
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
 
+    utterance.onend = () => onComplete?.();
     utterance.lang = targetLang;
     utterance.rate = 0.92;
     utterance.pitch = 1;

@@ -90,3 +90,14 @@ dev-dist/
 *.pid
 *.seed
 *.pid.lock
+
+# Portable local database and test scratch files
+tmp/
+data/uploads/
+
+data/postgres/
+data/backups/
+
+# Private identity verification documents
+data/verification-proofs/
+**/verification-proofs/

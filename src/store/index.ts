@@ -1,8 +1,11 @@
+import { patientStorage } from '@/lib/patientStorage';
+import { getStoredToken, getStoredUser } from '@/lib/api';
 import { create } from 'zustand';
 import { initializePatientVitals, simulateNextVitals, getElderBaseline } from '@/lib/vitalsSimulator';
+import { reconcileAlertEpisodes } from '@/lib/alertEpisodeIdentity.js';
 import { DEMO_ELDERS, DEMO_ALERTS } from '@/lib/demoData';
-import { processVitalsTickWithAlerts, clearAnomalyCooldowns, getAlertEpisodeKey, markEpisodeAcknowledged } from '@/lib/anomalyDetector';
-import { calculateMinutesBefore, formatTime12Hour } from '@/lib/syncChannel';
+import { processVitalsTickWithAlerts, clearAnomalyCooldowns, getAlertEpisodeKey, markEpisodeAcknowledged, persistEpisodeAlert } from '@/lib/anomalyDetector';
+import { broadcastGcareMessage, subscribeToGcareBroadcast, calculateMinutesBefore, formatTime12Hour } from '@/lib/syncChannel';
 
 export interface DemoElder {
   id: string;
@@ -39,12 +42,15 @@ export interface DemoAlert {
   id: string;
   elder_id?: string;
   elder_name: string;
-  type: 'sos' | 'fall' | 'panic' | 'high_hr' | 'low_spo2' | 'missed_med' | 'med_taken' | 'geofence';
+  type: 'sos' | 'fall' | 'panic' | 'high_hr' | 'low_spo2' | 'missed_med' | 'med_taken' | 'geofence' | 'vital_abnormal' | 'appointment';
   severity: 'critical' | 'warning' | 'info';
   message: string;
   location?: string;
   time: string;
   resolved: boolean;
+  anomaly_type?: string;
+  episode_recovered?: boolean;
+  duplicate_of?: string;
 }
 
 export interface StoreAlarm {
@@ -172,28 +178,15 @@ function isStorageAvailable(): boolean {
 
 function getStoredActiveAlerts(): DemoAlert[] {
   if (!isStorageAvailable()) return DEMO_ALERTS;
-  const rawAlerts = window.localStorage.getItem(ACTIVE_ALERTS_STORAGE_KEY);
+  const rawAlerts = patientStorage().getItem(ACTIVE_ALERTS_STORAGE_KEY);
   if (rawAlerts === null) return DEMO_ALERTS;
   try {
     const alerts = JSON.parse(rawAlerts);
     if (!Array.isArray(alerts)) return DEMO_ALERTS;
     if (alerts.length === 0) return [];
 
-    // Filter out duplicate repetitive alerts and keep a clean realistic list (max 15)
-    const seen = new Set<string>();
-    const cleaned = alerts.filter((a) => {
-      const cleanName = (a.elder_name || a.elder_id || '').toLowerCase().trim();
-      const cleanType = (a.type || '').toLowerCase();
-      const status = a.resolved ? 'resolved' : 'unresolved';
-      const key = `${cleanName}:${cleanType}:${status}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).slice(0, 15);
-
-    if (cleaned.length !== alerts.length) {
-      storeActiveAlerts(cleaned);
-    }
+    const cleaned = reconcileAlertEpisodes(alerts, DEMO_ELDERS);
+    if (JSON.stringify(cleaned) !== JSON.stringify(alerts)) storeActiveAlerts(cleaned);
     return cleaned;
   } catch {
     return DEMO_ALERTS;
@@ -202,24 +195,24 @@ function getStoredActiveAlerts(): DemoAlert[] {
 
 function storeActiveAlerts(alerts: DemoAlert[]) {
   if (isStorageAvailable()) {
-    window.localStorage.setItem(ACTIVE_ALERTS_STORAGE_KEY, JSON.stringify(alerts));
+    patientStorage().setItem(ACTIVE_ALERTS_STORAGE_KEY, JSON.stringify(alerts));
   }
 }
 
 function getStoredDemoMode(): boolean {
   if (!isStorageAvailable()) return false;
-  return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === 'true';
+  return patientStorage().getItem(DEMO_MODE_STORAGE_KEY) === 'true';
 }
 
 function storeDemoMode(v: boolean) {
   if (isStorageAvailable()) {
-    window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, String(v));
+    patientStorage().setItem(DEMO_MODE_STORAGE_KEY, String(v));
   }
 }
 
 function getStoredMedications(): Medication[] {
   if (!isStorageAvailable()) return INITIAL_SEED_MEDICATIONS;
-  const raw = window.localStorage.getItem(MEDICATIONS_STORAGE_KEY);
+  const raw = patientStorage().getItem(MEDICATIONS_STORAGE_KEY);
   if (!raw) return INITIAL_SEED_MEDICATIONS;
   try {
     const parsed = JSON.parse(raw);
@@ -231,13 +224,13 @@ function getStoredMedications(): Medication[] {
 
 function storeMedications(meds: Medication[]) {
   if (isStorageAvailable()) {
-    window.localStorage.setItem(MEDICATIONS_STORAGE_KEY, JSON.stringify(meds));
+    patientStorage().setItem(MEDICATIONS_STORAGE_KEY, JSON.stringify(meds));
   }
 }
 
 function getStoredAlarms(): StoreAlarm[] {
   if (!isStorageAvailable()) return INITIAL_SEED_ALARMS;
-  const raw = window.localStorage.getItem(ALARMS_STORAGE_KEY);
+  const raw = patientStorage().getItem(ALARMS_STORAGE_KEY);
   if (!raw) return INITIAL_SEED_ALARMS;
   try {
     const parsed = JSON.parse(raw);
@@ -249,18 +242,18 @@ function getStoredAlarms(): StoreAlarm[] {
 
 function storeAlarms(alarms: StoreAlarm[]) {
   if (isStorageAvailable()) {
-    window.localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(alarms));
+    patientStorage().setItem(ALARMS_STORAGE_KEY, JSON.stringify(alarms));
   }
 }
 
 function getStoredActiveElderId(): string {
   if (!isStorageAvailable()) return 'elder-1';
-  return window.localStorage.getItem(ACTIVE_ELDER_STORAGE_KEY) || 'elder-1';
+  return patientStorage().getItem(ACTIVE_ELDER_STORAGE_KEY) || 'elder-1';
 }
 
 function storeActiveElderId(id: string) {
   if (isStorageAvailable()) {
-    window.localStorage.setItem(ACTIVE_ELDER_STORAGE_KEY, id);
+    patientStorage().setItem(ACTIVE_ELDER_STORAGE_KEY, id);
   }
 }
 
@@ -280,7 +273,7 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
 
 function getStoredLiveVitalsPayload(): StoredLiveVitalsPayload | null {
   if (!isStorageAvailable()) return null;
-  const raw = window.localStorage.getItem(LIVE_VITALS_STORAGE_KEY);
+  const raw = patientStorage().getItem(LIVE_VITALS_STORAGE_KEY);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
@@ -308,7 +301,7 @@ function storeLiveVitals(vitals: Record<string, DemoVitals>) {
         updatedAt: Date.now(),
         vitals,
       };
-      window.localStorage.setItem(LIVE_VITALS_STORAGE_KEY, JSON.stringify(payload));
+      patientStorage().setItem(LIVE_VITALS_STORAGE_KEY, JSON.stringify(payload));
     } catch {}
   }
   try {
@@ -319,11 +312,12 @@ function storeLiveVitals(vitals: Record<string, DemoVitals>) {
 export const useAppStore = create<AppStore>((set) => ({
   demoMode: getStoredDemoMode(),
   setDemoMode: (v) => {
+    if (v && getStoredToken() && getStoredUser()?.accessStatus !== 'demo') return;
     storeDemoMode(v);
     set({ demoMode: v });
     if (!v) {
       if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('gcare_demo_emergency_event');
+        patientStorage().removeItem('gcare_demo_emergency_event');
         window.dispatchEvent(new CustomEvent('gcare_demo_emergency_event', { detail: null }));
       }
     }
@@ -334,22 +328,30 @@ export const useAppStore = create<AppStore>((set) => ({
   setAuthUser: (u) => set({ authUser: u }),
   activeAlerts: getStoredActiveAlerts(),
   setActiveAlerts: (a) => {
-    storeActiveAlerts(a);
-    set({ activeAlerts: a });
+    if (getStoredToken()) {
+      const patients = useAppStore.getState().demoElders;
+      a = a.filter(alert => patients.some(e => e.id === alert.elder_id || e.full_name === alert.elder_name));
+    }
+    const alerts = reconcileAlertEpisodes(a, useAppStore.getState().demoElders);
+    storeActiveAlerts(alerts);
+    set({ activeAlerts: alerts });
   },
   addAlert: (a) => set((s) => {
+    if (getStoredToken() && !s.demoElders.some(e => e.id === a.elder_id || e.full_name === a.elder_name)) return {};
+    // Delayed create broadcasts/HTTP replies cannot reopen this same ID.
+    if (!a.resolved && s.activeAlerts.some(existing => existing.id === a.id && existing.resolved)) return {};
     // If incoming alert is active (unresolved), check if an active alert already exists for this canonical episode
     if (!a.resolved) {
       const incomingKey = getAlertEpisodeKey(a);
       const existingIdx = s.activeAlerts.findIndex(
-        (x) => !x.resolved && getAlertEpisodeKey(x) === incomingKey
+        (x) => !x.resolved && !x.episode_recovered && !a.episode_recovered && getAlertEpisodeKey(x) === incomingKey
       );
       if (existingIdx >= 0) {
         const nextAlerts = [...s.activeAlerts];
         nextAlerts[existingIdx] = {
           ...nextAlerts[existingIdx],
           ...a,
-          id: a.id || nextAlerts[existingIdx].id,
+          id: nextAlerts[existingIdx].id,
           time: a.time || new Date().toISOString(),
           message: a.message,
           severity: a.severity === 'critical' ? 'critical' : nextAlerts[existingIdx].severity,
@@ -359,7 +361,7 @@ export const useAppStore = create<AppStore>((set) => ({
       }
     }
 
-    const activeAlerts = [a, ...s.activeAlerts.filter((x) => x.id !== a.id)].slice(0, 20);
+    const activeAlerts = [a, ...s.activeAlerts.filter((x) => x.id !== a.id)];
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
@@ -368,27 +370,18 @@ export const useAppStore = create<AppStore>((set) => ({
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
-  resolveAlert: (id) => set((s) => {
-    const targetAlert = s.activeAlerts.find(a => a.id === id);
-    const activeAlerts = s.activeAlerts.map(a => a.id === id ? { ...a, resolved: true } : a);
-    storeActiveAlerts(activeAlerts);
-
-    if (targetAlert) {
-      markEpisodeAcknowledged(getAlertEpisodeKey(targetAlert));
-      markEpisodeAcknowledged(targetAlert.id);
-    }
-
-    if (typeof window !== 'undefined') {
-      const elderId = targetAlert?.elder_id || (targetAlert?.elder_name ? s.demoElders.find(e => e.full_name === targetAlert.elder_name)?.id : null);
-      window.dispatchEvent(
-        new CustomEvent('gcare:acknowledge-alert', {
-          detail: { id, elderId, elderName: targetAlert?.elder_name },
-        })
-      );
-    }
-
-    return { activeAlerts };
-  }),
+  resolveAlert: (id) => {
+    const state = useAppStore.getState();
+    const target = state.activeAlerts.find(a => a.id === id);
+    if (!target || target.resolved) return;
+    const episodeKey = getAlertEpisodeKey(target);
+    state.updateAlertInPlace(id, { resolved: true });
+    if (!target.episode_recovered) markEpisodeAcknowledged(episodeKey);
+    persistEpisodeAlert(target, { resolved: true });
+    const detail = { id, episodeKey, elderId: target.elder_id, elderName: target.elder_name };
+    window.dispatchEvent(new CustomEvent('gcare:acknowledge-alert', { detail }));
+    broadcastGcareMessage({ type: 'ALERT_ACKNOWLEDGED', ...detail, timestamp: Date.now() });
+  },
   clearAlerts: (mode: 'all' | 'resolved' = 'resolved', elderId?: string) => set((s) => {
     const activeAlerts = s.activeAlerts.filter((a) => {
       // If elderId is passed, only clear alerts for that elder
@@ -421,6 +414,7 @@ export const useAppStore = create<AppStore>((set) => ({
   setActiveWatchElderId: (id) => set({ activeWatchElderId: id }),
   demoVitals: getStoredLiveVitals() || initializePatientVitals(DEMO_ELDERS),
   setDemoVitals: (id, v) => set((s) => {
+    if (getStoredToken() && !s.demoElders.some(e => e.id === id)) return {};
     const next = { ...s.demoVitals, [id]: v };
     storeLiveVitals(next);
     return { demoVitals: next };
@@ -511,7 +505,7 @@ export const useAppStore = create<AppStore>((set) => ({
       return { demoVitals: storedPayload.vitals };
     }
 
-    const elders = state.demoElders && state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS;
+    const elders = getStoredToken() ? state.demoElders : (state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS);
     const nextVitals: Record<string, DemoVitals> = { ...state.demoVitals };
     const nowIso = new Date().toISOString();
 
@@ -540,7 +534,7 @@ export const useAppStore = create<AppStore>((set) => ({
   }),
   injectVitalsAnomaly: (elderId: string, overrides: Partial<DemoVitals>) => {
     set((state) => {
-      const elders = state.demoElders && state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS;
+      const elders = getStoredToken() ? state.demoElders : (state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS);
       const elder = elders.find((e) => e.id === elderId) || elders[0];
       const current = state.demoVitals[elderId] || getElderBaseline(elder);
       const updated: DemoVitals = { ...current, ...overrides };
@@ -565,7 +559,7 @@ export const useAppStore = create<AppStore>((set) => ({
   },
   stabilizeElderVitals: (elderId: string) => {
     set((state) => {
-      const elders = state.demoElders && state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS;
+      const elders = getStoredToken() ? state.demoElders : (state.demoElders.length > 0 ? state.demoElders : DEMO_ELDERS);
       const elder = elders.find((e) => e.id === elderId) || elders[0];
       clearAnomalyCooldowns(elderId);
       const baseline = getElderBaseline(elder);
@@ -589,8 +583,9 @@ export const useAppStore = create<AppStore>((set) => ({
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
+    if (getStoredToken()) return;
     if (event.key === ACTIVE_ALERTS_STORAGE_KEY) {
-      useAppStore.setState({ activeAlerts: getStoredActiveAlerts() });
+      useAppStore.getState().setActiveAlerts(getStoredActiveAlerts());
     }
     if (event.key === DEMO_MODE_STORAGE_KEY) {
       useAppStore.setState({ demoMode: getStoredDemoMode() });
@@ -615,42 +610,50 @@ if (typeof window !== 'undefined') {
   if (vitalsBroadcastChannel) {
     vitalsBroadcastChannel.onmessage = (event) => {
       if (event.data?.type === 'SYNC_VITALS' && event.data?.vitals) {
-        useAppStore.setState({ demoVitals: event.data.vitals });
+        const allowed = useAppStore.getState().demoElders.map(e => e.id);
+        const vitals = getStoredToken() ? Object.fromEntries(Object.entries(event.data.vitals).filter(([id]) => allowed.includes(id))) : event.data.vitals;
+        useAppStore.setState({ demoVitals: vitals });
       }
     };
   }
 
   window.addEventListener('gcare:acknowledge-alert', (event: Event) => {
-    const customEvent = event as CustomEvent<{ id?: string; elderId?: string; elderName?: string }>;
-    const { id, elderId, elderName } = customEvent.detail || {};
+    const { id, episodeKey, elderId, elderName } = (event as CustomEvent).detail || {};
     const state = useAppStore.getState();
-
-    let changed = false;
-    const nextAlerts = state.activeAlerts.map((a) => {
-      const matchesId = id && a.id === id;
-      const matchesElder =
-        (elderId && a.elder_id === elderId) ||
-        (elderName && a.elder_name?.trim().toLowerCase() === elderName.trim().toLowerCase());
-      if ((matchesId || matchesElder) && !a.resolved) {
-        changed = true;
-        return { ...a, resolved: true };
-      }
-      return a;
+    const nextAlerts = state.activeAlerts.map(a => {
+      // Named episode/ID acknowledgements never resolve other conditions.
+      const matches = id ? a.id === id :
+        episodeKey ? getAlertEpisodeKey(a) === episodeKey : (elderId && a.elder_id === elderId) || (elderName && a.elder_name === elderName);
+      if (!matches || a.resolved) return a;
+      if (!a.episode_recovered) markEpisodeAcknowledged(getAlertEpisodeKey(a));
+      persistEpisodeAlert(a, { resolved: true });
+      return { ...a, resolved: true };
     });
+    storeActiveAlerts(nextAlerts);
+    useAppStore.setState({ activeAlerts: nextAlerts });
+  });
 
-    if (changed) {
-      storeActiveAlerts(nextAlerts);
-      useAppStore.setState({ activeAlerts: nextAlerts });
-    }
-
-    const targetElderId =
-      elderId ||
-      (elderName
-        ? state.demoElders.find((e) => e.full_name?.trim().toLowerCase() === elderName.trim().toLowerCase())?.id
-        : null);
-
-    if (targetElderId) {
-      state.stabilizeElderVitals(targetElderId);
+  subscribeToGcareBroadcast(msg => {
+    if (msg.type === 'EPISODE_STATE_SYNC' && msg.episodeStatus === 'NORMAL' && msg.episodeKey) {
+      const state = useAppStore.getState();
+      state.setActiveAlerts(state.activeAlerts.map(a => getAlertEpisodeKey(a) === msg.episodeKey
+        ? { ...a, episode_recovered: true } : a));
+    } else if (msg.type === 'ALERT_CREATED' && msg.alert) {
+      useAppStore.getState().addAlert(msg.alert);
+    } else if (msg.type === 'ALERT_UPDATED' && msg.alert) {
+      const target = useAppStore.getState().activeAlerts.find(a => a.id === msg.id);
+      // An outdated update must not reopen an acknowledged record.
+      if (target && !target.resolved)
+        useAppStore.getState().updateAlertInPlace(target.id, msg.alert);
+    } else if (msg.type === 'ALERT_ACKNOWLEDGED' || msg.type === 'ALERT_RESOLVED') {
+      const state = useAppStore.getState();
+      const target = state.activeAlerts.find(a => a.id === msg.id);
+      const key = msg.episodeKey || (target ? getAlertEpisodeKey(target) : undefined);
+      if (!key && !msg.id) return;
+      const next = state.activeAlerts.map(a =>
+        (msg.id ? a.id === msg.id : getAlertEpisodeKey(a) === key) ? { ...a, resolved: true } : a);
+      state.setActiveAlerts(next);
+      if (key && !target?.episode_recovered) markEpisodeAcknowledged(key);
     }
   });
 

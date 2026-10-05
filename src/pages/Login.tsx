@@ -1,3 +1,4 @@
+import VerificationFields, { emptyVerification } from '@/components/VerificationFields';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -30,6 +31,8 @@ const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login, register, loading } = useAuthStore();
 
+  const [verification, setVerification] = useState(emptyVerification);
+  const [success, setSuccess] = useState('');
   const [isSignup, setIsSignup] = useState(false);
   const [role, setRole] = useState<Role>('caretaker');
   const [showPassword, setShowPassword] = useState(false);
@@ -55,8 +58,10 @@ const Login: React.FC = () => {
   const submitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setEmailAlreadyRegistered(false);
 
+    if (isSignup && !verification.proofFile) { setError('Select a valid proof document and wait until it finishes loading.'); return; }
     try {
       const user = isSignup
         ? await register({
@@ -64,13 +69,19 @@ const Login: React.FC = () => {
             password,
             name,
             role,
+            ...verification,
             phone: fullPhone,
             elderName: role === 'guardian' ? elderName : undefined,
             hospital: role === 'doctor' ? hospital : undefined,
             specialization: role === 'doctor' ? specialization : undefined,
           })
-        : await login(email, password);
+        : await login(email, password, role);
 
+      if (isSignup) {
+        setSuccess('Request submitted. You can sign in after your evidence and patient assignments are approved.');
+        setIsSignup(false);
+        return;
+      }
       navigate(getRedirect(user.role));
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -123,7 +134,7 @@ const Login: React.FC = () => {
 
           <Tabs value={role} onValueChange={(v) => { setRole(v as Role); setError(''); }} className="mb-6">
             <TabsList className="w-full">
-              <TabsTrigger value="caretaker" className="flex-1">{t('login.caretaker')}</TabsTrigger>
+              <TabsTrigger value="caretaker" className="flex-1">Caretaker</TabsTrigger>
               <TabsTrigger value="doctor" className="flex-1">{t('login.doctor_tab')}</TabsTrigger>
               <TabsTrigger value="guardian" className="flex-1 flex items-center gap-1">
                 <Shield className="h-3.5 w-3.5" /> Guardian
@@ -140,6 +151,7 @@ const Login: React.FC = () => {
             </p>
           )}
 
+          {success && <p role="status" className="mb-4 rounded-lg bg-teal/10 p-3 text-sm">{success}</p>}
           {error && (
             <div className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
               <span>{error}</span>
@@ -198,17 +210,6 @@ const Login: React.FC = () => {
                       value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d\s]/g, ''))} />
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="relationship">{t('login.relationship')}</Label>
-                  <Select>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Select..." /></SelectTrigger>
-                    <SelectContent>
-                      {['Son', 'Daughter', 'Spouse', 'Nurse', 'Doctor', 'Other'].map(r => (
-                        <SelectItem key={r} value={r.toLowerCase()}>{r}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
                 <div className="flex items-center gap-2">
                   <Checkbox id="hipaa" />
                   <Label htmlFor="hipaa" className="text-sm text-muted-foreground">{t('login.hipaa_consent')}</Label>
@@ -219,10 +220,6 @@ const Login: React.FC = () => {
             {/* Doctor signup fields */}
             {isSignup && role === 'doctor' && (
               <>
-                <div>
-                  <Label htmlFor="medreg">{t('login.med_reg')}</Label>
-                  <Input id="medreg" className="mt-1" />
-                </div>
                 <div>
                   <Label htmlFor="hospital">{t('login.hospital')}</Label>
                   <Input id="hospital" className="mt-1" value={hospital} onChange={(e) => setHospital(e.target.value)} />
@@ -262,6 +259,7 @@ const Login: React.FC = () => {
               </>
             )}
 
+            {isSignup && <VerificationFields role={role} value={verification} onChange={setVerification} />}
             {!isSignup && (
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">

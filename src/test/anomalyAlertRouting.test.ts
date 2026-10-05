@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(() => Promise.resolve(null)), getStoredToken: () => null, getStoredUser: () => null }));
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   detectVitalsAnomalies,
   processVitalsTickWithAlerts,
@@ -13,6 +14,7 @@ describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
   const usha = DEMO_ELDERS[0]; // Usha, 68y
 
   beforeEach(() => {
+    window.localStorage.removeItem('gcare_episode_lifecycle');
     clearAnomalyCooldowns();
     useAppStore.setState({ activeAlerts: [] });
     useGuardianStore.setState({ alerts: [] });

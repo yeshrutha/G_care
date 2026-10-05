@@ -1,3 +1,4 @@
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(() => Promise.resolve(null)), getStoredToken: () => null, getStoredUser: () => null }));
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '@/store';
 import { useGuardianStore } from '@/store/guardianStore';
@@ -9,6 +10,7 @@ describe('Phase 4: Vitals Sync, Alert Delivery, and Persistence Test Suite', () 
   const usha = DEMO_ELDERS[0]; // Usha, normal baseline HR 68, BP 126/82, SpO2 97
 
   beforeEach(() => {
+    window.localStorage.removeItem('gcare_episode_lifecycle');
     vi.clearAllMocks();
     clearAnomalyCooldowns();
     localStorage.clear();

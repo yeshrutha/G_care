@@ -1,3 +1,4 @@
+import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -318,7 +319,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const elders = demoElders.length > 0 ? demoElders : DEMO_ELDERS;
+  const elders = demoElders;
   const setReminders = useGuardianStore((state) => state.setReminders);
 
   useEffect(() => {
@@ -357,7 +358,7 @@ const Dashboard: React.FC = () => {
 
   // Initialize demo data if demoMode is enabled
   useEffect(() => {
-    if (demoMode) {
+    if (demoMode && useAuthStore.getState().user?.accessStatus === 'demo') {
       if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
       if (medications.length === 0) setMedications(getSeedMedications());
       if (Object.keys(demoVitals).length === 0) {
@@ -372,7 +373,7 @@ const Dashboard: React.FC = () => {
     apiFetch<DashboardPayload>('/dashboard-data')
       .then((data) => {
         if (ignore) return;
-        if (Array.isArray(data.elders) && data.elders.length > 0) {
+        if (Array.isArray(data.elders)) {
           setDemoElders(data.elders);
         }
         if (Array.isArray(data.medications) && data.medications.length > 0) {
@@ -406,7 +407,7 @@ const Dashboard: React.FC = () => {
         if (Array.isArray(data.alerts) && data.alerts.length > 0) {
           const raw = typeof window !== 'undefined' ? window.localStorage.getItem('gcare_active_alerts') : null;
           if (raw !== '[]') {
-            setActiveAlerts(data.alerts);
+            hydrateAlertRecords(data.alerts);
           }
         }
         if (data.vitals) {
@@ -566,18 +567,6 @@ const Dashboard: React.FC = () => {
 
   const handleAcknowledgeAlert = (alert: DemoAlert) => {
     resolveAlert(alert.id);
-    const elder = elders.find((e) => e.id === alert.elder_id || e.full_name === alert.elder_name);
-    if (elder) {
-      stabilizeElderVitals(elder.id);
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('gcare:acknowledge-alert', {
-          detail: { id: alert.id, elderId: elder?.id, elderName: alert.elder_name },
-        })
-      );
-    }
-    apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
     toast({
       title: 'Alert Acknowledged',
       description: 'Alert marked as resolved. Watch and portals updated.',
@@ -585,30 +574,12 @@ const Dashboard: React.FC = () => {
   };
 
   const handleAcknowledgeAllAlerts = async () => {
-    const unres = activeAlerts.filter((a) => !a.resolved);
-    if (unres.length === 0) return;
-
-    for (const alert of unres) {
-      resolveAlert(alert.id);
-      apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
-      const elder = demoElders.find((e) => e.full_name === alert.elder_name || e.id === alert.elder_id);
-      if (elder) {
-        stabilizeElderVitals(elder.id);
-      }
-    }
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('gcare:acknowledge-alert', { detail: {} }));
-    }
-
-    broadcastGcareMessage({
-      type: 'ALERT_RESOLVED',
-      timestamp: Date.now(),
-    });
-
+    const unresolved = useAppStore.getState().activeAlerts.filter(a => !a.resolved);
+    if (!unresolved.length) return;
+    unresolved.forEach(alert => resolveAlert(alert.id));
     toast({
       title: 'All Alerts Acknowledged',
-      description: `Resolved ${unres.length} alert(s) across all patients.`,
+      description: 'Resolved ' + unresolved.length + ' alert(s) across all patients.',
     });
   };
 

@@ -1,3 +1,4 @@
+import { useToast } from '@/hooks/use-toast';
 import React, { useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -133,6 +134,7 @@ const ReminderCard: React.FC<{ reminder: Reminder; onVerify: () => void; onDelet
 
 const RemindersTab: React.FC = () => {
   const { reminders, addReminder, verifyReminder, removeReminder, updateReminder } = useGuardianStore();
+  const {toast}=useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [reminderType, setReminderType] = useState<string>('medication');
   const [photoPreview, setPhotoPreview] = useState<string>('');
@@ -203,8 +205,8 @@ const RemindersTab: React.FC = () => {
     resetForm();
   };
 
-  const handleVerify = (id: string) => {
-    verifyReminder(id);
+  const handleVerify = async (id: string) => {
+    if (!(await verifyReminder(id))) {toast({title:'Unable to save acknowledgement',description:'Please try again.',variant:'destructive'});return;}
     triggerAlert('notification');
   };
 

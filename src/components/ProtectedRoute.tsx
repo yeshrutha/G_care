@@ -27,6 +27,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowe
     return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
   }
 
+  if (user.accessStatus && !['approved', 'demo'].includes(user.accessStatus)) return <Navigate to="/login" replace />;
+  if (location.pathname.startsWith('/elder/') && !user.assignedElderIds?.includes(decodeURIComponent(location.pathname.slice(7)))) {
+    return <div className="p-6">You do not have access to this patient.</div>;
+  }
+
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     if (user.role === 'guardian') return <Navigate to="/guardian/dashboard" replace />;
     if (user.role === 'doctor') return <Navigate to="/doctor" replace />;

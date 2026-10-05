@@ -23,7 +23,7 @@ export interface AppointmentBroadcastPayload {
 }
 
 export interface AlertActionBroadcastPayload {
-  type: 'ALERT_RESOLVED' | 'ALERT_ACKNOWLEDGED' | 'ALERT_UPDATED' | 'SOS_TRIGGERED' | 'ALERTS_CLEARED' | 'EPISODE_STATE_SYNC';
+  type: 'ALERT_RESOLVED' | 'ALERT_ACKNOWLEDGED' | 'ALERT_UPDATED' | 'ALERT_CREATED' | 'SOS_TRIGGERED' | 'ALERTS_CLEARED' | 'EPISODE_STATE_SYNC';
   id?: string;
   elderId?: string;
   elderName?: string;

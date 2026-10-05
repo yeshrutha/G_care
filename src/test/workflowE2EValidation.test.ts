@@ -1,3 +1,4 @@
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(() => Promise.resolve(null)), getStoredToken: () => null, getStoredUser: () => null }));
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '@/store';
 import { useGuardianStore } from '@/store/guardianStore';
@@ -19,6 +20,7 @@ import {
 
 describe('G-Care End-to-End Workflow Verification (20 Requirement Cases)', () => {
   beforeEach(() => {
+    window.localStorage.removeItem('gcare_episode_lifecycle');
     useAppStore.setState({
       activeAlerts: [],
       alarms: [],

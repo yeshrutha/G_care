@@ -1,3 +1,4 @@
+import { useAuthStore } from "./store/authStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
@@ -10,6 +11,7 @@ const Login = React.lazy(() => import("./pages/Login"));
 const Dashboard = React.lazy(() => import("./pages/Dashboard"));
 const ElderDetail = React.lazy(() => import("./pages/ElderDetail"));
 const DoctorPortal = React.lazy(() => import("./pages/DoctorPortal"));
+const AccessReview = React.lazy(() => import("./pages/AccessReview"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const GuardianLogin = React.lazy(() => import("./pages/GuardianLogin"));
 const GuardianDashboard = React.lazy(() => import("./pages/GuardianDashboard"));
@@ -25,13 +27,15 @@ const Loader = () => (
 
 import { useAppStore } from "./store";
 import { getDemoEmergency, createDemoEmergencyEvent, saveDemoEmergency, clearDemoEmergency } from "./pages/demoEmergency";
-import { apiFetch } from "./lib/api";
+import { apiFetch, getStoredToken } from "./lib/api";
+import { hydrateAlertRecords } from "./lib/anomalyDetector";
 
 const DemoEmergencyManager = () => {
+  const signedInUser = useAuthStore(s => s.user);
   const demoMode = useAppStore((s) => s.demoMode);
 
   React.useEffect(() => {
-    if (!demoMode) {
+    if (!signedInUser || signedInUser.accessStatus !== 'demo' || !demoMode) {
       const current = getDemoEmergency();
       if (current) {
         clearDemoEmergency();
@@ -119,22 +123,27 @@ const DemoEmergencyManager = () => {
       }, 2000);
       return () => clearTimeout(timer);
     }
-  }, [demoMode]);
+  }, [demoMode, signedInUser]);
 
   return null;
 };
 
 const LiveVitalsSimulatorRunner = () => {
+  const signedInUser = useAuthStore(s => s.user);
   const simulationEnabled = useAppStore((s) => s.simulationEnabled);
   const updateLiveVitalsTick = useAppStore((s) => s.updateLiveVitalsTick);
   const setDemoVitals = useAppStore((s) => s.setDemoVitals);
 
   React.useEffect(() => {
-    if (!simulationEnabled) return;
+    if (!signedInUser || !simulationEnabled) return;
 
     let lastDeviceTimestamp: string | null = null;
 
     const runCycle = async () => {
+      // Refresh authoritative alert state for separate browsers/devices too.
+      if (getStoredToken()) {
+        try { hydrateAlertRecords(await apiFetch<any[]>('/alerts')); } catch {}
+      }
       // 1. Check for incoming hardware telemetry from Render
       try {
         const result = await apiFetch<{ ok: boolean; latest?: any }>('/device/vitals?elderId=elder-1');
@@ -175,7 +184,7 @@ const LiveVitalsSimulatorRunner = () => {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [simulationEnabled, updateLiveVitalsTick, setDemoVitals]);
+  }, [signedInUser, simulationEnabled, updateLiveVitalsTick, setDemoVitals]);
 
   return null;
 };
@@ -193,6 +202,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/dashboard" element={<ProtectedRoute allowedRoles={["caretaker"]}><Dashboard /></ProtectedRoute>} />
             <Route path="/elder/:id" element={<ProtectedRoute allowedRoles={["caretaker", "doctor"]}><ElderDetail /></ProtectedRoute>} />
+            <Route path="/access-review" element={<ProtectedRoute allowedRoles={["doctor"]}><AccessReview /></ProtectedRoute>} />
             <Route path="/doctor" element={<ProtectedRoute allowedRoles={["doctor"]}><DoctorPortal /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute allowedRoles={["caretaker", "guardian", "doctor"]}><Settings /></ProtectedRoute>} />
             <Route path="/guardian" element={<GuardianLogin />} />

@@ -1,3 +1,4 @@
+import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
@@ -238,7 +239,7 @@ const DoctorPortal: React.FC = () => {
     }
   };
 
-  const elders = demoElders.length > 0 ? demoElders : DEMO_ELDERS;
+  const elders = demoElders;
 
   // Initialize selected patient in clinical space
   useEffect(() => {
@@ -300,53 +301,9 @@ const DoctorPortal: React.FC = () => {
     apiFetch<any[]>('/alerts')
       .then((serverAlerts) => {
         if (ignore || !Array.isArray(serverAlerts)) return;
-        const currentIds = new Set(useAppStore.getState().activeAlerts.map(a => a.id));
-        const newItems: DemoAlert[] = serverAlerts.map((sa: any) => ({
-          id: sa.id,
-          elder_id: sa.elder_id || sa.elderId || '',
-          elder_name: sa.elder_name || sa.elderName || 'Patient',
-          type: (sa.type || 'high_hr') as DemoAlert['type'],
-          severity: (sa.severity || 'warning') as DemoAlert['severity'],
-          message: sa.message || '',
-          time: sa.time || new Date().toISOString(),
-          resolved: sa.resolved ?? false,
-        })).filter(a => !currentIds.has(a.id));
-
-        if (newItems.length > 0) {
-          useAppStore.setState((s) => {
-            const combined = [...newItems, ...s.activeAlerts];
-            const seen = new Set<string>();
-            const deduped: DemoAlert[] = [];
-            for (const a of combined) {
-              const key = `${a.elder_name || ''}-${a.type}-${a.severity}-${a.resolved}`;
-              if (!seen.has(key)) {
-                seen.add(key);
-                deduped.push(a);
-              }
-            }
-            return { activeAlerts: deduped.slice(0, 15) };
-          });
-        }
+        hydrateAlertRecords(serverAlerts);
       })
       .catch(() => {});
-
-    // Prune existing alerts in state on mount to purge accumulated repetitive warning spam
-    const state = useAppStore.getState();
-    const seen = new Set<string>();
-    const deduped: DemoAlert[] = [];
-    let changed = false;
-    for (const a of state.activeAlerts) {
-      const key = `${a.elder_name || ''}-${a.type}-${a.severity}-${a.resolved}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(a);
-      } else {
-        changed = true;
-      }
-    }
-    if (changed || state.activeAlerts.length > 15) {
-      useAppStore.getState().setActiveAlerts(deduped.slice(0, 15));
-    }
 
     return () => { ignore = true; };
   }, []);
@@ -525,7 +482,7 @@ const DoctorPortal: React.FC = () => {
 
   // Initialize demo data if demoMode is enabled
   useEffect(() => {
-    if (demoMode) {
+    if (demoMode && authUser?.accessStatus === 'demo') {
       if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
       if (medications.length === 0) setMedications(getSeedMedications());
       Object.entries(DEMO_VITALS).forEach(([id, v]) => setDemoVitals(id, v));
@@ -538,7 +495,7 @@ const DoctorPortal: React.FC = () => {
     apiFetch<any>('/dashboard-data')
       .then((data) => {
         if (ignore) return;
-        if (Array.isArray(data.elders) && data.elders.length > 0) {
+        if (Array.isArray(data.elders)) {
           setDemoElders(data.elders);
         }
         if (Array.isArray(data.medications) && data.medications.length > 0) {
@@ -628,19 +585,13 @@ const DoctorPortal: React.FC = () => {
     const unsubscribe = subscribeToGcareBroadcast((msg) => {
       if (msg.type === 'SOS_TRIGGERED') {
         if (msg.alert) {
-          setActiveAlerts((prev) => {
-            const exists = prev.some((a) => a.id === msg.alert.id);
-            if (exists) return prev;
-            return [msg.alert, ...prev];
-          });
+          useAppStore.getState().addAlert(msg.alert);
         }
         toast({
           title: '🚨 EMERGENCY SOS RECEIVED!',
           description: `Urgent SOS emergency from ${msg.elderName || 'Patient'}. Open alert to schedule urgent consultation.`,
           variant: 'destructive',
         });
-      } else if (msg.type === 'ALERT_RESOLVED' || msg.type === 'ALERT_ACKNOWLEDGED') {
-        if (msg.id) resolveAlert(msg.id);
       }
     });
 
@@ -724,128 +675,10 @@ const DoctorPortal: React.FC = () => {
     const alert = selectedAlert || activeAlerts.find((item) => !item.resolved);
     if (!alert) return;
 
-    const elder = elders.find((item) => item.id === alert.elder_id)
-      || elders.find((item) => item.full_name === alert.elder_name)
-      || elders[0];
-    const doctorName = authUser?.name || 'Dr. Ramesh Kumar';
-    const notification = `Appointment booked and resolved by Dr. ${doctorName} for ${elder?.full_name || 'Patient'}.`;
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const now = new Date();
-    const apptHour = (now.getHours() + 1) % 24;
-    const apptTime = `${String(apptHour).padStart(2, '0')}:30`;
-    const prepAlarmTime = calculateMinutesBefore(apptTime, 60);
-    const prefLang = elder?.language_pref || 'kn';
-    const apptId = `direct-ack-${Date.now()}`;
-
-    const { spokenText, displayText, prepNotes, speechLang } = generateAppointmentMultilingualMessage(
-      elder?.full_name || 'Usha',
-      todayStr,
-      apptTime,
-      doctorName,
-      prepAlarmTime,
-      prefLang
-    );
-
     resolveAlert(alert.id);
-    try {
-      await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-    } catch {}
-
-    if (elder) {
-      await apiFetch('/alerts', {
-        method: 'POST',
-        body: JSON.stringify({
-          elderId: elder.id,
-          elder_id: elder.id,
-          elder_name: elder.full_name,
-          type: 'appointment',
-          severity: 'info',
-          message: notification,
-          resolved: true,
-        }),
-      }).catch(() => {});
-
-      addGuardianAlert({
-        id: `appointment-ack-${Date.now()}`,
-        type: 'vital_abnormal',
-        severity: 'info',
-        message: notification,
-        time: new Date().toISOString(),
-        acknowledged: true,
-        elderName: elder.full_name,
-      });
-
-      addAlarm({
-        id: `direct-ack-prep-${Date.now()}`,
-        elderId: elder.id,
-        title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Checkup Preparation)' :
-               prefLang === 'hi' ? 'अस्पताल जांच तैयारी (Hospital Preparation)' :
-               prefLang === 'ta' ? 'மருத்துவமனை பரிசோதனை தயாரிப்பு (Hospital Preparation)' :
-               'Hospital Checkup Preparation',
-        time: prepAlarmTime,
-        type: 'appointment',
-        status: 'Scheduled',
-        notes: `${prepNotes} (60 min prior alarm)`,
-        appointmentId: apptId,
-        appointmentDate: todayStr,
-        appointmentTime: apptTime,
-        doctorName,
-        isOneHourReminder: true,
-      });
-
-      addGuardianReminder({
-        id: `direct-ack-guardian-${Date.now()}`,
-        elderId: elder.id,
-        elderName: elder.full_name,
-        type: 'appointment',
-        title: prefLang === 'kn' ? 'ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Prep)' :
-               prefLang === 'hi' ? 'अस्पताल तैयारी (Hospital Prep)' :
-               prefLang === 'ta' ? 'மருத்துவமனை தயாரிப்பு (Hospital Prep)' :
-               'Hospital Checkup Preparation',
-        time: prepAlarmTime,
-        repeat: 'once',
-        verified: false,
-        doctorName,
-        appointmentId: apptId,
-        appointmentDate: todayStr,
-        appointmentTime: apptTime,
-        isOneHourReminder: true,
-      });
-
-      stabilizeElderVitals(elder.id);
-
-      broadcastGcareMessage({
-        type: 'APPOINTMENT_SCHEDULED',
-        appointmentId: apptId,
-        elderId: elder.id,
-        elderName: elder.full_name,
-        language: prefLang,
-        date: todayStr,
-        time: apptTime,
-        prepAlarmTime,
-        doctorName,
-        patientMessage: displayText,
-        spokenText,
-        speechLang,
-        kannadaMessage: spokenText,
-        englishMessage: `${notification}. Preparation alarm set for ${prepAlarmTime} (60 min prior).`,
-        alertId: alert.id,
-        timestamp: Date.now(),
-      });
-    }
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('gcare:acknowledge-alert', {
-          detail: { id: alert.id, elderId: elder?.id, elderName: elder?.full_name },
-        })
-      );
-    }
-
     toast({
       title: 'Alert Acknowledged & Resolved',
-      description: `Appointment booked and resolved. Watch alerted in ${prefLang.toUpperCase()} with voice output. Prep alarm: ${prepAlarmTime}.`,
+      description: `Acknowledged the alert for ${alert.elder_name || 'the patient'}.`,
     });
   };
 
@@ -857,16 +690,12 @@ const DoctorPortal: React.FC = () => {
 
     for (const alert of unres) {
       resolveAlert(alert.id);
-      try {
-        await apiFetch(`/alerts/${alert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-      } catch {}
 
       const elder = elders.find((item) => item.id === alert.elder_id)
         || elders.find((item) => item.full_name === alert.elder_name);
 
       if (elder && !handledElderIds.has(elder.id)) {
         handledElderIds.add(elder.id);
-        stabilizeElderVitals(elder.id);
         broadcastGcareMessage({
           type: 'ALERT_RESOLVED',
           id: alert.id,
@@ -887,7 +716,7 @@ const DoctorPortal: React.FC = () => {
 
     toast({
       title: 'All Alerts Acknowledged & Resolved',
-      description: `Resolved ${unres.length} alert(s) and stabilized patient telemetry streams.`,
+      description: `Resolved ${unres.length} alert(s) across the watch and portals.`,
     });
   };
 
@@ -1070,10 +899,8 @@ const DoctorPortal: React.FC = () => {
         elderName: elder.full_name,
       });
 
+      await apiFetch(`/alerts/${appointmentAlert.id}`,{method:'PUT',body:JSON.stringify({resolved:true,appointmentDetails:{appointmentId:apptId,date:appointmentForm.date,time:appointmentForm.time,doctorName}})});
       resolveAlert(appointmentAlert.id);
-      try {
-        await apiFetch(`/alerts/${appointmentAlert.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) });
-      } catch {}
 
       stabilizeElderVitals(elder.id);
 
@@ -1289,6 +1116,7 @@ const DoctorPortal: React.FC = () => {
           <div className="text-sm">
             <p className="font-medium text-foreground">{authUser?.name || 'Dr. Ramesh Kumar'}</p>
             <p className="text-xs text-muted-foreground capitalize">{authUser?.role || 'doctor'}</p>
+            <button className="mt-2 text-xs text-teal" onClick={() => navigate('/access-review')}>Review nurse / guardian access</button>
           </div>
         </div>
         <nav className="flex-1 p-2 space-y-0.5">
@@ -1328,18 +1156,6 @@ const DoctorPortal: React.FC = () => {
               </p>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
-              {activeSection === 'alerts' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium text-xs h-8 shadow-sm"
-                  onClick={() => setClearAlertHistoryConfirmOpen(true)}
-                  disabled={activeAlerts.filter((a) => a.resolved).length === 0}
-                >
-                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                  Clear Alert History
-                </Button>
-              )}
               <div className="flex items-center gap-2 border border-gw-purple/30 bg-gw-purple/5 px-3 py-1.5 rounded-lg">
                 <span className="text-xs text-muted-foreground">{t('dashboard.demo_mode')}</span>
                 <Switch checked={demoMode} onCheckedChange={setDemoMode} />
@@ -1551,6 +1367,37 @@ const DoctorPortal: React.FC = () => {
                           <p className="mt-1 text-xs text-muted-foreground">Usha's immediate consultation has been confirmed.</p>
                         </div>
                       )}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {!demoAppointmentVisible && !careIntelligence.topPriority && (
+                  <Card className="rounded-xl border border-teal/20 bg-teal/5">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="font-display text-sm font-semibold flex items-center gap-2">
+                        <Activity className="h-4 w-4 text-teal" /> Monitoring Overview
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        {elders.length === 0
+                          ? 'Add an elder to begin monitoring.'
+                          : 'No elevated care-priority score at the moment. Continue reviewing patient readings and alerts.'}
+                      </p>
+                      <div className="grid grid-cols-3 gap-2 text-xs">
+                        <div className="rounded-lg bg-background/80 p-3">
+                          <p className="text-muted-foreground">Elders</p>
+                          <p className="mt-1 text-lg font-semibold text-foreground">{elders.length}</p>
+                        </div>
+                        <div className="rounded-lg bg-background/80 p-3">
+                          <p className="text-muted-foreground">Connected Watches</p>
+                          <p className="mt-1 text-lg font-semibold text-foreground">{elders.filter((elder) => elder.connection_status === 'connected').length}</p>
+                        </div>
+                        <div className="rounded-lg bg-background/80 p-3">
+                          <p className="text-muted-foreground">Active Alerts</p>
+                          <p className="mt-1 text-lg font-semibold text-foreground">{unresolvedCount}</p>
+                        </div>
+                      </div>
                     </CardContent>
                   </Card>
                 )}
@@ -1938,16 +1785,6 @@ const DoctorPortal: React.FC = () => {
                     <CheckCircle2 className="h-4 w-4 text-gw-green" />
                     Alert History ({activeAlerts.filter((a) => a.resolved).length})
                   </h3>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="text-xs h-8 border-destructive/40 text-destructive hover:bg-destructive hover:text-white font-medium shadow-sm"
-                    onClick={() => setClearAlertHistoryConfirmOpen(true)}
-                    disabled={activeAlerts.filter((a) => a.resolved).length === 0}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                    Clear Alert History
-                  </Button>
                 </div>
 
                 {activeAlerts.filter((a) => a.resolved).length === 0 ? (

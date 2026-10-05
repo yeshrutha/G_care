@@ -1,3 +1,4 @@
+import { publicAccount } from './accessPolicy.js';
 ﻿import crypto from 'node:crypto';
 import { JWT_EXPIRES_IN, JWT_SECRET } from './config.js';
 
@@ -58,8 +59,7 @@ export function verifyToken(token) {
 
 export function sanitizeUser(user) {
   if (!user) return null;
-  const { passwordHash, ...safe } = user;
-  return safe;
+  return publicAccount(user);
 }
 
 export function validatePassword(password) {

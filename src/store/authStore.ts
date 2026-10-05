@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import {
   AuthUser,
+  apiFetch,
+  RegistrationPayload,
   clearSession,
   fetchMe,
   getStoredToken,
@@ -20,17 +22,8 @@ interface AuthStore {
   initialized: boolean;
   loading: boolean;
   hydrate: () => Promise<void>;
-  login: (email: string, password: string) => Promise<AuthUser>;
-  register: (payload: {
-    email: string;
-    password: string;
-    name: string;
-    role: UserRole;
-    phone?: string;
-    elderName?: string;
-    hospital?: string;
-    specialization?: string;
-  }) => Promise<AuthUser>;
+  login: (email: string, password: string, role?: UserRole) => Promise<AuthUser>;
+  register: (payload: RegistrationPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   syncLegacyStores: (user: AuthUser | null) => void;
 }
@@ -69,6 +62,31 @@ function syncLegacyStores(user: AuthUser | null) {
   });
 }
 
+function clearPatientState() {
+  if (typeof window !== 'undefined') {
+    // Remove per-tab patient caches when the account changes; server history is retained.
+    for (const key of Object.keys(window.sessionStorage)) if (key.startsWith('gcare_') && !key.startsWith('gcare_auth_')) window.sessionStorage.removeItem(key);
+  }
+  useAppStore.setState({ demoElders: [], demoVitals: {}, activeAlerts: [], medications: [], alarms: [], demoMode: false });
+  useGuardianStore.setState({ alerts: [], reminders: [] });
+}
+async function loadPatientState(user: AuthUser) {
+  clearPatientState();
+  const data = await apiFetch<any>('/dashboard-data');
+  const elders = data.elders || [];
+  user = { ...user, assignedElderIds: elders.map((e: any) => e.id) };
+  useAppStore.setState({ demoElders: elders, demoVitals: data.vitals || {}, activeAlerts: data.alerts || [], medications: data.medications || [], alarms: data.alarms || [] });
+  const d=new Date(); const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const reminders=[...(data.medications || []).flatMap((m:any)=>(m.times || []).map((time:string,index:number)=>({id:`med-${m.id}-${index}`,elderId:m.elder_id,elderName:elders.find((e:any)=>e.id===m.elder_id)?.full_name,type:'medication',title:`${m.brand_name} ${m.dose_amount}${m.dose_unit}`,pillName:m.brand_name,dosage:`${m.dose_amount}${m.dose_unit}`,photo:m.photo,time,repeat:'daily',verified:false}))),...(data.alarms || []).map((a:any)=>({...a,id:`alarm-${a.id}`,repeat:a.repeat || 'daily',verified:false}))];
+  useGuardianStore.setState({reminders:reminders.map((r:any)=>{const ack=(data.reminderAcknowledgements || []).find((a:any)=>a.elderId===r.elderId && a.reminderId===r.id && a.occurrenceDate===today);return ack?{...r,verified:true,acknowledgementDate:today}:r;})});
+  if (user.role === 'guardian' && elders[0]) {
+    const e = elders[0];
+    user = { ...user, profile: { ...user.profile, elderName: e.full_name, elderAge: String(e.age), elderLanguage: e.language_pref, elderConditions: (e.medical_conditions || []).join(', ') } };
+  }
+  syncLegacyStores(user);
+  return user;
+}
+
 export const useAuthStore = create<AuthStore>((set, get) => ({
   user: getStoredUser(),
   token: getStoredToken(),
@@ -81,41 +99,36 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     const token = getStoredToken();
     const storedUser = getStoredUser();
     if (!token) {
+      clearPatientState();
+      syncLegacyStores(null);
       set({ initialized: true, user: null, token: null });
       return;
     }
 
     try {
-      const { user } = await fetchMe();
+      const result = await fetchMe();
+      const user = await loadPatientState(result.user);
       storeSession(token, user);
-      syncLegacyStores(user);
       set({ user, token, initialized: true });
-    } catch (err: any) {
-      if (err?.status === 401 || err?.status === 403) {
-        clearSession();
-        syncLegacyStores(null);
-        set({ user: null, token: null, initialized: true });
-      } else {
-        if (storedUser) {
-          syncLegacyStores(storedUser);
-          set({ user: storedUser, token, initialized: true });
-        } else {
-          set({ initialized: true });
-        }
-      }
+    } catch {
+      clearSession(); clearPatientState(); syncLegacyStores(null);
+      set({ user: null, token: null, initialized: true });
     }
   },
 
-  login: async (email, password) => {
+  login: async (email, password, role) => {
     set({ loading: true });
     try {
-      const { token, user } = await loginRequest(email, password);
+      const result = await loginRequest(email, password, role);
+      const token = result.token;
+      storeSession(token, result.user);
+      const user = await loadPatientState(result.user);
       storeSession(token, user);
-      syncLegacyStores(user);
       set({ user, token, loading: false });
       return user;
     } catch (error) {
-      set({ loading: false });
+      clearSession(); clearPatientState(); syncLegacyStores(null);
+      set({ user: null, token: null, loading: false });
       throw error;
     }
   },
@@ -123,10 +136,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   register: async (payload) => {
     set({ loading: true });
     try {
-      const { token, user } = await registerRequest(payload);
-      storeSession(token, user);
-      syncLegacyStores(user);
-      set({ user, token, loading: false });
+      const { user } = await registerRequest(payload);
+      set({ loading: false });
       return user;
     } catch (error) {
       set({ loading: false });
@@ -140,6 +151,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     } catch {
       // Local cleanup still happens when the session is already expired or the API is offline.
     } finally {
+      clearPatientState();
       clearSession();
       syncLegacyStores(null);
       set({ user: null, token: null });
@@ -148,6 +160,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 }));
 
 if (typeof window !== 'undefined') {
+  window.addEventListener('gcare:session-invalid', () => {
+    clearPatientState(); clearSession(); syncLegacyStores(null);
+    useAuthStore.setState({ user: null, token: null, initialized: true });
+  });
   void useAuthStore.getState().hydrate();
 }
 

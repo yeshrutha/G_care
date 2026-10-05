@@ -1,9 +1,15 @@
-import { DemoElder, DemoVitals } from '@/lib/demoData';
-import { useAppStore, type DemoAlert } from '@/store';
+import { patientStorage } from '@/lib/patientStorage';
+import { DEMO_ELDERS } from '@/lib/demoData';
+import { useAppStore, type DemoAlert, type DemoVitals } from '@/store';
 import { useGuardianStore, type GuardianAlert } from '@/store/guardianStore';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
 import { broadcastGcareMessage } from '@/lib/syncChannel';
+import {
+  getCanonicalAnomalyType as canonicalType,
+  getAlertEpisodeKey as identityKey,
+  isPhysiologicalEpisode,
+} from '@/lib/alertEpisodeIdentity.js';
 
 export type AnomalyMetric =
   | 'heart_rate'
@@ -40,80 +46,19 @@ export type CanonicalAnomalyType =
   | 'FALL'
   | 'GEOFENCE'
   | 'MISSED_MED'
+  | 'HIGH_BREATHING_RATE'
+  | 'HIGH_STRESS'
+  | 'APPOINTMENT'
   | 'VITAL_ABNORMAL';
 
-/**
- * Maps any alert or anomaly object to its canonical anomaly type.
- */
-export function getCanonicalAnomalyType(alert: {
-  type?: string;
-  message?: string;
-  metric?: string;
-  title?: string;
-}): CanonicalAnomalyType {
-  const t = (alert.type || '').toUpperCase();
-  const m = `${alert.message || ''} ${alert.title || ''}`.toUpperCase();
-  const metric = (alert.metric || '').toUpperCase();
-
-  if (t === 'LOW_SPO2' || metric === 'SPO2' || m.includes('SPO2') || m.includes('OXYGEN') || m.includes('HYPOXEMIA')) {
-    return 'LOW_SPO2';
-  }
-  if (t === 'HIGH_BP' || (metric.includes('BP') && (m.includes('SPIKE') || m.includes('ELEVATED') || m.includes('HYPERTENSIVE') || m.includes('CRISIS')))) {
-    return 'HIGH_BP';
-  }
-  if (t === 'LOW_BP' || (metric.includes('BP') && (m.includes('DROPPED') || m.includes('HYPOTENSION') || m.includes('SHOCK')))) {
-    return 'LOW_BP';
-  }
-  if (t === 'HIGH_HR' || t === 'HIGH_HEART_RATE' || (metric === 'HEART_RATE' && (m.includes('TACHYCARDIA') || m.includes('SURGE') || m.includes('ELEVATED')))) {
-    return 'HIGH_HEART_RATE';
-  }
-  if (t === 'LOW_HR' || t === 'LOW_HEART_RATE' || (metric === 'HEART_RATE' && (m.includes('BRADYCARDIA') || m.includes('DECREASED')))) {
-    return 'LOW_HEART_RATE';
-  }
-  if (t === 'HIGH_TEMPERATURE' || t === 'HIGH_TEMP' || m.includes('FEVER') || m.includes('HYPERTHERMIA')) {
-    return 'HIGH_TEMPERATURE';
-  }
-  if (t === 'LOW_TEMPERATURE' || t === 'LOW_TEMP' || m.includes('HYPOTHERMIA')) {
-    return 'LOW_TEMPERATURE';
-  }
-  if (t === 'SOS' || m.includes('SOS')) {
-    return 'SOS';
-  }
-  if (t === 'FALL' || m.includes('FALL')) {
-    return 'FALL';
-  }
-  if (t === 'GEOFENCE' || m.includes('GEOFENCE')) {
-    return 'GEOFENCE';
-  }
-  if (t === 'MISSED_MED' || m.includes('MEDICINE') || m.includes('MEDICATION')) {
-    return 'MISSED_MED';
-  }
-  return 'VITAL_ABNORMAL';
+export function getCanonicalAnomalyType(alert: { type?: string; message?: string; metric?: string; title?: string; anomaly_type?: string }): CanonicalAnomalyType {
+  return canonicalType(alert) as CanonicalAnomalyType;
 }
-
-/**
- * Returns a stable episode identity key: `${elderId}:${anomalyType}`.
- * For example: "elder-3:LOW_SPO2" or "elder-2:HIGH_BP".
- */
 export function getAlertEpisodeKey(alert: {
-  elder_id?: string;
-  elderId?: string;
-  elder_name?: string;
-  elderName?: string;
-  type?: string;
-  message?: string;
-  metric?: string;
-  title?: string;
+  elder_id?: string; elderId?: string; elder_name?: string; elderName?: string;
+  type?: string; message?: string; metric?: string; title?: string; anomaly_type?: string;
 }): string {
-  const elderIdentifier = (
-    alert.elder_id ||
-    alert.elderId ||
-    alert.elder_name ||
-    alert.elderName ||
-    'unknown'
-  ).trim().toLowerCase();
-  const anomalyType = getCanonicalAnomalyType(alert);
-  return `${elderIdentifier}:${anomalyType}`;
+  return identityKey(alert, useAppStore.getState().demoElders || DEMO_ELDERS);
 }
 
 export type EpisodeLifecycleStatus =
@@ -138,7 +83,7 @@ export function loadEpisodeRecords(): Map<string, ConditionEpisodeRecord> {
   const map = new Map<string, ConditionEpisodeRecord>();
   if (typeof window === 'undefined' || !window.localStorage) return map;
   try {
-    const raw = window.localStorage.getItem(EPISODE_STORAGE_KEY);
+    const raw = patientStorage().getItem(EPISODE_STORAGE_KEY);
     if (!raw) return map;
     const arr = JSON.parse(raw);
     if (Array.isArray(arr)) {
@@ -154,74 +99,97 @@ export function saveEpisodeRecords(map: Map<string, ConditionEpisodeRecord>) {
   if (typeof window === 'undefined' || !window.localStorage) return;
   try {
     const arr = Array.from(map.values());
-    window.localStorage.setItem(EPISODE_STORAGE_KEY, JSON.stringify(arr));
+    patientStorage().setItem(EPISODE_STORAGE_KEY, JSON.stringify(arr));
   } catch {}
 }
 
 export function markEpisodeAcknowledged(targetIdentifier: string) {
   const records = loadEpisodeRecords();
-  const cleanTarget = targetIdentifier.trim().toLowerCase();
-  let changed = false;
-
-  for (const [key, ep] of records.entries()) {
-    const keyLower = key.toLowerCase();
-    if (
-      keyLower === cleanTarget ||
-      keyLower.includes(cleanTarget) ||
-      cleanTarget.includes(keyLower) ||
-      ep.activeAlertId === targetIdentifier ||
-      (ep.elderId && cleanTarget.includes(ep.elderId.toLowerCase()))
-    ) {
+  const target = targetIdentifier.trim().toLowerCase();
+  for (const [key, ep] of records) {
+    if (key.toLowerCase() === target || ep.activeAlertId === targetIdentifier) {
       ep.status = 'ACKNOWLEDGED_AWAITING_RECOVERY';
-      ep.activeAlertId = undefined;
-      records.set(key, ep);
-      changed = true;
+      saveEpisodeRecords(records);
+      return;
     }
   }
-
-  if (!changed && cleanTarget.includes(':')) {
-    const [elderPart, ...anomalyParts] = cleanTarget.split(':');
-    const normKey = `${elderPart}:${anomalyParts.join(':').toUpperCase()}`;
-    records.set(normKey, {
-      episodeKey: normKey,
-      elderId: elderPart,
-      anomalyType: anomalyParts.join(':').toUpperCase() as any,
-      status: 'ACKNOWLEDGED_AWAITING_RECOVERY',
-      lastDispatchedTime: Date.now(),
-      lastSeverity: 'warning',
+  if (target.includes(':')) {
+    const [elderId, type] = target.split(':');
+    const key = elderId + ':' + type.toUpperCase();
+    records.set(key, {
+      episodeKey: key, elderId, anomalyType: type.toUpperCase() as CanonicalAnomalyType,
+      status: 'ACKNOWLEDGED_AWAITING_RECOVERY', lastDispatchedTime: Date.now(), lastSeverity: 'warning',
     });
-    changed = true;
-  }
-
-  if (changed) {
     saveEpisodeRecords(records);
   }
 }
 
+// Serialize create/update/ack/recovery so a fast acknowledgement cannot race
+// an unfinished POST. Reconcile the canonical server ID when it reused a record.
+let persistenceQueue: Promise<unknown> = Promise.resolve();
+const persistedIds = new Map<string, string>();
+export function persistEpisodeAlert(alert: DemoAlert, updates?: Partial<DemoAlert>) {
+  persistenceQueue = persistenceQueue.then(async () => {
+    const id = persistedIds.get(alert.id) || alert.id;
+    const saved = await apiFetch<DemoAlert>(updates ? '/alerts/' + encodeURIComponent(id) : '/alerts', {
+      method: updates ? 'PUT' : 'POST', body: JSON.stringify(updates || alert),
+    });
+    if (!saved?.id) return;
+    persistedIds.set(alert.id, saved.id);
+    // The local alert may already be acknowledged/recovered while POST ran.
+    const local = useAppStore.getState().activeAlerts.find(a => a.id === alert.id || a.id === saved.id);
+    if (!local) return;
+    const merged = { ...local, id: saved.id,
+      resolved: local.resolved || saved.resolved,
+      episode_recovered: local.episode_recovered || saved.episode_recovered };
+    useAppStore.getState().setActiveAlerts(
+      useAppStore.getState().activeAlerts.map(a => a.id === local.id ? merged : a)
+    );
+    const ga = useGuardianStore.getState().alerts.find(a => a.id === local.id);
+    if (ga) useGuardianStore.getState().updateGuardianAlertInPlace(ga.id, { id: saved.id, acknowledged: merged.resolved });
+    const records = loadEpisodeRecords();
+    const ep = records.get(getAlertEpisodeKey(merged));
+    if (ep && ep.activeAlertId === alert.id) {
+      ep.activeAlertId = saved.id;
+      if (saved.resolved && ep.status !== 'NORMAL') ep.status = 'ACKNOWLEDGED_AWAITING_RECOVERY';
+      saveEpisodeRecords(records);
+    }
+  }).catch(err => console.warn('Alert persistence failed:', err));
+  return persistenceQueue;
+}
+
 export function markEpisodeRecovered(elderId: string, metric: AnomalyMetric) {
   const records = loadEpisodeRecords();
-  const cleanElder = elderId.trim().toLowerCase();
-  let changed = false;
-
-  const relevantTypes: CanonicalAnomalyType[] =
+  const types: CanonicalAnomalyType[] =
     metric === 'spo2' ? ['LOW_SPO2', 'HIGH_SPO2'] :
     metric === 'systolic_bp' || metric === 'diastolic_bp' ? ['HIGH_BP', 'LOW_BP'] :
-    metric === 'heart_rate' ? ['HIGH_HEART_RATE', 'LOW_HEART_RATE'] : ['VITAL_ABNORMAL'];
-
-  for (const anomalyType of relevantTypes) {
-    const key = `${cleanElder}:${anomalyType}`;
+    metric === 'heart_rate' ? ['HIGH_HEART_RATE', 'LOW_HEART_RATE'] :
+    metric === 'breathing_rate' ? ['HIGH_BREATHING_RATE'] : ['HIGH_STRESS'];
+  for (const type of types) {
+    const key = elderId.trim().toLowerCase() + ':' + type;
     const ep = records.get(key);
-    if (ep && ep.status !== 'NORMAL') {
+    const alerts = useAppStore.getState().activeAlerts.filter(a =>
+      getAlertEpisodeKey(a) === key && ((!a.resolved && !a.episode_recovered) || a.id === ep?.activeAlertId));
+    if ((!ep || ep.status === 'NORMAL') && alerts.every(a => a.episode_recovered)) continue;
+    // Clearing local history must not prevent the persisted episode recovering.
+    if (ep?.activeAlertId && !alerts.some(a => a.id === ep.activeAlertId)) {
+      persistEpisodeAlert({ id: ep.activeAlertId, elder_id: elderId,
+        elder_name: useAppStore.getState().demoElders.find(e => e.id === elderId)?.full_name || elderId,
+        type: 'vital_abnormal', anomaly_type: type, severity: ep.lastSeverity,
+        message: '', time: new Date().toISOString(), resolved: true },
+        { resolved: true, episode_recovered: true });
+    }
+    for (const alert of alerts) {
+      useAppStore.getState().updateAlertInPlace(alert.id, { episode_recovered: true });
+      persistEpisodeAlert(alert, { episode_recovered: true });
+    }
+    if (ep) {
       ep.status = 'NORMAL';
       ep.activeAlertId = undefined;
-      records.set(key, ep);
-      changed = true;
     }
+    broadcastGcareMessage({ type: 'EPISODE_STATE_SYNC', elderId, episodeKey: key, episodeStatus: 'NORMAL', timestamp: Date.now() });
   }
-
-  if (changed) {
-    saveEpisodeRecords(records);
-  }
+  saveEpisodeRecords(records);
 }
 
 // Global cooldown buffer before a new episode can trigger if rapidly oscillating (5 minutes)
@@ -253,6 +221,61 @@ export function resetAllEpisodeRecords() {
     ep.lastDispatchedTime = 0;
   }
   saveEpisodeRecords(records);
+}
+
+export function hydrateAlertRecords(serverAlerts: DemoAlert[]) {
+  const state = useAppStore.getState();
+  const incoming = serverAlerts.map((a: any) => ({ ...a,
+    elder_id: a.elder_id || a.elderId,
+    elder_name: a.elder_name || a.elderName || state.demoElders.find(e => e.id === (a.elder_id || a.elderId))?.full_name || 'Patient',
+  }));
+  // Resolve state is monotonic for one ID; a new episode has a new ID.
+  const merged = [...state.activeAlerts];
+  for (const alert of incoming) {
+    let index = merged.findIndex(a => a.id === alert.id);
+    // A GET can return the canonical record before our POST response arrives.
+    // Reuse that ID instead of treating the optimistic alert as a second episode.
+    if (index < 0 && !alert.resolved && !alert.episode_recovered && isPhysiologicalEpisode(alert)) {
+      index = merged.findIndex(a => !a.resolved && !a.episode_recovered && getAlertEpisodeKey(a) === getAlertEpisodeKey(alert));
+      if (index >= 0) {
+        const previousId = merged[index].id;
+        persistedIds.set(previousId, alert.id);
+        const guardian = useGuardianStore.getState().alerts.find(a => a.id === previousId);
+        if (guardian) useGuardianStore.getState().updateGuardianAlertInPlace(previousId, { id: alert.id });
+      }
+    }
+    if (index >= 0) merged[index] = { ...merged[index], ...alert,
+      resolved: merged[index].resolved || alert.resolved,
+      episode_recovered: merged[index].episode_recovered || alert.episode_recovered };
+    else merged.push(alert);
+  }
+  state.setActiveAlerts(merged);
+  const records = loadEpisodeRecords();
+  const seen = new Set<string>();
+  for (const alert of [...useAppStore.getState().activeAlerts].sort((a, b) => Date.parse(b.time) - Date.parse(a.time))) {
+    const key = getAlertEpisodeKey(alert);
+    if (alert.duplicate_of) continue;
+    useGuardianStore.getState().addGuardianAlert({
+      id: alert.id, elderId: alert.elder_id, elderName: alert.elder_name,
+      anomaly_type: alert.anomaly_type || getCanonicalAnomalyType(alert),
+      type: alert.type === 'sos' || alert.type === 'fall' || alert.type === 'geofence' ? alert.type : 'vital_abnormal',
+      severity: alert.severity, message: alert.message, time: alert.time, acknowledged: alert.resolved, episode_recovered: alert.episode_recovered,
+    });
+    if (!isPhysiologicalEpisode(alert) || seen.has(key) || (alert.resolved && !alert.anomaly_type)) continue;
+    seen.add(key);
+    records.set(key, { episodeKey: key, elderId: alert.elder_id || key.split(':')[0],
+      anomalyType: getCanonicalAnomalyType(alert), activeAlertId: alert.id,
+      status: alert.episode_recovered ? 'NORMAL' : alert.resolved ? 'ACKNOWLEDGED_AWAITING_RECOVERY' : 'ACTIVE_ALERT',
+      lastDispatchedTime: Date.parse(alert.time), lastSeverity: alert.severity === 'critical' ? 'critical' : 'warning' });
+  }
+  saveEpisodeRecords(records);
+}
+
+export function getActiveWatchAnomalies(elder: { id: string; full_name: string }, vitals: DemoVitals, alerts: DemoAlert[]) {
+  return detectVitalsAnomalies(elder, vitals).filter(anomaly => {
+    const key = getAlertEpisodeKey(anomaly);
+    return alerts.some(alert => !alert.resolved && getAlertEpisodeKey(alert) === key);
+  });
 }
 
 /**
@@ -488,8 +511,6 @@ export function processVitalsTickWithAlerts(
   const anomalies = detectVitalsAnomalies(elder, vitals);
   const now = Date.now();
   const dispatched: VitalsAnomaly[] = [];
-  const episodeRecords = loadEpisodeRecords();
-
   // 1. Check for conditions that have safely recovered to their healthy baseline
   const allMetrics: AnomalyMetric[] = ['heart_rate', 'spo2', 'systolic_bp', 'breathing_rate', 'stress'];
   for (const metric of allMetrics) {
@@ -498,8 +519,11 @@ export function processVitalsTickWithAlerts(
     }
   }
 
+  const episodeRecords = loadEpisodeRecords();
+
   // 2. Process detected anomalies
   for (const anomaly of anomalies) {
+    const anomalyType = getCanonicalAnomalyType(anomaly);
     const alertType: DemoAlert['type'] =
       anomaly.metric === 'heart_rate' ? 'high_hr' :
       anomaly.metric === 'spo2' ? 'low_spo2' :
@@ -509,6 +533,7 @@ export function processVitalsTickWithAlerts(
       elder_id: elder.id,
       elder_name: elder.full_name,
       type: alertType,
+      anomaly_type: anomalyType,
       metric: anomaly.metric,
       message: anomaly.message,
       title: anomaly.title,
@@ -519,7 +544,7 @@ export function processVitalsTickWithAlerts(
       episode = {
         episodeKey,
         elderId: elder.id,
-        anomalyType: getCanonicalAnomalyType({ type: alertType, metric: anomaly.metric, message: anomaly.message }),
+        anomalyType,
         status: 'NORMAL',
         lastDispatchedTime: 0,
         lastSeverity: anomaly.severity,
@@ -530,13 +555,13 @@ export function processVitalsTickWithAlerts(
     // Check if an unresolved alert for this elder and canonical episode already exists
     const currentAppAlerts = useAppStore.getState().activeAlerts;
     const existingActiveAlert = currentAppAlerts.find(
-      (a) => !a.resolved && getAlertEpisodeKey(a) === episodeKey
+      (a) => !a.resolved && !a.episode_recovered && getAlertEpisodeKey(a) === episodeKey
     );
 
     // CASE 1: Active alert already exists for this ongoing episode -> UPDATE IN PLACE
     if (existingActiveAlert) {
       const updatedMessage = `${anomaly.title}: ${anomaly.message}`;
-      const nextSeverity = anomaly.severity === 'critical' ? 'critical' : existingActiveAlert.severity;
+      const nextSeverity = anomaly.severity === 'critical' || existingActiveAlert.severity === 'critical' ? 'critical' : 'warning';
 
       // Update in AppStore
       useAppStore.getState().updateAlertInPlace(existingActiveAlert.id, {
@@ -574,15 +599,9 @@ export function processVitalsTickWithAlerts(
         timestamp: now,
       });
 
-      // Update backend record
-      apiFetch(`/alerts/${existingActiveAlert.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          message: updatedMessage,
-          severity: nextSeverity,
-          time: anomaly.timestamp,
-        }),
-      }).catch(() => {});
+      persistEpisodeAlert(existingActiveAlert, {
+        message: updatedMessage, severity: nextSeverity, time: anomaly.timestamp,
+      });
 
       episode.status = 'ACTIVE_ALERT';
       episode.activeAlertId = existingActiveAlert.id;
@@ -597,12 +616,19 @@ export function processVitalsTickWithAlerts(
 
     // CASE 2: No active alert exists, BUT episode is ACKNOWLEDGED_AWAITING_RECOVERY
     // Acknowledging an alert must NOT allow the exact same still-abnormal condition to immediately recreate an alert!
-    if (!options?.force && episode.status === 'ACKNOWLEDGED_AWAITING_RECOVERY') {
-      const isCriticalEscalation = episode.lastSeverity === 'warning' && anomaly.severity === 'critical';
-      if (!isCriticalEscalation) {
-        // Still inside unrecovered condition; stay quiet in history until safe baseline recovery
-        continue;
-      }
+    if (episode.status === 'ACKNOWLEDGED_AWAITING_RECOVERY') {
+      episode.lastTelemetryValue = anomaly.value;
+      // Worsening values remain the same acknowledged episode until recovery.
+      saveEpisodeRecords(episodeRecords);
+      continue;
+    }
+    // Another tab can have recorded the episode before its alert storage event
+    // arrives. Adopt the shared record rather than generate a second ID.
+    if (episode.status === 'ACTIVE_ALERT' && episode.activeAlertId) {
+      const stored = JSON.parse(patientStorage().getItem('gcare_active_alerts') || '[]') as DemoAlert[];
+      const shared = stored.find(a => a.id === episode.activeAlertId);
+      if (shared) useAppStore.getState().addAlert(shared);
+      continue;
     }
 
     // CASE 3: Genuinely new abnormal episode (or critical escalation / forced trigger)
@@ -618,6 +644,7 @@ export function processVitalsTickWithAlerts(
       elder_id: elder.id,
       elder_name: elder.full_name,
       type: alertType,
+      anomaly_type: anomalyType,
       severity: anomaly.severity,
       message: `${anomaly.title}: ${anomaly.message}`,
       time: anomaly.timestamp,
@@ -629,26 +656,12 @@ export function processVitalsTickWithAlerts(
     // 1. Dispatch to useAppStore
     useAppStore.getState().addAlert(appAlert);
 
-    // Persist to server backend (writes to data/db.json)
-    apiFetch('/alerts', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: appAlert.id,
-        elder_id: elder.id,
-        elder_name: elder.full_name,
-        type: appAlert.type,
-        severity: anomaly.severity,
-        message: `${anomaly.title}: ${anomaly.message}`,
-        time: anomaly.timestamp,
-        resolved: false,
-      }),
-    }).catch((err) => {
-      console.warn('Backend alert persistence notice:', err);
-    });
+    persistEpisodeAlert(appAlert);
 
     // 2. Dispatch to useGuardianStore (for Guardian Portal)
     const guardianAlert: GuardianAlert = {
-      id: `ga-vital-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: appAlert.id,
+      anomaly_type: anomalyType,
       type: 'vital_abnormal',
       severity: anomaly.severity,
       message: `⚠️ Vital Alert: ${anomaly.message} Dr. Ramesh Kumar and caretaker have been notified.`,
@@ -658,6 +671,8 @@ export function processVitalsTickWithAlerts(
       elderId: elder.id,
     };
     useGuardianStore.getState().addGuardianAlert(guardianAlert);
+    broadcastGcareMessage({ type: 'ALERT_CREATED', id: appAlert.id, alert: appAlert,
+      episodeKey, elderId: elder.id, elderName: elder.full_name, timestamp: now });
 
     // 3. Audio & Haptic Alarm if watch simulator is open for this elder
     try {

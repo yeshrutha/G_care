@@ -1,3 +1,7 @@
+import crypto from 'node:crypto';
+import { validateProofFile, saveProofFile, readProofFile, removeProofFile } from './verificationFiles.js';
+import { hasApprovedAccess, canReviewAccounts, isDemoAccount } from './accessPolicy.js';
+import { reviewAccess } from './accessReview.js';
 import { z } from 'zod';
 import {
   hashPassword,
@@ -7,7 +11,7 @@ import {
   validatePassword,
   verifyPassword,
 } from './auth.js';
-import { dbService, newId } from './db.js';
+import { dbService, newId, persistenceMode, databasePool } from './db.js';
 import { AssistantServiceError, generateAssistantReply } from './ai.js';
 import { MAX_UPLOAD_BODY_BYTES } from './config.js';
 import { validateMedicalDocument } from './medicalValidation.js';
@@ -34,7 +38,14 @@ const registerSchema = z.object({
   elderConditions: z.string().max(500).optional().default(''),
   hospital: z.string().max(160).optional().default(''),
   specialization: z.string().max(160).optional().default(''),
-});
+  proofId: z.string().trim().min(3).max(120),
+  issuer: z.string().trim().min(3).max(160),
+  proofReference: z.string().trim().max(500).optional().default(''),
+  proofFile: z.object({ fileName: z.string().min(1).max(180), fileType: z.string().max(120), fileSize: z.number().int().positive().max(5 * 1024 * 1024), fileData: z.string().max(7 * 1024 * 1024) }).optional(),
+  staffKind: z.enum(['nurse', 'assistant']).optional(),
+  relationship: z.enum(['son', 'daughter', 'spouse', 'relative', 'authorized_guardian']).optional(),
+  supervisingDoctorId: z.string().max(120).optional(),
+}).refine(value => value.proofFile || value.proofReference.length >= 5, { message: 'Upload proof for the reviewer.' });
 
 const elderSchema = z.object({
   full_name: z.string().min(1),
@@ -72,8 +83,8 @@ const alarmSchema = z.object({
   status: z.enum(['Due soon', 'Scheduled', 'Paused']).default('Scheduled'),
   notes: z.string().max(500).default(''),
   appointmentId: z.string().optional(),
-  appointmentDate: z.string().optional(),
-  appointmentTime: z.string().optional(),
+  appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  appointmentTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   doctorName: z.string().optional(),
   reminderType: z.string().optional(),
   isOneHourReminder: z.boolean().optional(),
@@ -92,6 +103,7 @@ const alertSchema = z.object({
   location: z.string().max(200).optional(),
   time: z.string().optional(),
   resolved: z.boolean().optional(),
+  anomaly_type: z.string().optional(),
 });
 
 const vitalsSchema = z.object({
@@ -99,7 +111,7 @@ const vitalsSchema = z.object({
   heart_rate: z.coerce.number().int().min(0).max(300),
   systolic_bp: z.coerce.number().int().min(0).max(300),
   diastolic_bp: z.coerce.number().int().min(0).max(200),
-  spo2: z.coerce.number().int().min(0).max(100),
+  spo2: z.coerce.number().min(0).max(100),
   stress: z.coerce.number().int().min(0).max(100),
   hydration: z.coerce.number().int().min(0).max(100),
   breathing_rate: z.coerce.number().int().min(0).max(100),
@@ -108,7 +120,7 @@ const vitalsSchema = z.object({
   panic_detected: z.boolean().optional().default(false),
   fall_detected: z.boolean().optional().default(false),
   source: z.enum(['manual', 'simulator', 'device']).default('manual'),
-  timestamp: z.string().optional(),
+  timestamp: z.string().datetime({offset:true}).optional(),
 });
 
 const clinicalNoteSchema = z.object({
@@ -148,7 +160,8 @@ function parseBody(schema, body, res, req) {
 
 export async function handleRequest(req, res, pathName) {
   if (req.method === 'GET' && pathName === '/api/health') {
-    return sendJson(res, 200, { ok: true, service: 'GuardianCare API', version: '2.0.0' }, req);
+    if (databasePool) await databasePool.query('SELECT 1');
+    return sendJson(res, 200, { ok: true, service: 'GuardianCare API', version: '2.0.0', persistence: persistenceMode() }, req);
   }
 
   if (pathName.startsWith('/api/auth/')) {
@@ -157,7 +170,8 @@ export async function handleRequest(req, res, pathName) {
 
   if (req.method === 'GET' && pathName === '/api/dashboard-data') {
     const session = await authenticate(req);
-    const user = session?.user || { id: 'user-demo-caretaker', role: 'caretaker' };
+    const user = session?.user;
+    if (!user) return sendJson(res, 401, { error: 'Sign in with an approved account.' }, req);
     const dashboardData = await dbService.filterDashboardForUser(user);
     return sendJson(res, 200, dashboardData, req);
   }
@@ -174,18 +188,25 @@ export async function handleRequest(req, res, pathName) {
   const session = await authenticate(req);
   let user = session?.user;
   if (!user) {
-    const token = getBearerToken(req);
-    if (token) {
-      return sendJson(res, 401, { error: 'Session expired or invalid. Please log in again.' }, req);
-    }
-    user = (await dbService.findUserById('user-demo-caretaker')) || {
-      id: 'user-demo-caretaker',
-      role: 'caretaker',
-      name: 'Demo Caretaker',
-      assignedElderIds: ['elder-1', 'elder-2', 'elder-3'],
-    };
+    // Device credentials are scoped to one patient and cannot open a portal.
+    const expected = process.env.DEVICE_API_KEY;
+    const actual = String(req.headers['x-device-key'] || '');
+    const actualBytes = Buffer.from(actual);
+    const expectedBytes = Buffer.from(expected || '');
+    const validDeviceKey = expected && actual && actualBytes.length === expectedBytes.length
+      && crypto.timingSafeEqual(actualBytes, expectedBytes);
+    if (req.method === 'POST' && ['/api/device/vitals', '/api/device/telemetry'].includes(pathName)
+        && validDeviceKey && process.env.DEVICE_ELDER_ID) {
+      user = { id: 'device-ingestion', role: 'device', deviceElderId: process.env.DEVICE_ELDER_ID };
+    } else return sendJson(res, 401, { error: 'Sign in with an approved account.' }, req);
   }
 
+  if (req.method === 'POST' && pathName === '/api/reminder-acknowledgements') {
+    const body=parseBody(z.object({elderId:z.string().min(1),reminderId:z.string().min(1).max(200),occurrenceDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}),await readJsonBody(req),res,req);
+    if (!body) return;
+    if (!(await dbService.userOwnsElder(user,body.elderId))) return sendJson(res,403,{error:'Patient assignment required.'},req);
+    return sendJson(res,200,await dbService.acknowledgeReminder(user,body),req);
+  }
   if (pathName.startsWith('/api/elders')) {
     return handleElders(req, res, pathName, user);
   }
@@ -241,12 +262,7 @@ async function handleAssistantChat(req, res, user) {
       data = await dbService.filterDashboardForUser(user);
       elder = data.elders.find((item) => item.id === body.elderId);
       if (!elder) return sendJson(res, 404, { error: 'Patient not found' }, req);
-    } else {
-      // Demo preview context on Landing Page
-      const demoUser = { id: 'user-demo-caretaker', role: 'caretaker' };
-      data = await dbService.filterDashboardForUser(demoUser);
-      elder = data.elders.find((item) => item.id === body.elderId) || data.elders[0];
-    }
+    } else return sendJson(res, 401, { error: 'Sign in to access patient information.' }, req);
 
     if (elder) {
       const msgLower = body.message.toLowerCase();
@@ -317,8 +333,40 @@ async function handleAssistantChat(req, res, user) {
 }
 
 async function handleAuth(req, res, pathName) {
+  if (req.method === 'GET' && pathName === '/api/auth/doctors') {
+    const doctors = (await dbService.listUsers()).filter(u => u.role === 'doctor' && hasApprovedAccess(u));
+    return sendJson(res, 200, doctors.map(u => ({ id: u.id, name: u.name, hospital: u.profile?.hospital || '', demo: isDemoAccount(u) })), req);
+  }
+  if (pathName === '/api/auth/access-requests' || pathName.startsWith('/api/auth/access-requests/')) {
+    const reviewer = await requireAuth(req, res);
+    if (!reviewer) return;
+    if (!canReviewAccounts(reviewer)) return sendJson(res, 403, { error: 'Only a verified doctor can review assigned applicants.' }, req);
+    if (req.method === 'GET' && pathName === '/api/auth/access-requests') {
+      const requests = (await dbService.listUsers()).filter(u => u.role !== 'doctor' && u.profile?.accessVerification?.supervisingDoctorId === reviewer.id);
+      return sendJson(res, 200, requests.map(sanitizeUser), req);
+    }
+    const proofMatch = pathName.match(/^\/api\/auth\/access-requests\/([^/]+)\/proof$/);
+    if (proofMatch && req.method === 'GET') {
+      const applicant = await dbService.findUserById(decodeURIComponent(proofMatch[1]));
+      if (!applicant || applicant.role === 'doctor' || applicant.profile?.accessVerification?.supervisingDoctorId !== reviewer.id) return sendJson(res, 403, { error: 'This proof is not assigned to you.' }, req);
+      const file = applicant.profile.accessVerification.proofFile;
+      if (!file) return sendJson(res, 404, { error: 'No uploaded proof.' }, req);
+      try { return sendBinary(res, await readProofFile(file), file.fileType, file.fileName, req, true); }
+      catch { return sendJson(res, 404, { error: 'Proof file is unavailable.' }, req); }
+    }
+    const match = pathName.match(/^\/api\/auth\/access-requests\/([^/]+)$/);
+    if (match && req.method === 'PUT') {
+      const body = await readJsonBody(req);
+      if (!Array.isArray(body.elderIds) || body.elderIds.some(id => typeof id !== 'string')) return sendJson(res, 400, { error: 'Select valid patient assignments.' }, req);
+      try {
+        const updated = await reviewAccess(reviewer, decodeURIComponent(match[1]), body.decision, body.elderIds, body.note);
+        return sendJson(res, 200, { user: sanitizeUser(updated) }, req);
+      } catch (error) { return sendJson(res, error.statusCode || 500, { error: error.message }, req); }
+    }
+    return sendJson(res, 404, { error: 'Route not found' }, req);
+  }
   if (req.method === 'POST' && pathName === '/api/auth/register') {
-    const parsed = parseBody(registerSchema, await readJsonBody(req), res, req);
+    const parsed = parseBody(registerSchema, await readJsonBody(req, MAX_UPLOAD_BODY_BYTES), res, req);
     if (!parsed) return;
     const email = parsed.email.trim().toLowerCase();
     const password = parsed.password;
@@ -337,11 +385,20 @@ async function handleAuth(req, res, pathName) {
       return sendJson(res, 400, { error: 'Invalid role' }, req);
     }
 
+    if (role === 'caretaker' && !parsed.staffKind) return sendJson(res, 400, { error: 'Choose Nurse or Doctor’s assistant.' }, req);
+    if (role === 'guardian' && (!parsed.relationship || !parsed.elderName.trim())) return sendJson(res, 400, { error: 'Provide your relationship and the patient name for review.' }, req);
+    if (role !== 'doctor') {
+      const doctor = await dbService.findUserById(parsed.supervisingDoctorId);
+      if (doctor?.role !== 'doctor' || !hasApprovedAccess(doctor)) return sendJson(res, 400, { error: 'Select a listed supervising doctor.' }, req);
+    }
     const existingUser = await dbService.findUserByEmail(email);
     if (existingUser) {
       return sendJson(res, 409, { error: 'Email already registered' }, req);
     }
 
+    let validatedProof;
+    try { if (parsed.proofFile) validatedProof = validateProofFile(parsed.proofFile); }
+    catch (error) { return sendJson(res, 400, { error: error.message }, req); }
     const user = {
       id: newId('user'),
       email,
@@ -356,16 +413,19 @@ async function handleAuth(req, res, pathName) {
         elderConditions: parsed.elderConditions,
         hospital: parsed.hospital,
         specialization: parsed.specialization,
+        accessVerification: { status: 'pending', proofId: parsed.proofId, issuer: parsed.issuer, proofReference: parsed.proofReference, staffKind: parsed.staffKind, relationship: parsed.relationship, supervisingDoctorId: parsed.supervisingDoctorId, submittedAt: new Date().toISOString() },
       },
       assignedElderIds: [],
       createdAt: new Date().toISOString(),
     };
 
-    await dbService.createUser(user);
+    const proofFile = validatedProof ? await saveProofFile(validatedProof) : undefined;
+    if (proofFile) user.profile.accessVerification.proofFile = proofFile;
+    try { await dbService.createUser(user); }
+    catch (error) { if (proofFile) await removeProofFile(proofFile); throw error; }
     await dbService.addAuditLog(user, 'register', 'user', user.id);
 
-    const token = signToken(user);
-    return sendJson(res, 201, { token, user: sanitizeUser(user) }, req);
+    return sendJson(res, 201, { pending: true, message: 'Account request submitted. Your evidence and patient assignments must be approved before you can sign in.', user: sanitizeUser(user) }, req);
   }
 
   if (req.method === 'POST' && pathName === '/api/auth/login') {
@@ -378,6 +438,8 @@ async function handleAuth(req, res, pathName) {
       return sendJson(res, 401, { error: 'Invalid email or password' }, req);
     }
 
+    if (!hasApprovedAccess(user)) return sendJson(res, 403, { error: 'Account access is pending, rejected or suspended. Contact your approving doctor or project owner.' }, req);
+    if (body.role && body.role !== user.role) return sendJson(res, 403, { error: 'This account belongs to a different portal.' }, req);
     const token = signToken(user);
     return sendJson(res, 200, { token, user: sanitizeUser(user) }, req);
   }
@@ -423,6 +485,7 @@ async function handleElders(req, res, pathName, user) {
 
   if (req.method === 'POST' && pathName === '/api/elders') {
     if (!requireRole(user, ['caretaker'], res, req)) return;
+    if (isDemoAccount(user)) return sendJson(res, 403, { error: 'Demo accounts cannot enroll real patients. Use an approved nurse account.' }, req);
 
     const body = parseBody(elderSchema, await readJsonBody(req), res, req);
     if (!body) return;
@@ -475,10 +538,13 @@ async function handleAlerts(req, res, pathName, user) {
   if (req.method === 'POST' && pathName === '/api/alerts') {
     const alert = parseBody(alertSchema, await readJsonBody(req), res, req);
     if (!alert) return;
-    const elderId = alert.elder_id || alert.elderId;
+    const available = await dbService.getElders(user);
+    const elderId = alert.elder_id || alert.elderId || available.find(e => e.full_name === (alert.elder_name || alert.elderName))?.id;
+    if (!elderId) return sendJson(res, 400, { error: 'An assigned patient is required.' }, req);
+    alert.elder_id = elderId;
     if (elderId) {
       const owns = await dbService.userOwnsElder(user, elderId);
-      if (!owns && user.role !== 'caretaker') {
+      if (!owns) {
         return sendJson(res, 403, { error: 'Not allowed to create alert for this elder' }, req);
       }
     }
@@ -501,14 +567,21 @@ async function handleAlerts(req, res, pathName, user) {
     const updates = await readJsonBody(req);
     const existing = await dbService.getAlertById(id);
     if (!existing) return sendJson(res, 404, { error: 'Alert not found' }, req);
+    const accessible = await dbService.getAccessibleElderIds(user);
+    if (!accessible.includes(existing.elderId || existing.elder_id)) {
+      return sendJson(res, 403, { error: 'Not allowed to update this alert' }, req);
+    }
 
-    const updated = await dbService.updateAlert(id, updates);
+    const allowedUpdates = Object.fromEntries(['resolved', 'episode_recovered', 'appointmentDetails', 'message', 'severity'].filter(k => k in updates).map(k => [k, updates[k]]));
+    const updated = await dbService.updateAlert(id, allowedUpdates);
     await dbService.addAuditLog(user, 'update', 'alert', id, updates);
     return sendJson(res, 200, updated, req);
   }
 
   if (alertMatch && req.method === 'DELETE') {
     const id = decodeURIComponent(alertMatch[1]);
+    const existing = await dbService.getAlertById(id);
+    if (!existing || !(await dbService.userOwnsElder(user, existing.elder_id || existing.elderId))) return sendJson(res, 403, { error: 'Patient assignment required.' }, req);
     const deleted = await dbService.deleteAlert(id);
     if (!deleted) return sendJson(res, 404, { error: 'Alert not found' }, req);
     await dbService.addAuditLog(user, 'delete', 'alert', id, {});
@@ -549,6 +622,7 @@ async function handleMedications(req, res, pathName, user) {
     if (req.method === 'PUT') {
       const medication = parseBody(medicationSchema, await readJsonBody(req), res, req);
       if (!medication) return;
+      if (!(await dbService.userOwnsElder(user, medication.elder_id))) return sendJson(res, 403, { error: 'Patient assignment required.' }, req);
       const updated = await dbService.updateMedication(id, medication);
       await dbService.addAuditLog(user, 'update', 'medication', id, { elderId: medication.elder_id });
       return sendJson(res, 200, updated, req);
@@ -595,6 +669,7 @@ async function handleAlarms(req, res, pathName, user) {
     if (req.method === 'PUT') {
       const alarm = parseBody(alarmSchema, await readJsonBody(req), res, req);
       if (!alarm) return;
+      if (!(await dbService.userOwnsElder(user, alarm.elderId))) return sendJson(res, 403, { error: 'Patient assignment required.' }, req);
       const updated = await dbService.updateAlarm(id, alarm);
       await dbService.addAuditLog(user, 'update', 'alarm', id, { elderId: alarm.elderId });
       return sendJson(res, 200, updated, req);
@@ -616,7 +691,7 @@ async function handleVitals(req, res, pathName, user) {
     if (!parsed) return;
 
     const owns = await dbService.userOwnsElder(user, parsed.elderId);
-    if (!owns && user.role !== 'caretaker') {
+    if (!owns) {
       return sendJson(res, 403, { error: 'Not allowed to submit vitals for this elder' }, req);
     }
 
@@ -898,10 +973,12 @@ async function handleDevice(req, res, pathName, user) {
   if (req.method === 'POST' && (pathName === '/api/device/vitals' || pathName === '/api/device/telemetry')) {
     const body = await readJsonBody(req);
     const elderId = body.elderId || body.elder_id || 'elder-1';
+    const allowed = user.role === 'device' ? elderId === user.deviceElderId : await dbService.userOwnsElder(user, elderId);
+    if (!allowed) return sendJson(res, 403, { error: 'Device or patient assignment required.' }, req);
 
     // Parse hardware metrics (accepts camelCase and snake_case from ESP32)
     const heart_rate = Math.round(Number(body.heartRate ?? body.heart_rate ?? 75));
-    const spo2 = Math.round(Number(body.spo2 ?? 98));
+    const spo2 = Number(body.spo2 ?? 98);
     const skin_temp = Number(body.temperature ?? body.skin_temp ?? body.temp ?? 36.6);
     const systolic_bp = Math.round(Number(body.systolicBp ?? body.systolic_bp ?? 120));
     const diastolic_bp = Math.round(Number(body.diastolicBp ?? body.diastolic_bp ?? 80));
@@ -929,9 +1006,12 @@ async function handleDevice(req, res, pathName, user) {
       timestamp: body.timestamp || new Date().toISOString(),
     };
 
-    const saved = await dbService.createVitalsReading(reading);
+    const previousReading=(await dbService.getVitalsReadings(elderId,1))[0];
+    const validatedReading=parseBody(vitalsSchema,reading,res,req);
+    if (!validatedReading) return;
+    const saved = await dbService.createVitalsReading(validatedReading);
 
-    if (fall_detected) {
+    if (fall_detected && !previousReading?.fall_detected) {
       await dbService.createAlert(user, {
         elder_id: elderId,
         type: 'fall',
@@ -950,6 +1030,7 @@ async function handleDevice(req, res, pathName, user) {
   if (req.method === 'GET' && pathName === '/api/device/vitals') {
     const url = new URL(req.url || '/', `http://${req.headers.host}`);
     const elderId = url.searchParams.get('elderId') || 'elder-1';
+    if (!(await dbService.userOwnsElder(user, elderId))) return sendJson(res, 403, { error: 'Patient assignment required.' }, req);
     const readings = await dbService.getVitalsReadings(elderId, 1);
     return sendJson(res, 200, {
       ok: true,

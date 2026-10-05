@@ -279,23 +279,6 @@ const Settings: React.FC = () => {
           <h1 className="font-display text-2xl text-foreground">{t('nav.settings')}</h1>
         </div>
 
-        {/* Quick Header Clear History Button */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setConfirmClearAllOpen(true)}
-          disabled={clearingAlerts || totalCount === 0}
-          className="border-rose-500/40 text-rose-600 hover:bg-rose-500/10 hover:text-rose-700 dark:text-rose-400 gap-1.5"
-          title="Clear all alerts across portals"
-        >
-          <Trash2 className="h-4 w-4" />
-          <span className="hidden sm:inline">Clear Alert History</span>
-          {totalCount > 0 && (
-            <Badge variant={unresolvedCount > 0 ? 'destructive' : 'secondary'} className="ml-1 text-[10px] px-1.5 py-0 h-4">
-              {totalCount}
-            </Badge>
-          )}
-        </Button>
       </div>
 
       <div className="max-w-3xl mx-auto p-6">

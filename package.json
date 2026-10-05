@@ -12,7 +12,13 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:migrate": "node server/database-cli.js migrate",
+    "db:import": "node server/database-cli.js import",
+    "db:seed": "node server/database-cli.js seed",
+    "db:status": "node server/database-cli.js status",
+    "test:postgres": "node --test server/test/postgres.integration.test.js",
+    "db:local": "node server/local-postgres.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -1,6 +1,11 @@
+import { saveReportFile, loadReportFile } from './reportFiles.js';
+import { hasApprovedAccess, isDemoAccount, DEMO_PATIENT_IDS, safeEditableProfile } from './accessPolicy.js';
 import { mkdir, readFile, writeFile, rename, unlink, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
+import crypto from 'node:crypto';
+import { verifyMigrations } from './migrate.js';
+import { getAlertEpisodeKey, getCanonicalAnomalyType, isPhysiologicalEpisode } from '../src/lib/alertEpisodeIdentity.js';
 import { DATA_DIR, DATA_FILE } from './config.js';
 import { hashPassword } from './auth.js';
 
@@ -116,7 +121,7 @@ async function buildSeedUsers() {
       role: 'caretaker',
       phone: '+91 98765 43210',
       profile: {},
-      assignedElderIds: [],
+      assignedElderIds: ['elder-1', 'elder-2', 'elder-3'],
       createdAt: new Date().toISOString(),
     },
     {
@@ -220,13 +225,14 @@ if (DATABASE_URL) {
   try {
     pool = new Pool({
       connectionString: DATABASE_URL,
-      ssl: DATABASE_URL.includes('localhost') || DATABASE_URL.includes('127.0.0.1') ? false : { rejectUnauthorized: false },
+      ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: process.env.PGSSL_REJECT_UNAUTHORIZED !== 'false' } : undefined,
+      connectionTimeoutMillis: 5000, max: Number(process.env.PG_POOL_MAX || 10),
     });
-    console.log('PostgreSQL Pool initialized.');
+    pool.on?.('error', () => console.error('PostgreSQL connection lost; subsequent requests will retry through the pool.'));
+    console.log('PostgreSQL persistence selected.');
     usePostgres = true;
   } catch (err) {
-    console.error('Failed to initialize PostgreSQL pool:', err.message);
-    usePostgres = false;
+    throw new Error('Unable to initialize the configured PostgreSQL connection.');
   }
 } else {
   console.log('DATABASE_URL not set. Using JSON file database fallback.');
@@ -266,14 +272,11 @@ export async function initDb() {
     const seed = await createSeedDb();
     let changed = false;
     if (!Array.isArray(data.users)) data.users = [];
-    
+
     for (const seedUser of seed.users) {
       const existing = data.users.find((u) => u.email === seedUser.email);
       if (!existing) {
         data.users.push(seedUser);
-        changed = true;
-      } else if (existing.passwordHash !== seedUser.passwordHash) {
-        existing.passwordHash = seedUser.passwordHash;
         changed = true;
       }
     }
@@ -299,222 +302,7 @@ export async function initDb() {
     return;
   }
 
-  const client = await pool.connect();
-  try {
-    console.log('Initializing PostgreSQL database schema...');
-    await client.query('BEGIN');
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id VARCHAR(100) PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        role VARCHAR(50) NOT NULL,
-        phone VARCHAR(50),
-        profile JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS elders (
-        id VARCHAR(100) PRIMARY KEY,
-        owner_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
-        full_name VARCHAR(255) NOT NULL,
-        age INTEGER,
-        medical_conditions JSONB,
-        language_pref VARCHAR(50),
-        connection_status VARCHAR(50),
-        battery INTEGER,
-        last_vitals_at TIMESTAMP WITH TIME ZONE,
-        baselines_learned BOOLEAN DEFAULT FALSE,
-        baseline_day INTEGER,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS user_elders (
-        user_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        PRIMARY KEY (user_id, elder_id)
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS medications (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        owner_id VARCHAR(100) REFERENCES users(id) ON DELETE SET NULL,
-        brand_name VARCHAR(255) NOT NULL,
-        generic_name VARCHAR(255),
-        category VARCHAR(100),
-        dose_amount NUMERIC,
-        dose_unit VARCHAR(50),
-        frequency VARCHAR(255),
-        times JSONB,
-        instructions TEXT,
-        photo TEXT,
-        active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS alarms (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        owner_id VARCHAR(100) REFERENCES users(id) ON DELETE SET NULL,
-        title VARCHAR(255) NOT NULL,
-        time VARCHAR(50) NOT NULL,
-        type VARCHAR(100) NOT NULL,
-        status VARCHAR(50) DEFAULT 'Scheduled',
-        notes TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS vitals_readings (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        heart_rate INTEGER,
-        systolic_bp INTEGER,
-        diastolic_bp INTEGER,
-        spo2 INTEGER,
-        stress INTEGER,
-        hydration INTEGER,
-        breathing_rate INTEGER,
-        skin_temp NUMERIC,
-        shiver_detected BOOLEAN DEFAULT FALSE,
-        panic_detected BOOLEAN DEFAULT FALSE,
-        fall_detected BOOLEAN DEFAULT FALSE,
-        source VARCHAR(50) DEFAULT 'manual',
-        timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS clinical_notes (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        doctor_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
-        doctor_name VARCHAR(255),
-        note TEXT NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS reports (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        doctor_id VARCHAR(100) REFERENCES users(id) ON DELETE CASCADE,
-        doctor_name VARCHAR(255),
-        title VARCHAR(255) NOT NULL,
-        description TEXT,
-        file_url TEXT,
-        file_name VARCHAR(255),
-        file_data TEXT,
-        file_type VARCHAR(100),
-        file_size INTEGER,
-        category VARCHAR(100),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_name VARCHAR(255);
-      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_data TEXT;
-      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_type VARCHAR(100);
-      ALTER TABLE reports ADD COLUMN IF NOT EXISTS file_size INTEGER;
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS alerts (
-        id VARCHAR(100) PRIMARY KEY,
-        elder_id VARCHAR(100) REFERENCES elders(id) ON DELETE CASCADE,
-        owner_id VARCHAR(100) REFERENCES users(id) ON DELETE SET NULL,
-        type VARCHAR(100) NOT NULL,
-        severity VARCHAR(50) NOT NULL,
-        message TEXT NOT NULL,
-        location VARCHAR(255),
-        resolved BOOLEAN DEFAULT FALSE,
-        time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS audit_logs (
-        id VARCHAR(100) PRIMARY KEY,
-        user_id VARCHAR(100),
-        role VARCHAR(50),
-        action VARCHAR(100) NOT NULL,
-        entity_type VARCHAR(100) NOT NULL,
-        entity_id VARCHAR(100),
-        details JSONB,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS revoked_tokens (
-        token_id VARCHAR(255) PRIMARY KEY,
-        revoked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    const seed = await createSeedDb();
-    for (const u of seed.users) {
-      await client.query(
-        'INSERT INTO users (id, email, password_hash, name, role, phone, profile, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash',
-        [u.id, u.email, u.passwordHash, u.name, u.role, u.phone, JSON.stringify(u.profile), u.createdAt]
-      );
-    }
-
-    const { rows } = await client.query('SELECT COUNT(*) FROM elders');
-    if (parseInt(rows[0].count, 10) === 0) {
-      console.log('Seeding initial elders, medications, and alarms into PostgreSQL...');
-
-      for (const e of seed.elders) {
-        await client.query(
-          'INSERT INTO elders (id, owner_id, full_name, age, medical_conditions, language_pref, connection_status, battery, last_vitals_at, baselines_learned, baseline_day) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-          [e.id, e.ownerId, e.full_name, e.age, JSON.stringify(e.medical_conditions), e.language_pref, e.connection_status, e.battery, e.last_vitals_at, e.baselines_learned, e.baseline_day]
-        );
-      }
-
-      await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2), ($3, $4), ($5, $6), ($7, $8)', [
-        DEMO_DOCTOR_ID, 'elder-1',
-        DEMO_DOCTOR_ID, 'elder-2',
-        DEMO_DOCTOR_ID, 'elder-3',
-        DEMO_GUARDIAN_ID, 'elder-1'
-      ]);
-
-      for (const m of seed.medications) {
-        await client.query(
-          'INSERT INTO medications (id, elder_id, owner_id, brand_name, generic_name, category, dose_amount, dose_unit, frequency, times, instructions, photo, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
-          [m.id, m.elder_id, m.ownerId, m.brand_name, m.generic_name, m.category, m.dose_amount, m.dose_unit, m.frequency, JSON.stringify(m.times), m.instructions, m.photo, m.active]
-        );
-      }
-
-      for (const a of seed.alarms) {
-        await client.query(
-          'INSERT INTO alarms (id, elder_id, owner_id, title, time, type, status, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-          [a.id, a.elderId, a.ownerId, a.title, a.time, a.type, a.status, a.notes]
-        );
-      }
-      console.log('PostgreSQL database seeded successfully.');
-    }
-
-    await client.query('COMMIT');
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('Error during database schema initialization/seeding:', err.message);
-    throw err;
-  } finally {
-    client.release();
-  }
+  await verifyMigrations(pool);
 }
 
 // Local File DB Helper APIs
@@ -581,8 +369,98 @@ export async function writeDb(data) {
   return writeQueue;
 }
 
+// Serialize read/modify/write for the JSON adapter. PostgreSQL additionally
+// locks the elder row within a transaction, including across server processes.
+let alertMutationQueue = Promise.resolve();
+function serializeAlertMutation(operation) {
+  const result = alertMutationQueue.then(operation);
+  alertMutationQueue = result.catch(() => {});
+  return result;
+}
+
+async function createAlertRecord(user, alert) {
+  const elderId = alert.elderId || alert.elder_id;
+  const resolved = alert.resolved ?? false;
+  const key = getAlertEpisodeKey({ ...alert, elderId });
+  const managed = isPhysiologicalEpisode(alert);
+  const saved = {
+    id: alert.id || 'alert-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+    elderId, ownerId: user.role === 'device' ? null : user.id, type: alert.type, severity: alert.severity,
+    message: alert.message, location: alert.location || '', resolved,
+    anomaly_type: managed ? getCanonicalAnomalyType(alert) : null,
+    episode_recovered: false, time: alert.time || new Date().toISOString(),
+  };
+  let client;
+  try {
+    let records, fileDb;
+    if (usePostgres) {
+      client = await pool.connect();
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM elders WHERE id = $1 FOR UPDATE', [elderId]);
+      const result = await client.query('SELECT * FROM alerts WHERE elder_id = $1 ORDER BY time DESC', [elderId]);
+      records = result.rows;
+    } else {
+      fileDb = await readDb();
+      fileDb.alerts ||= [];
+      records = fileDb.alerts;
+    }
+    const matching = records.filter(a => getAlertEpisodeKey(a) === key)
+      .sort((a, b) => new Date(b.time) - new Date(a.time));
+    // Idempotent retries must never reopen a resolved alert.
+    const sameId = records.find(a => a.id === saved.id);
+    const latest = matching[0];
+    const acknowledged = managed && latest?.resolved && latest.anomaly_type && !latest.episode_recovered;
+    const existing = sameId || (!resolved && (acknowledged ? latest : matching.find(a => !a.resolved && !a.episode_recovered)));
+    let result;
+    if (existing) {
+      result = { ...existing };
+      if (!existing.resolved) {
+        result.message = saved.message;
+        result.time = saved.time;
+        result.severity = saved.severity === 'critical' ? 'critical' : existing.severity;
+        result.anomaly_type ||= saved.anomaly_type;
+        if (usePostgres) await client.query(
+          'UPDATE alerts SET message = $1, time = $2, severity = $3, anomaly_type = $4 WHERE id = $5',
+          [result.message, result.time, result.severity, result.anomaly_type, existing.id]);
+        else Object.assign(existing, result);
+      }
+    } else {
+      result = saved;
+      if (usePostgres) await client.query(
+        'INSERT INTO alerts (id, elder_id, owner_id, type, severity, message, location, resolved, time, anomaly_type, episode_recovered) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+        [saved.id, elderId, saved.ownerId, saved.type, saved.severity, saved.message, saved.location, resolved, saved.time, saved.anomaly_type, false]);
+      else fileDb.alerts.unshift(saved);
+    }
+    let name;
+    if (usePostgres) {
+      const { rows } = await client.query('SELECT full_name FROM elders WHERE id = $1', [elderId]);
+      name = rows[0]?.full_name || '';
+      await client.query('COMMIT');
+    } else {
+      await writeDb(fileDb);
+      name = fileDb.elders.find(e => e.id === elderId)?.full_name || '';
+    }
+    return { ...result, elderId, elder_id: elderId, elderName: name, elder_name: name,
+      time: result.time instanceof Date ? result.time.toISOString() : result.time };
+  } catch (err) {
+    if (client) await client.query('ROLLBACK');
+    throw err;
+  } finally { client?.release(); }
+}
+
 // Main DB Service Class Interface
 export const dbService = {
+  acknowledgeReminder: async (user, body) => {
+    if (usePostgres) {
+      await pool.query('INSERT INTO reminder_acknowledgements(elder_id,reminder_id,occurrence_date,user_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [body.elderId,body.reminderId,body.occurrenceDate,user.id]);
+    } else { const data=await readDb(); data.reminderAcknowledgements ||= []; if (!data.reminderAcknowledgements.some(r=>r.elderId===body.elderId && r.reminderId===body.reminderId && r.occurrenceDate===body.occurrenceDate)) { data.reminderAcknowledgements.push({...body,userId:user.id,acknowledgedAt:new Date().toISOString()}); await writeDb(data); } }
+    return { ...body, verified:true };
+  },
+  getReminderAcknowledgements: async (user) => {
+    const ids=await dbService.getAccessibleElderIds(user);
+    if (usePostgres) { const {rows}=await pool.query('SELECT * FROM reminder_acknowledgements WHERE elder_id=ANY($1) ORDER BY acknowledged_at DESC',[ids]); return rows.map(r=>({elderId:r.elder_id,reminderId:r.reminder_id,occurrenceDate:String(r.occurrence_date).slice(0,10),acknowledgedAt:r.acknowledged_at})); }
+    return ((await readDb()).reminderAcknowledgements || []).filter(r=>ids.includes(r.elderId));
+  },
   // --- USERS ---
   findUserByEmail: async (email) => {
     const normalized = String(email || '').trim().toLowerCase();
@@ -633,15 +511,20 @@ export const dbService = {
 
   createUser: async (user) => {
     if (usePostgres) {
-      await pool.query(
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      await client.query(
         'INSERT INTO users (id, email, password_hash, name, role, phone, profile, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
         [user.id, user.email, user.passwordHash, user.name, user.role, user.phone, JSON.stringify(user.profile), user.createdAt]
       );
       if (user.assignedElderIds && user.assignedElderIds.length > 0) {
         for (const elderId of user.assignedElderIds) {
-          await pool.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.id, elderId]);
+          await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.id, elderId]);
         }
       }
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
       return user;
     } else {
       const fileDb = await readDb();
@@ -651,15 +534,48 @@ export const dbService = {
     }
   },
 
+  listUsers: async () => {
+    if (usePostgres) {
+      const { rows } = await pool.query('SELECT id FROM users');
+      return Promise.all(rows.map(u => dbService.findUserById(u.id)));
+    }
+    return (await readDb()).users;
+  },
+  setUserAccess: async (id, verification, assignedElderIds) => {
+    if (usePostgres) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query('SELECT profile FROM users WHERE id = $1 FOR UPDATE', [id]);
+        if (!rows.length) throw new Error('Account not found');
+        const profile = { ...(rows[0].profile || {}), accessVerification: verification };
+        await client.query('UPDATE users SET profile = $1 WHERE id = $2', [JSON.stringify(profile), id]);
+        await client.query('DELETE FROM user_elders WHERE user_id = $1', [id]);
+        for (const elderId of assignedElderIds) await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1,$2)', [id, elderId]);
+        await client.query('COMMIT');
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
+    } else {
+      const data = await readDb();
+      const account = data.users.find(u => u.id === id);
+      if (!account) throw new Error('Account not found');
+      account.profile = { ...(account.profile || {}), accessVerification: verification };
+      account.assignedElderIds = [...new Set(assignedElderIds)];
+      await writeDb(data);
+    }
+    return dbService.findUserById(id);
+  },
+
   updateUserProfile: async (id, name, phone, profile) => {
+    profile = safeEditableProfile(profile);
     if (usePostgres) {
       const existing = await dbService.findUserById(id);
       if (!existing) return null;
 
       const mergedProfile = { ...(existing.profile || {}), ...(profile || {}) };
       await pool.query(
-        'UPDATE users SET name = COALESCE($1, name), phone = COALESCE($2, phone), profile = $3 WHERE id = $4',
-        [name, phone, JSON.stringify(mergedProfile), id]
+        "UPDATE users SET name = COALESCE($1, name), phone = COALESCE($2, phone), profile = COALESCE(profile, '{}'::jsonb) || $3::jsonb WHERE id = $4",
+        [name, phone, JSON.stringify(profile), id]
       );
       return await dbService.findUserById(id);
     } else {
@@ -683,72 +599,22 @@ export const dbService = {
 
   // --- ELDERS ---
   getAccessibleElderIds: async (user) => {
-    const demoElderIds = ['elder-1', 'elder-2', 'elder-3'];
-    if (usePostgres) {
-      if (user.role === 'caretaker') {
-        const { rows } = await pool.query(
-          "SELECT id FROM elders WHERE owner_id = $1 OR id = ANY($2)",
-          [user.id, demoElderIds]
-        );
-        if (rows.length > 0) return rows.map((r) => r.id);
-        const { rows: allElders } = await pool.query('SELECT id FROM elders');
-        return allElders.map((r) => r.id);
-      }
-      if (user.role === 'guardian') {
-        const elderName = String(user.profile?.elderName || '').trim().toLowerCase();
-        const { rows: rels } = await pool.query('SELECT elder_id FROM user_elders WHERE user_id = $1', [user.id]);
-        const explicitIds = rels.map((r) => r.elder_id);
-
-        let namedIds = [];
-        if (elderName) {
-          const { rows: namedElders } = await pool.query('SELECT id FROM elders WHERE LOWER(TRIM(full_name)) = $1', [elderName]);
-          namedIds = namedElders.map((r) => r.id);
-        }
-
-        const combined = [...new Set([...explicitIds, ...namedIds])];
-        if (combined.length > 0) return combined;
-        if (user.id === DEMO_GUARDIAN_ID) return ['elder-1'];
-        return [];
-      }
-      if (user.role === 'doctor') {
-        const { rows: rels } = await pool.query('SELECT elder_id FROM user_elders WHERE user_id = $1', [user.id]);
-        const explicit = rels.map((r) => r.elder_id);
-        const combined = [...new Set([...explicit, ...demoElderIds])];
-        if (combined.length > 0) return combined;
-
-        const { rows: allElders } = await pool.query('SELECT id FROM elders');
-        return allElders.map((r) => r.id);
-      }
-      return demoElderIds;
-    } else {
-      const fileDb = await readDb();
-      if (user.role === 'caretaker') {
-        const owned = fileDb.elders
-          .filter((elder) => elder.ownerId === user.id || demoElderIds.includes(elder.id) || (user.assignedElderIds && user.assignedElderIds.includes(elder.id)))
-          .map((elder) => elder.id);
-        if (owned.length > 0) return [...new Set(owned)];
-        return fileDb.elders.map((elder) => elder.id);
-      }
-      if (user.role === 'guardian') {
-        const elderName = String(user.profile?.elderName || '').trim().toLowerCase();
-        const byAssignment = user.assignedElderIds || [];
-        const byName = elderName
-          ? fileDb.elders
-              .filter((elder) => elder.full_name.trim().toLowerCase() === elderName)
-              .map((elder) => elder.id)
-          : [];
-        const combined = [...new Set([...byAssignment, ...byName])];
-        if (combined.length > 0) return combined;
-        if (user.id === DEMO_GUARDIAN_ID) return ['elder-1'];
-        return [];
-      }
-      if (user.role === 'doctor') {
-        const byAssignment = user.assignedElderIds || [];
-        const combined = [...new Set([...byAssignment, ...demoElderIds])];
-        return combined.length > 0 ? combined : fileDb.elders.map((elder) => elder.id);
-      }
-      return fileDb.elders.map((elder) => elder.id);
+    const stored = await dbService.findUserById(user?.id);
+    if (!stored || !hasApprovedAccess(stored)) return [];
+    let ids = stored.assignedElderIds || [];
+    if (isDemoAccount(stored)) {
+      // Known demo accounts never inherit real patients, even through ownership.
+      if (stored.id === DEMO_CARETAKER_ID && ids.length === 0) ids = DEMO_PATIENT_IDS;
+      return ids.filter(id => DEMO_PATIENT_IDS.includes(id));
     }
+    if (stored.role === 'caretaker' || stored.role === 'guardian') {
+      const verification = stored.profile?.accessVerification;
+      if (stored.role === 'caretaker' && !['nurse', 'assistant'].includes(verification?.staffKind)) return [];
+      const doctor = await dbService.findUserById(verification.supervisingDoctorId);
+      if (doctor?.role !== 'doctor' || doctor.profile?.accessVerification?.status !== 'approved') return [];
+      ids = ids.filter(id => doctor.assignedElderIds?.includes(id));
+    }
+    return [...new Set(ids)];
   },
 
   getElders: async (user) => {
@@ -818,15 +684,27 @@ export const dbService = {
     };
 
     if (usePostgres) {
-      await pool.query(
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      await client.query(
         'INSERT INTO elders (id, owner_id, full_name, age, medical_conditions, language_pref, connection_status, battery, last_vitals_at, baselines_learned, baseline_day) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
         [elder.id, elder.ownerId, elder.full_name, elder.age, JSON.stringify(elder.medical_conditions), elder.language_pref, elder.connection_status, elder.battery, elder.last_vitals_at, elder.baselines_learned, elder.baseline_day]
       );
-      await pool.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.id, elder.id]);
+      await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [user.id, elder.id]);
+      const doctorId = user.profile?.accessVerification?.supervisingDoctorId;
+      if (doctorId) await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [doctorId, elder.id]);
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
       return elder;
     } else {
       const fileDb = await readDb();
       fileDb.elders.unshift(elder);
+      const staff = fileDb.users.find(u => u.id === user.id);
+      if (staff) staff.assignedElderIds = [...new Set([...(staff.assignedElderIds || []), elder.id])];
+      const doctorId = user.profile?.accessVerification?.supervisingDoctorId;
+      const doctor = fileDb.users.find(u => u.id === doctorId);
+      if (doctor) doctor.assignedElderIds = [...new Set([...(doctor.assignedElderIds || []), elder.id])];
       await writeDb(fileDb);
       return elder;
     }
@@ -883,7 +761,7 @@ export const dbService = {
   // --- MEDICATIONS ---
   createMedication: async (user, med) => {
     const saved = {
-      id: med.id || `med-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: med.id || 'med-' + crypto.createHash('sha256').update(JSON.stringify([med.elder_id,med.brand_name,med.generic_name,med.dose_amount,med.dose_unit,med.frequency,[...(med.times || [])].sort()])).digest('hex').slice(0,32),
       elder_id: med.elder_id,
       ownerId: user.id,
       brand_name: med.brand_name,
@@ -899,13 +777,23 @@ export const dbService = {
     };
 
     if (usePostgres) {
-      await pool.query(
-        'INSERT INTO medications (id, elder_id, owner_id, brand_name, generic_name, category, dose_amount, dose_unit, frequency, times, instructions, photo, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      const inserted=await client.query(
+        'INSERT INTO medications (id, elder_id, owner_id, brand_name, generic_name, category, dose_amount, dose_unit, frequency, times, instructions, photo, active) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (id) DO NOTHING',
         [saved.id, saved.elder_id, saved.ownerId, saved.brand_name, saved.generic_name, saved.category, saved.dose_amount, saved.dose_unit, saved.frequency, JSON.stringify(saved.times), saved.instructions, saved.photo, saved.active]
       );
-      return saved;
+        const storedIdentity=(await client.query('SELECT elder_id FROM medications WHERE id=$1 FOR UPDATE',[saved.id])).rows[0];
+        if (storedIdentity?.elder_id !== saved.elder_id) throw Object.assign(new Error('Record identity conflicts with another patient.'),{statusCode:409});
+      if(inserted.rowCount) for (const [position,time] of saved.times.entries()) await client.query('INSERT INTO medication_schedules(medication_id,time,position) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',[saved.id,time,position]);
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      return dbService.getMedicationById(saved.id);
     } else {
       const fileDb = await readDb();
+      const existing=fileDb.medications.find(m=>m.id===saved.id);
+      if(existing){if(existing.elder_id!==saved.elder_id)throw Object.assign(new Error('Record identity conflict.'),{statusCode:409});return existing;}
       fileDb.medications.unshift(saved);
       await writeDb(fileDb);
       return saved;
@@ -914,7 +802,7 @@ export const dbService = {
 
   getMedicationById: async (id) => {
     if (usePostgres) {
-      const { rows } = await pool.query('SELECT * FROM medications WHERE id = $1', [id]);
+      const { rows } = await pool.query('SELECT m.*, COALESCE((SELECT jsonb_agg(s.time ORDER BY s.position) FROM medication_schedules s WHERE s.medication_id=m.id), m.times) AS times FROM medications m WHERE id = $1', [id]);
       if (!rows.length) return null;
       const m = rows[0];
       return {
@@ -940,10 +828,17 @@ export const dbService = {
 
   updateMedication: async (id, med) => {
     if (usePostgres) {
-      await pool.query(
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      await client.query(
         'UPDATE medications SET brand_name = $1, generic_name = $2, category = $3, dose_amount = $4, dose_unit = $5, frequency = $6, times = $7, instructions = $8, photo = $9, active = $10 WHERE id = $11',
         [med.brand_name, med.generic_name, med.category, med.dose_amount, med.dose_unit, med.frequency, JSON.stringify(med.times), med.instructions, med.photo, med.active !== undefined ? med.active : true, id]
       );
+      await client.query('DELETE FROM medication_schedules WHERE medication_id=$1',[id]);
+      for (const [position,time] of med.times.entries()) await client.query('INSERT INTO medication_schedules(medication_id,time,position) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',[id,time,position]);
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
       return await dbService.getMedicationById(id);
     } else {
       const fileDb = await readDb();
@@ -970,7 +865,7 @@ export const dbService = {
   // --- ALARMS ---
   createAlarm: async (user, alarm) => {
     const saved = {
-      id: alarm.id || `alarm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: alarm.id || 'alarm-' + crypto.createHash('sha256').update(JSON.stringify([alarm.elderId,alarm.title,alarm.time,alarm.type,alarm.appointmentId,alarm.appointmentDate,alarm.isOneHourReminder])).digest('hex').slice(0,32),
       elderId: alarm.elderId,
       ownerId: user.id,
       title: alarm.title,
@@ -978,16 +873,31 @@ export const dbService = {
       type: alarm.type,
       status: alarm.status || 'Scheduled',
       notes: alarm.notes || '',
+      appointmentId: alarm.appointmentId, appointmentDate: alarm.appointmentDate,
+      appointmentTime: alarm.appointmentTime, doctorName: alarm.doctorName,
+      isOneHourReminder: alarm.isOneHourReminder || false, repeat: alarm.repeat || 'daily',
     };
 
     if (usePostgres) {
-      await pool.query(
-        'INSERT INTO alarms (id, elder_id, owner_id, title, time, type, status, notes) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-        [saved.id, saved.elderId, saved.ownerId, saved.title, saved.time, saved.type, saved.status, saved.notes]
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      if(saved.appointmentId && user.role!=='doctor')throw Object.assign(new Error('Only doctors book an appointment.'),{statusCode:403});
+      if (saved.appointmentId) await client.query('INSERT INTO appointments (id, elder_id, doctor_id, appointment_date, appointment_time, doctor_name, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO NOTHING', [saved.appointmentId, saved.elderId, user.id, saved.appointmentDate, saved.appointmentTime, saved.doctorName, saved.notes]);
+      if(saved.appointmentId){const appointment=(await client.query('SELECT elder_id,doctor_id FROM appointments WHERE id=$1 FOR UPDATE',[saved.appointmentId])).rows[0];if(appointment.elder_id!==saved.elderId || appointment.doctor_id!==user.id)throw Object.assign(new Error('Appointment identity conflict.'),{statusCode:409});}
+      await client.query(
+        'INSERT INTO alarms (id, elder_id, owner_id, title, time, type, status, notes, appointment_id, appointment_date, appointment_time, doctor_name, is_one_hour_reminder, repeat) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT (id) DO NOTHING',
+        [saved.id, saved.elderId, saved.ownerId, saved.title, saved.time, saved.type, saved.status, saved.notes, saved.appointmentId, saved.appointmentDate, saved.appointmentTime, saved.doctorName, saved.isOneHourReminder, saved.repeat]
       );
-      return saved;
+        const storedIdentity=(await client.query('SELECT elder_id FROM alarms WHERE id=$1 FOR UPDATE',[saved.id])).rows[0];
+        if (storedIdentity?.elder_id !== saved.elderId) throw Object.assign(new Error('Record identity conflicts with another patient.'),{statusCode:409});
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      return dbService.getAlarmById(saved.id);
     } else {
       const fileDb = await readDb();
+      const existing=fileDb.alarms.find(a=>a.id===saved.id);
+      if(existing){if(existing.elderId!==saved.elderId)throw Object.assign(new Error('Record identity conflict.'),{statusCode:409});return existing;}
       fileDb.alarms.unshift(saved);
       await writeDb(fileDb);
       return saved;
@@ -1008,6 +918,8 @@ export const dbService = {
         type: a.type,
         status: a.status,
         notes: a.notes,
+        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? String(a.appointment_date).slice(0,10) : undefined,
+        appointmentTime: a.appointment_time, doctorName: a.doctor_name, isOneHourReminder: a.is_one_hour_reminder, repeat: a.repeat,
       };
     } else {
       const fileDb = await readDb();
@@ -1017,10 +929,15 @@ export const dbService = {
 
   updateAlarm: async (id, alarm) => {
     if (usePostgres) {
-      await pool.query(
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+      await client.query(
         'UPDATE alarms SET title = $1, time = $2, type = $3, status = $4, notes = $5 WHERE id = $6',
         [alarm.title, alarm.time, alarm.type, alarm.status, alarm.notes, id]
       );
+        await client.query('COMMIT');
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
       return await dbService.getAlarmById(id);
     } else {
       const fileDb = await readDb();
@@ -1034,7 +951,7 @@ export const dbService = {
 
   deleteAlarm: async (id) => {
     if (usePostgres) {
-      await pool.query('DELETE FROM alarms WHERE id = $1 OR appointment_id = $1', [id]);
+      await pool.query('DELETE FROM alarms WHERE id = $1 OR appointment_id = (SELECT appointment_id FROM alarms WHERE id = $1)', [id]);
       return { id };
     } else {
       const fileDb = await readDb();
@@ -1056,11 +973,11 @@ export const dbService = {
     if (usePostgres) {
       if (elderIds.length === 0) return [];
       const { rows } = await pool.query(
-        `SELECT a.*, e.full_name as elder_name FROM alerts a 
+        `SELECT a.*, e.full_name as elder_name FROM alerts a
          LEFT JOIN elders e ON a.elder_id = e.id
-         WHERE a.owner_id = $1 OR a.elder_id = ANY($2) 
+         WHERE a.elder_id = ANY($1)
          ORDER BY a.time DESC LIMIT 200`,
-        [user.id, elderIds]
+        [elderIds]
       );
       return rows.map((a) => ({
         id: a.id,
@@ -1074,12 +991,15 @@ export const dbService = {
         message: a.message,
         location: a.location,
         resolved: a.resolved,
+        anomaly_type: a.anomaly_type,
+        episode_recovered: a.episode_recovered,
+        appointmentDetails: a.appointment_details,
         time: a.time ? a.time.toISOString() : null,
       }));
     } else {
       const fileDb = await readDb();
       return (fileDb.alerts || []).filter((alert) => {
-        if (alert.ownerId === user.id) return true;
+        if (elderIds.length === 0) return false;
         if (alert.elder_id && elderIds.includes(alert.elder_id)) return true;
         if (alert.elderId && elderIds.includes(alert.elderId)) return true;
         return false;
@@ -1087,118 +1007,7 @@ export const dbService = {
     }
   },
 
-  createAlert: async (user, alert) => {
-    const elderId = alert.elderId || alert.elder_id;
-    const resolved = alert.resolved !== undefined ? alert.resolved : false;
-
-    // Canonical anomaly type helper
-    const getCanonicalType = (a) => {
-      const t = (a.type || '').toUpperCase();
-      const m = `${a.message || ''}`.toUpperCase();
-      if (t === 'LOW_SPO2' || m.includes('SPO2') || m.includes('OXYGEN') || m.includes('HYPOXEMIA')) return 'LOW_SPO2';
-      if (t === 'HIGH_BP' || m.includes('SPIKE') || m.includes('ELEVATED') || m.includes('HYPERTENSIVE') || m.includes('CRISIS')) return 'HIGH_BP';
-      if (t === 'LOW_BP' || m.includes('DROPPED') || m.includes('HYPOTENSION') || m.includes('SHOCK')) return 'LOW_BP';
-      if (t === 'HIGH_HR' || m.includes('TACHYCARDIA') || m.includes('SURGE')) return 'HIGH_HEART_RATE';
-      if (t === 'LOW_HR' || m.includes('BRADYCARDIA') || m.includes('DECREASED')) return 'LOW_HEART_RATE';
-      if (t === 'HIGH_TEMPERATURE' || m.includes('FEVER')) return 'HIGH_TEMPERATURE';
-      if (t === 'LOW_TEMPERATURE' || m.includes('HYPOTHERMIA')) return 'LOW_TEMPERATURE';
-      if (t === 'SOS' || m.includes('SOS')) return 'SOS';
-      if (t === 'FALL' || m.includes('FALL')) return 'FALL';
-      if (t === 'GEOFENCE' || m.includes('GEOFENCE')) return 'GEOFENCE';
-      if (t === 'MISSED_MED' || m.includes('MEDICINE') || m.includes('MEDICATION')) return 'MISSED_MED';
-      return t || 'VITAL_ABNORMAL';
-    };
-
-    const canonicalType = getCanonicalType(alert);
-
-    // Episode deduplication: If creating an active alert and one already exists for this elder & type
-    if (!resolved) {
-      if (usePostgres) {
-        const { rows } = await pool.query(
-          'SELECT * FROM alerts WHERE elder_id = $1 AND resolved = false ORDER BY time DESC',
-          [elderId]
-        );
-        const existing = rows.find((r) => getCanonicalType(r) === canonicalType);
-        if (existing) {
-          const updatedTime = alert.time || new Date().toISOString();
-          const nextSeverity = alert.severity === 'critical' ? 'critical' : existing.severity;
-          await pool.query(
-            'UPDATE alerts SET time = $1, message = $2, severity = $3 WHERE id = $4',
-            [updatedTime, alert.message, nextSeverity, existing.id]
-          );
-          const { rows: elderRows } = await pool.query('SELECT full_name FROM elders WHERE id = $1', [elderId]);
-          return {
-            ...existing,
-            time: updatedTime,
-            message: alert.message,
-            severity: nextSeverity,
-            elder_id: elderId,
-            elderName: elderRows[0]?.full_name || '',
-            elder_name: elderRows[0]?.full_name || '',
-          };
-        }
-      } else {
-        const fileDb = await readDb();
-        fileDb.alerts = fileDb.alerts || [];
-        const existingIdx = fileDb.alerts.findIndex(
-          (a) => !a.resolved && (a.elderId === elderId || a.elder_id === elderId) && getCanonicalType(a) === canonicalType
-        );
-        if (existingIdx >= 0) {
-          const updatedTime = alert.time || new Date().toISOString();
-          fileDb.alerts[existingIdx].time = updatedTime;
-          fileDb.alerts[existingIdx].message = alert.message;
-          if (alert.severity === 'critical') fileDb.alerts[existingIdx].severity = 'critical';
-          await writeDb(fileDb);
-          const elder = (fileDb.elders || []).find((e) => e.id === elderId);
-          return {
-            ...fileDb.alerts[existingIdx],
-            elder_id: elderId,
-            elderName: elder?.full_name || '',
-            elder_name: elder?.full_name || '',
-          };
-        }
-      }
-    }
-
-    const saved = {
-      id: alert.id || `alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      elderId,
-      ownerId: user.id,
-      type: alert.type,
-      severity: alert.severity,
-      message: alert.message,
-      location: alert.location || '',
-      resolved,
-      time: alert.time || new Date().toISOString(),
-    };
-
-    if (usePostgres) {
-      await pool.query(
-        'INSERT INTO alerts (id, elder_id, owner_id, type, severity, message, location, resolved, time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-        [saved.id, saved.elderId, saved.ownerId, saved.type, saved.severity, saved.message, saved.location, saved.resolved, saved.time]
-      );
-      const { rows } = await pool.query('SELECT full_name FROM elders WHERE id = $1', [saved.elderId]);
-      return {
-        ...saved,
-        elder_id: saved.elderId,
-        elderName: rows[0]?.full_name || '',
-        elder_name: rows[0]?.full_name || '',
-      };
-    } else {
-      const fileDb = await readDb();
-      fileDb.alerts = fileDb.alerts || [];
-      fileDb.alerts.unshift(saved);
-      await writeDb(fileDb);
-
-      const elder = fileDb.elders.find((e) => e.id === saved.elderId);
-      return {
-        ...saved,
-        elder_id: saved.elderId,
-        elderName: elder?.full_name || '',
-        elder_name: elder?.full_name || '',
-      };
-    }
-  },
+  createAlert: async (user, alert) => serializeAlertMutation(() => createAlertRecord(user, alert)),
 
   getAlertById: async (id) => {
     if (usePostgres) {
@@ -1220,6 +1029,9 @@ export const dbService = {
         message: a.message,
         location: a.location,
         resolved: a.resolved,
+        anomaly_type: a.anomaly_type,
+        episode_recovered: a.episode_recovered,
+        appointmentDetails: a.appointment_details,
         time: a.time ? a.time.toISOString() : null,
       };
     } else {
@@ -1228,45 +1040,50 @@ export const dbService = {
     }
   },
 
-  updateAlert: async (id, updates) => {
+  updateAlert: async (id, updates) => serializeAlertMutation(async () => {
+    // Only alert-state fields can be updated; callers cannot change ownership.
+    const allowed = ['message', 'severity', 'time', 'location', 'resolved', 'episode_recovered', 'appointmentDetails'];
+    const patch = Object.fromEntries(Object.entries(updates).filter(([key]) => allowed.includes(key)));
     if (usePostgres) {
-      const sets = [];
-      const vals = [];
-      let idx = 1;
-
-      for (const [k, v] of Object.entries(updates)) {
-        if (k === 'id' || k === 'elderName' || k === 'elder_name') continue;
-        const col = k === 'elderId' || k === 'elder_id' ? 'elder_id' : k;
-        sets.push(`${col} = $${idx}`);
-        vals.push(v);
-        idx++;
-      }
-
-      if (sets.length === 0) return await dbService.getAlertById(id);
-
-      vals.push(id);
-      await pool.query(`UPDATE alerts SET ${sets.join(', ')} WHERE id = $${idx}`, vals);
-      return await dbService.getAlertById(id);
-    } else {
-      const fileDb = await readDb();
-      const idx = (fileDb.alerts || []).findIndex((a) => a.id === id);
-      if (idx === -1) return null;
-      fileDb.alerts[idx] = { ...fileDb.alerts[idx], ...updates, id };
-      await writeDb(fileDb);
-      const elder = fileDb.elders.find((e) => e.id === fileDb.alerts[idx].elderId);
-      return {
-        ...fileDb.alerts[idx],
-        elder_name: elder?.full_name || '',
-        elderName: elder?.full_name || '',
-      };
+      const existing = await dbService.getAlertById(id);
+      if (!existing) return null;
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM elders WHERE id = $1 FOR UPDATE', [existing.elderId]);
+        const sets = [];
+        const values = [];
+        for (const [key, value] of Object.entries(patch)) {
+          values.push(key === 'appointmentDetails' ? JSON.stringify(value) : value);
+          const position = '$' + values.length;
+          sets.push(key === 'episode_recovered' || key === 'resolved' ? key + ' = COALESCE(' + key + ', false) OR ' + position : (key === 'appointmentDetails' ? 'appointment_details' : key) + ' = ' + position);
+        }
+        if (sets.length) {
+          values.push(id);
+          await client.query('UPDATE alerts SET ' + sets.join(', ') + ' WHERE id = $' + values.length, values);
+        }
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK'); throw err;
+      } finally { client.release(); }
+      return dbService.getAlertById(id);
     }
-  },
+    const fileDb = await readDb();
+    const index = (fileDb.alerts || []).findIndex(a => a.id === id);
+    if (index < 0) return null;
+    const existing = fileDb.alerts[index];
+    fileDb.alerts[index] = { ...existing, ...patch,
+      resolved: existing.resolved || patch.resolved || false,
+      episode_recovered: existing.episode_recovered || patch.episode_recovered || false };
+    await writeDb(fileDb);
+    return fileDb.alerts[index];
+  }),
 
   clearAlerts: async (user, onlyResolved = false) => {
     const elderIds = await dbService.getAccessibleElderIds(user);
     if (usePostgres) {
-      let query = 'DELETE FROM alerts WHERE (owner_id = $1 OR elder_id = ANY($2))';
-      const params = [user.id, elderIds];
+      let query = 'DELETE FROM alerts WHERE elder_id = ANY($1)';
+      const params = [elderIds];
       if (onlyResolved) {
         query += ' AND resolved = true';
       }
@@ -1277,9 +1094,6 @@ export const dbService = {
       const initialCount = (fileDb.alerts || []).length;
       fileDb.alerts = (fileDb.alerts || []).filter((alert) => {
         const belongsToUser =
-          user.role === 'caretaker' ||
-          user.role === 'doctor' ||
-          alert.ownerId === user.id ||
           (alert.elder_id && elderIds.includes(alert.elder_id)) ||
           (alert.elderId && elderIds.includes(alert.elderId));
         if (!belongsToUser) return true;
@@ -1328,19 +1142,39 @@ export const dbService = {
     };
 
     if (usePostgres) {
-      await pool.query(
+      const client=await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM elders WHERE id=$1 FOR UPDATE',[saved.elderId]);
+        const current=(await client.query('SELECT * FROM vitals_latest WHERE elder_id=$1',[saved.elderId])).rows[0];
+        if(saved.source==='simulator' && current?.source==='device' && Date.now()-new Date(current.timestamp).getTime()<60000) {
+          await client.query('COMMIT');return {...current,elderId:saved.elderId,spo2:Number(current.spo2),skin_temp:Number(current.skin_temp)};
+        }
+
+      await client.query(
+        `INSERT INTO vitals_latest (
+          id, elder_id, heart_rate, systolic_bp, diastolic_bp, spo2, stress, hydration, breathing_rate, skin_temp, shiver_detected, panic_detected, fall_detected, source, timestamp
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) ON CONFLICT (elder_id) DO UPDATE SET id=EXCLUDED.id, heart_rate=EXCLUDED.heart_rate, systolic_bp=EXCLUDED.systolic_bp, diastolic_bp=EXCLUDED.diastolic_bp, spo2=EXCLUDED.spo2, stress=EXCLUDED.stress, hydration=EXCLUDED.hydration, breathing_rate=EXCLUDED.breathing_rate, skin_temp=EXCLUDED.skin_temp, shiver_detected=EXCLUDED.shiver_detected, panic_detected=EXCLUDED.panic_detected, fall_detected=EXCLUDED.fall_detected, source=EXCLUDED.source, timestamp=EXCLUDED.timestamp WHERE vitals_latest.timestamp <= EXCLUDED.timestamp`,
+        [saved.id, saved.elderId, saved.heart_rate, saved.systolic_bp, saved.diastolic_bp, saved.spo2, saved.stress, saved.hydration, saved.breathing_rate, saved.skin_temp, saved.shiver_detected, saved.panic_detected, saved.fall_detected, saved.source, saved.timestamp]
+      );
+        const previous=(await client.query('SELECT timestamp FROM vitals_readings WHERE elder_id=$1 ORDER BY timestamp DESC LIMIT 1',[saved.elderId])).rows[0];
+        const interval=Math.max(1000,Number(process.env.TELEMETRY_HISTORY_INTERVAL_MS || 10000));
+        if (!previous || saved.fall_detected || new Date(saved.timestamp)-new Date(previous.timestamp)>=interval) {
+      await client.query(
         `INSERT INTO vitals_readings (
           id, elder_id, heart_rate, systolic_bp, diastolic_bp, spo2, stress, hydration, breathing_rate, skin_temp, shiver_detected, panic_detected, fall_detected, source, timestamp
          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
         [saved.id, saved.elderId, saved.heart_rate, saved.systolic_bp, saved.diastolic_bp, saved.spo2, saved.stress, saved.hydration, saved.breathing_rate, saved.skin_temp, saved.shiver_detected, saved.panic_detected, saved.fall_detected, saved.source, saved.timestamp]
       );
-      await pool.query('UPDATE elders SET last_vitals_at = $1 WHERE id = $2', [saved.timestamp, saved.elderId]);
-      return saved;
+        }
+        await client.query('UPDATE elders SET last_vitals_at=GREATEST(last_vitals_at,$1::timestamptz) WHERE id=$2',[saved.timestamp,saved.elderId]);
+        await client.query('COMMIT'); return saved;
+      } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
     } else {
       const fileDb = await readDb();
       fileDb.vitalsReadings = fileDb.vitalsReadings || [];
       fileDb.vitalsReadings.unshift(saved);
-      
+
       const idx = fileDb.elders.findIndex((e) => e.id === saved.elderId);
       if (idx !== -1) {
         fileDb.elders[idx].last_vitals_at = saved.timestamp;
@@ -1353,7 +1187,7 @@ export const dbService = {
   getVitalsReadings: async (elderId, limit = 100) => {
     if (usePostgres) {
       const { rows } = await pool.query(
-        'SELECT * FROM vitals_readings WHERE elder_id = $1 ORDER BY timestamp DESC LIMIT $2',
+        limit === 1 ? 'SELECT * FROM vitals_latest WHERE elder_id = $1 ORDER BY timestamp DESC LIMIT $2' : 'SELECT * FROM vitals_readings WHERE elder_id = $1 ORDER BY timestamp DESC LIMIT $2',
         [elderId, limit]
       );
       return rows.map((v) => ({
@@ -1362,7 +1196,7 @@ export const dbService = {
         heart_rate: v.heart_rate,
         systolic_bp: v.systolic_bp,
         diastolic_bp: v.diastolic_bp,
-        spo2: v.spo2,
+        spo2: Number(v.spo2),
         stress: v.stress,
         hydration: v.hydration,
         breathing_rate: v.breathing_rate,
@@ -1450,9 +1284,10 @@ export const dbService = {
     };
 
     if (usePostgres) {
+      const filePath=fileData ? await saveReportFile(fileData) : null;
       await pool.query(
-        'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, file_name, file_data, file_type, file_size, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)',
-        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.fileName, saved.fileData, saved.fileType, saved.fileSize, saved.createdAt]
+        'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, file_name, file_data, file_type, file_size, created_at, file_path) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
+        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.fileName, null, saved.fileType, saved.fileSize, saved.createdAt, filePath]
       );
       const { fileData: _, ...meta } = saved;
       return meta;
@@ -1514,7 +1349,7 @@ export const dbService = {
         category: r.category,
         fileUrl: r.file_url,
         fileName: r.file_name,
-        fileData: r.file_data,
+        fileData: r.file_path ? (await loadReportFile(r.file_path)).toString('base64') : r.file_data,
         fileType: r.file_type,
         fileSize: r.file_size,
         createdAt: r.created_at ? r.created_at.toISOString() : null,
@@ -1541,7 +1376,7 @@ export const dbService = {
   getCareTeam: async (elderId) => {
     if (usePostgres) {
       const { rows } = await pool.query(
-        `SELECT u.id, u.name, u.email, u.phone, u.profile 
+        `SELECT u.id, u.name, u.email, u.phone, u.profile
          FROM users u
          JOIN user_elders ue ON u.id = ue.user_id
          WHERE ue.elder_id = $1 AND u.role = 'doctor'`,
@@ -1630,7 +1465,7 @@ export const dbService = {
       }
 
       const { rows: medications } = await pool.query(
-        'SELECT * FROM medications WHERE elder_id = ANY($1) ORDER BY brand_name ASC',
+        'SELECT m.*, COALESCE((SELECT jsonb_agg(s.time ORDER BY s.position) FROM medication_schedules s WHERE s.medication_id=m.id), m.times) AS times FROM medications m WHERE elder_id = ANY($1) ORDER BY brand_name ASC',
         [elderIds]
       );
       const cleanMedications = medications.map((m) => ({
@@ -1663,6 +1498,8 @@ export const dbService = {
         type: a.type,
         status: a.status,
         notes: a.notes,
+        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? String(a.appointment_date).slice(0,10) : undefined,
+        appointmentTime: a.appointment_time, doctorName: a.doctor_name, isOneHourReminder: a.is_one_hour_reminder, repeat: a.repeat,
       }));
 
       const alerts = await dbService.getAlerts(user);
@@ -1676,7 +1513,7 @@ export const dbService = {
         }
       }
 
-      return { elders, medications: cleanMedications, alarms: cleanAlarms, alerts, vitals };
+      return { elders, medications: cleanMedications, alarms: cleanAlarms, alerts, vitals, reminderAcknowledgements: await dbService.getReminderAcknowledgements(user) };
     } else {
       const fileDb = await readDb();
       const medications = fileDb.medications.filter((med) => elderIds.includes(med.elder_id));
@@ -1685,7 +1522,7 @@ export const dbService = {
         return { ...a, elderName: elder?.full_name || '' };
       });
       const alerts = (fileDb.alerts || []).filter((alert) => {
-        if (alert.ownerId === user.id) return true;
+        if (elderIds.length === 0) return false;
         if (alert.elder_id && elderIds.includes(alert.elder_id)) return true;
         if (alert.elderId && elderIds.includes(alert.elderId)) return true;
         const elderName = alert.elder_name || alert.elderName;
@@ -1706,10 +1543,14 @@ export const dbService = {
         }
       }
 
-      return { elders, medications, alarms, alerts, vitals };
+      return { elders, medications, alarms, alerts, vitals, reminderAcknowledgements: await dbService.getReminderAcknowledgements(user) };
     }
   },
 };
+
+export async function closeDb() { if (pool) await pool.end(); }
+export const databasePool = pool;
+export function persistenceMode() { return usePostgres ? 'postgresql' : 'json'; }
 
 export function newId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;

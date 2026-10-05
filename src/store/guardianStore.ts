@@ -1,6 +1,12 @@
+import { apiFetch, getStoredToken } from '@/lib/api';
+import { patientStorage } from '@/lib/patientStorage';
 import { create } from 'zustand';
-import { calculateMinutesBefore } from '@/lib/syncChannel';
+import { useAppStore } from '@/store';
+import { reconcileAlertEpisodes } from '@/lib/alertEpisodeIdentity.js';
+import { subscribeToGcareBroadcast, calculateMinutesBefore } from '@/lib/syncChannel';
 import { getAlertEpisodeKey, markEpisodeAcknowledged } from '@/lib/anomalyDetector';
+
+function localDay() { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 
 export interface Reminder {
   id: string;
@@ -12,6 +18,7 @@ export interface Reminder {
   repeat: 'daily' | 'weekly' | 'custom' | 'once';
   verified: boolean;
   createdAt?: string;
+  acknowledgementDate?: string;
   // Medication specific
   photo?: string;
   pillName?: string;
@@ -37,8 +44,10 @@ export interface GuardianAlert {
   message: string;
   time: string;
   acknowledged: boolean;
+  episode_recovered?: boolean;
   elderName: string;
   elderId?: string;
+  anomaly_type?: string;
 }
 
 export interface GuardianLog {
@@ -77,7 +86,7 @@ interface GuardianStore {
   addReminder: (r: Reminder) => void;
   removeReminder: (id: string) => void;
   updateReminder: (id: string, r: Partial<Reminder>) => void;
-  verifyReminder: (id: string) => void;
+  verifyReminder: (id: string) => boolean | Promise<boolean>;
   setReminders: (reminders: Reminder[]) => void;
   alerts: GuardianAlert[];
   addGuardianAlert: (a: GuardianAlert) => void;
@@ -138,7 +147,7 @@ function getStoredGuardianUser(): GuardianStore['guardianUser'] {
     return null;
   }
 
-  const rawUser = window.localStorage.getItem(GUARDIAN_USER_STORAGE_KEY);
+  const rawUser = patientStorage().getItem(GUARDIAN_USER_STORAGE_KEY);
   if (!rawUser) {
     return null;
   }
@@ -178,24 +187,15 @@ const INITIAL_GUARDIAN_ALERTS: GuardianAlert[] = [
 
 function getStoredGuardianAlerts(): GuardianAlert[] {
   if (typeof window === 'undefined' || !window.localStorage || typeof window.localStorage.getItem !== 'function') return INITIAL_GUARDIAN_ALERTS;
-  const raw = window.localStorage.getItem(GUARDIAN_ALERTS_STORAGE_KEY);
+  const raw = patientStorage().getItem(GUARDIAN_ALERTS_STORAGE_KEY);
   if (raw === null) return INITIAL_GUARDIAN_ALERTS;
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return INITIAL_GUARDIAN_ALERTS;
     if (parsed.length === 0) return [];
     const sanitized = parsed.map(sanitizeAlert);
-    // Deduplicate repetitive alerts for the same elder and type to eliminate accumulated spam
-    const seen = new Set<string>();
-    const deduplicated: GuardianAlert[] = [];
-    for (const a of sanitized) {
-      const key = `${a.elderName || ''}-${a.type}-${a.severity}-${a.acknowledged}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduplicated.push(a);
-      }
-    }
-    return deduplicated.slice(0, 15);
+    return reconcileAlertEpisodes(sanitized.map(a => ({ ...a, resolved: a.acknowledged })))
+      .map(a => ({ ...a, acknowledged: a.resolved }));
   } catch {
     return INITIAL_GUARDIAN_ALERTS;
   }
@@ -203,7 +203,7 @@ function getStoredGuardianAlerts(): GuardianAlert[] {
 
 function storeGuardianAlerts(alerts: GuardianAlert[]) {
   if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
-    window.localStorage.setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts.slice(0, 15)));
+    patientStorage().setItem(GUARDIAN_ALERTS_STORAGE_KEY, JSON.stringify(alerts));
   }
 }
 
@@ -212,9 +212,9 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
   setGuardianUser: (u) => {
     if (typeof window !== 'undefined' && window.localStorage && typeof window.localStorage.setItem === 'function') {
       if (u) {
-        window.localStorage.setItem(GUARDIAN_USER_STORAGE_KEY, JSON.stringify(u));
+        patientStorage().setItem(GUARDIAN_USER_STORAGE_KEY, JSON.stringify(u));
       } else {
-        window.localStorage.removeItem(GUARDIAN_USER_STORAGE_KEY);
+        patientStorage().removeItem(GUARDIAN_USER_STORAGE_KEY);
       }
     }
 
@@ -297,12 +297,19 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
 
     return { reminders: next };
   }),
-  verifyReminder: (id) => set((s) => ({
-    reminders: s.reminders.map(r => r.id === id ? { ...r, verified: true } : r),
-  })),
-  setReminders: (reminders) => set({ reminders }),
+  verifyReminder: (id) => {
+    const target=useGuardianStore.getState().reminders.find(r=>r.id===id);
+    const occurrenceDate=localDay();
+    const commit=()=>set(s=>({reminders:s.reminders.map(r=>r.id===id?{...r,verified:true,acknowledgementDate:occurrenceDate}:r)}));
+    if (getStoredToken() && target?.elderId) {
+      return apiFetch('/reminder-acknowledgements',{method:'POST',body:JSON.stringify({elderId:target.elderId,reminderId:id,occurrenceDate})}).then(()=>{commit();return true;}).catch(()=>false);
+    } else {commit();return true;}
+  },
+  setReminders: (reminders) => set(s=>({reminders:reminders.map(r=>{const previous=s.reminders.find(p=>p.id===r.id);return previous?.verified && previous.acknowledgementDate===localDay()?{...r,verified:true,acknowledgementDate:previous.acknowledgementDate}:r;})})),
+  alerts: getStoredGuardianAlerts(),
   addGuardianAlert: (a) => set((s) => {
     const sanitized = sanitizeAlert(a);
+    if (!sanitized.acknowledged && s.alerts.some(existing => existing.id === sanitized.id && existing.acknowledged)) return {};
     // Prevent duplicate unacknowledged alerts for the same elder & condition
     if (!sanitized.acknowledged) {
       const incomingKey = getAlertEpisodeKey({
@@ -314,7 +321,7 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
 
       const existingIdx = s.alerts.findIndex(
         (existing) =>
-          !existing.acknowledged &&
+          !existing.acknowledged && !existing.episode_recovered && !sanitized.episode_recovered &&
           getAlertEpisodeKey({
             elderId: existing.elderId,
             elderName: existing.elderName,
@@ -328,7 +335,7 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
         updated[existingIdx] = {
           ...updated[existingIdx],
           ...sanitized,
-          id: sanitized.id || updated[existingIdx].id,
+          id: updated[existingIdx].id,
           time: sanitized.time,
           message: sanitized.message,
           severity: sanitized.severity === 'critical' ? 'critical' : updated[existingIdx].severity,
@@ -337,7 +344,7 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
         return { alerts: updated };
       }
     }
-    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)].slice(0, 20);
+    const nextAlerts = [sanitized, ...s.alerts.filter((item) => item.id !== sanitized.id)];
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
@@ -346,26 +353,20 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     storeGuardianAlerts(nextAlerts);
     return { alerts: nextAlerts };
   }),
-  acknowledgeAlert: (id) => set((s) => {
-    const target = s.alerts.find(a => a.id === id);
-    const nextAlerts = s.alerts.map(a => a.id === id ? { ...a, acknowledged: true } : a);
-    storeGuardianAlerts(nextAlerts);
-
-    if (target) {
-      markEpisodeAcknowledged(getAlertEpisodeKey({ elderId: target.elderId, elderName: target.elderName, type: target.type, message: target.message }));
-      markEpisodeAcknowledged(target.id);
-    }
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('gcare:acknowledge-alert', {
-          detail: { id, elderName: target?.elderName, elderId: target?.elderId },
-        })
-      );
-    }
-
-    return { alerts: nextAlerts };
-  }),
+  acknowledgeAlert: (id) => {
+    const state = useGuardianStore.getState();
+    const target = state.alerts.find(a => a.id === id);
+    if (!target || target.acknowledged) return;
+    const episodeKey = getAlertEpisodeKey(target);
+    state.updateGuardianAlertInPlace(id, { acknowledged: true });
+    if (!target.episode_recovered) markEpisodeAcknowledged(episodeKey);
+    const app = useAppStore.getState();
+    const matching = app.activeAlerts.find(a => !a.resolved && a.id === id);
+    if (matching) app.resolveAlert(matching.id);
+    else window.dispatchEvent(new CustomEvent('gcare:acknowledge-alert', {
+      detail: { id, episodeKey, elderId: target.elderId, elderName: target.elderName },
+    }));
+  },
   clearAlerts: (mode: 'all' | 'resolved' = 'resolved', elderName?: string) => set((s) => {
     const nextAlerts = s.alerts.filter((a) => {
       // If elderName is specified, only clear for that elder (RBAC)
@@ -412,27 +413,27 @@ if (typeof window !== 'undefined') {
     }
   });
 
-  window.addEventListener('gcare:acknowledge-alert', (e: Event) => {
-    const customEvent = e as CustomEvent<{ id?: string; elderId?: string; elderName?: string }>;
-    const { id, elderId, elderName } = customEvent.detail || {};
+  const applyAcknowledgement = (detail: { id?: string; episodeKey?: string; elderId?: string; elderName?: string }) => {
+    const { id, episodeKey, elderId, elderName } = detail;
     const state = useGuardianStore.getState();
-    let changed = false;
-    const nextAlerts = state.alerts.map((a) => {
-      const matchesId = id && a.id === id;
-      const matchesElder =
-        (elderName && a.elderName?.trim().toLowerCase() === elderName.trim().toLowerCase()) ||
-        (elderId && a.elderId === elderId);
-      if ((matchesId || matchesElder) && !a.acknowledged) {
-        changed = true;
-        return { ...a, acknowledged: true };
-      }
-      return a;
+    const alerts = state.alerts.map(a => {
+      const matches = id ? a.id === id :
+        episodeKey ? getAlertEpisodeKey(a) === episodeKey : (elderId && a.elderId === elderId) || (elderName && a.elderName === elderName);
+      return matches ? { ...a, acknowledged: true } : a;
     });
-
-    if (changed) {
-      storeGuardianAlerts(nextAlerts);
-      useGuardianStore.setState({ alerts: nextAlerts });
+    storeGuardianAlerts(alerts);
+    useGuardianStore.setState({ alerts });
+  };
+  window.addEventListener('gcare:acknowledge-alert', (event: Event) =>
+    applyAcknowledgement((event as CustomEvent).detail || {}));
+  subscribeToGcareBroadcast(msg => {
+    if (msg.type === 'ALERT_ACKNOWLEDGED' || msg.type === 'ALERT_RESOLVED') applyAcknowledgement(msg);
+    if (msg.type === 'EPISODE_STATE_SYNC' && msg.episodeStatus === 'NORMAL') {
+      const state = useGuardianStore.getState();
+      const alerts = state.alerts.map(a => getAlertEpisodeKey(a) === msg.episodeKey
+        ? { ...a, episode_recovered: true } : a);
+      storeGuardianAlerts(alerts);
+      useGuardianStore.setState({ alerts });
     }
   });
 }
-

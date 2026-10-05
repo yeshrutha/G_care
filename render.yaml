@@ -6,9 +6,13 @@ services:
   - type: web
     name: g-care
     env: node
-    plan: free
+    plan: starter
+    disk:
+      name: gcare-files
+      mountPath: /var/data
+      sizeGB: 1
     buildCommand: npm install --legacy-peer-deps && npm run build
-    startCommand: npm start
+    startCommand: npm run db:migrate && npm start
     envVars:
       - key: NODE_ENV
         value: production
@@ -17,4 +21,7 @@ services:
           name: g-care-db
           property: connectionString
       - key: JWT_SECRET
-        generateValue: true
+        generateValue: true      - key: DATA_DIR
+        value: /var/data/gcare
+      - key: DEMO_AUTH_ENABLED
+        value: false

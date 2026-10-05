@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(() => Promise.resolve(null)), getStoredToken: () => null, getStoredUser: () => null }));
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '@/store';
 import { useGuardianStore } from '@/store/guardianStore';
 import { getElderBaseline, simulateNextVitals } from '@/lib/vitalsSimulator';
@@ -9,6 +10,7 @@ describe('Watch Simulator Alert Acknowledgment & Normalization', () => {
   const venkatesh = DEMO_ELDERS.find((e) => e.id === 'elder-3')!;
 
   beforeEach(() => {
+    window.localStorage.removeItem('gcare_episode_lifecycle');
     useAppStore.setState({ activeAlerts: [] });
     useGuardianStore.setState({ alerts: [] });
   });
@@ -29,14 +31,14 @@ describe('Watch Simulator Alert Acknowledgment & Normalization', () => {
     }
   });
 
-  it('resolving alert in useAppStore dispatches event and stabilizes elder vitals', () => {
+  it('resolving an alert silences its episode without inventing recovered vitals', () => {
     // 1. Simulate anomaly
     useAppStore.getState().injectVitalsAnomaly(venkatesh.id, { heart_rate: 135, spo2: 89 });
     const abnormalVitals = useAppStore.getState().demoVitals[venkatesh.id];
     expect(abnormalVitals.heart_rate).toBe(135);
 
     // 2. Add alert
-    const alertId = 'alert-test-1';
+    const alertId = useAppStore.getState().activeAlerts.find(a => a.type === 'high_hr')!.id;
     useAppStore.getState().addAlert({
       id: alertId,
       elder_id: venkatesh.id,
@@ -67,13 +69,14 @@ describe('Watch Simulator Alert Acknowledgment & Normalization', () => {
     // 4. Verify resolution
     expect(useAppStore.getState().activeAlerts.find((a) => a.id === alertId)?.resolved).toBe(true);
 
-    // 5. Verify vitals normalized back to healthy baseline
+    // Acknowledgement is not physiological recovery.
     const restoredVitals = useAppStore.getState().demoVitals[venkatesh.id];
-    expect(restoredVitals.heart_rate).toBeLessThan(100);
-    expect(restoredVitals.spo2).toBeGreaterThanOrEqual(95.0);
+    expect(restoredVitals.heart_rate).toBe(135);
+    expect(restoredVitals.spo2).toBe(89);
 
     const clearedAnomalies = detectVitalsAnomalies(venkatesh, restoredVitals);
-    expect(clearedAnomalies).toEqual([]);
+    expect(clearedAnomalies.length).toBeGreaterThan(0);
+    expect(useAppStore.getState().activeAlerts.find(a => a.type === 'low_spo2')?.resolved).toBe(false);
   });
 
   it('initial seed alerts reflect appointment booked and resolved', () => {

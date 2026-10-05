@@ -1,3 +1,5 @@
+import { getStoredToken } from '@/lib/api';
+import { isPhysiologicalEpisode } from '@/lib/alertEpisodeIdentity.js';
 import React, {
   useCallback,
   useEffect,
@@ -93,7 +95,7 @@ import {
 
 import { useAppStore } from '@/store';
 import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
-import { detectVitalsAnomalies } from '@/lib/anomalyDetector';
+import { getActiveWatchAnomalies } from '@/lib/anomalyDetector';
 
 import {
   useGuardianStore,
@@ -247,6 +249,8 @@ const WatchSimulator: React.FC<
     useAppStore(
       (state) => state.addAlert,
     );
+
+  const injectVitalsAnomaly = useAppStore(state => state.injectVitalsAnomaly);
 
   const activeElderId = useAppStore(
     (state) => state.activeElderId,
@@ -405,6 +409,21 @@ const WatchSimulator: React.FC<
   >('idle');
 
   const selectedElderId = activeElderId || 'elder-1';
+  useEffect(() => {
+    if (!open || !getStoredToken()) return;
+    // Save only the displayed watch patient, at most once per 30 seconds.
+    // The live display/polling interval remains unchanged.
+    let inFlight=false;
+    const timer=window.setInterval(async()=>{
+      if(inFlight || !getStoredToken()) return;
+      const state=useAppStore.getState(); const reading=state.demoVitals[selectedElderId];
+      if(!state.simulationEnabled || !reading || !state.demoElders.some(e=>e.id===selectedElderId))return;
+      inFlight=true;
+      try {await apiFetch('/vitals',{method:'POST',body:JSON.stringify({...reading,elderId:selectedElderId,source:'simulator',timestamp:new Date().toISOString()})});} catch {} finally {inFlight=false;}
+    },30000);
+    return ()=>window.clearInterval(timer);
+  },[open,selectedElderId]);
+
   const setSelectedElderId = useCallback(
     (id: string) => {
       setActiveElderId(id);
@@ -462,7 +481,7 @@ const WatchSimulator: React.FC<
   );
 
   const activeElder = useMemo(() => {
-    const list = demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS;
+    const list = getStoredToken() ? demoElders : (demoElders.length > 0 ? demoElders : DEMO_ELDERS);
     const found = list.find((e) => e.id === selectedElderId) || list[0];
     return found;
   }, [
@@ -519,10 +538,12 @@ const WatchSimulator: React.FC<
     const unsubscribeBroadcast = subscribeToGcareBroadcast((msg) => {
       if (msg.type === 'APPOINTMENT_SCHEDULED') {
         const targetElderId = msg.elderId;
+        if (!open || targetElderId !== selectedElderId) return;
 
         // 1. Turn OFF the red anomaly / SOS alert on the watch
         setDismissedWatchAlerts((prev) => ({ ...prev, [targetElderId]: true }));
-        stabilizeElderVitals(targetElderId);
+        const targetAlert = useAppStore.getState().activeAlerts.find(a => a.id === msg.alertId);
+        if (targetAlert && !isPhysiologicalEpisode(targetAlert)) stabilizeElderVitals(targetElderId);
         stopAlertLoop();
 
         const lang = msg.language || (activeElder?.language_pref || 'kn');
@@ -549,7 +570,10 @@ const WatchSimulator: React.FC<
         triggerAlert('medicine');
 
         // 4. Voice output in preferred language!
-        speakText(spoken, speechLang);
+        speakText(spoken, speechLang, () => {
+          setAppointmentNotice(null);
+          setWatchScreenMode('main');
+        });
 
         toast({
           title: lang === 'kn' ? '📅 ಅಪಾಯಿಂಟ್‌ಮೆಂಟ್ ನಿಗದಿಯಾಗಿದೆ' :
@@ -567,7 +591,6 @@ const WatchSimulator: React.FC<
         const targetId = msg.elderId || (activeElder ? activeElder.id : null);
         if (targetId) {
           setDismissedWatchAlerts((prev) => ({ ...prev, [targetId]: true }));
-          stabilizeElderVitals(targetId);
         }
         stopAlertLoop();
       }
@@ -577,7 +600,7 @@ const WatchSimulator: React.FC<
       window.removeEventListener('gcare:acknowledge-alert', handleAcknowledge);
       unsubscribeBroadcast();
     };
-  }, [demoElders, activeElder, stabilizeElderVitals]);
+  }, [demoElders, activeElder, stabilizeElderVitals, open, selectedElderId]);
 
   const handleTriggerWatchSos = useCallback(() => {
     if (!activeElder) return;
@@ -610,7 +633,7 @@ const WatchSimulator: React.FC<
       resolved: false,
     };
 
-    addAlert(sosAlert);
+    addCaretakerAlert(sosAlert);
     addGuardianAlert({
       id: `guardian-${sosAlert.id}`,
       elderId: activeElder.id,
@@ -642,61 +665,23 @@ const WatchSimulator: React.FC<
       description: `Emergency alert sent from ${activeElder.full_name}'s watch to Doctor Portal and Guardian.`,
       variant: 'destructive',
     });
-  }, [activeElder, injectVitalsAnomaly, addAlert, addGuardianAlert]);
+  }, [activeElder, injectVitalsAnomaly, addCaretakerAlert, addGuardianAlert]);
 
   const activeWatchAnomalies = useMemo(() => {
     if (!activeElder || !activeVitals) return [];
-    if (dismissedWatchAlerts[activeElder.id]) return [];
-
-    const rawAnomalies = detectVitalsAnomalies(activeElder, activeVitals);
-    if (rawAnomalies.length === 0) return [];
-
-    const elderName = activeElder.full_name?.trim().toLowerCase();
-    const elderId = activeElder.id;
-
-    // Check if there is an unacknowledged / unresolved alert for this elder
-    const hasUnresolvedAppAlert = activeAlerts.some(
-      (a) =>
-        !a.resolved &&
-        (a.elder_id === elderId ||
-          (a.elder_name && a.elder_name.trim().toLowerCase() === elderName))
-    );
-
-    const hasUnacknowledgedGuardianAlert = guardianAlerts.some(
-      (a) =>
-        !a.acknowledged &&
-        ((a.elderName && a.elderName.trim().toLowerCase() === elderName) ||
-          (a.elderId && a.elderId === elderId))
-    );
-
-    // If alerts for this elder are already acknowledged or resolved by Doctor / Caretaker / Guardian
-    if (!hasUnresolvedAppAlert && !hasUnacknowledgedGuardianAlert) {
-      return [];
-    }
-
-    return rawAnomalies;
-  }, [activeElder, activeVitals, activeAlerts, guardianAlerts, dismissedWatchAlerts]);
+    return getActiveWatchAnomalies(activeElder, activeVitals, activeAlerts);
+  }, [activeElder, activeVitals, activeAlerts]);
 
   const handleDismissWatchAnomaly = useCallback((elderId: string) => {
     setDismissedWatchAlerts((prev) => ({ ...prev, [elderId]: true }));
-    stabilizeElderVitals(elderId);
     stopAlertLoop();
 
     const elder = demoElders.find((e) => e.id === elderId) || activeElder;
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('gcare:acknowledge-alert', {
-          detail: { elderId, elderName: elder?.full_name },
-        })
-      );
-    }
-
     const matchingAppAlerts = activeAlerts.filter(
       (a) => !a.resolved && (a.elder_id === elderId || a.elder_name === elder?.full_name)
     );
     matchingAppAlerts.forEach((a) => {
       resolveAlert(a.id);
-      apiFetch(`/alerts/${a.id}`, { method: 'PUT', body: JSON.stringify({ resolved: true }) }).catch(() => {});
     });
 
     const matchingGuardianAlerts = guardianAlerts.filter(
@@ -708,9 +693,9 @@ const WatchSimulator: React.FC<
 
     toast({
       title: 'Alert Turned Off on Watch',
-      description: `${elder?.full_name || 'Patient'} vitals safe & stabilized. Clinician notified.`,
+      description: `${elder?.full_name || 'Patient'} current alerts acknowledged. Clinician notified.`,
     });
-  }, [demoElders, activeElder, activeAlerts, guardianAlerts, resolveAlert, acknowledgeGuardianAlert, stabilizeElderVitals]);
+  }, [demoElders, activeElder, activeAlerts, guardianAlerts, resolveAlert, acknowledgeGuardianAlert]);
 
   const profileLanguage =
     resolveSpeechLanguage(
@@ -1113,7 +1098,7 @@ const WatchSimulator: React.FC<
    */
 
   const dismissGuardianAlarm =
-    useCallback(() => {
+    useCallback(async () => {
       if (!activeGuardianAlarm) {
         return;
       }
@@ -1149,9 +1134,10 @@ const WatchSimulator: React.FC<
         },
       );
 
-      verifyReminder(
-        activeGuardianAlarm.id,
-      );
+      if (!(await verifyReminder(activeGuardianAlarm.id))) {
+        toast({title:'Unable to save acknowledgement',description:'Please try again when the connection is available.',variant:'destructive'});
+        return;
+      }
 
       setActiveGuardianAlarmId(
         null,
@@ -2425,7 +2411,7 @@ const WatchSimulator: React.FC<
                     <SelectValue placeholder="Select patient" />
                   </SelectTrigger>
                   <SelectContent className="border-white/15 bg-slate-900 text-white">
-                    {(demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS).map(
+                    {(getStoredToken() ? demoElders : (demoElders.length > 0 ? demoElders : DEMO_ELDERS)).map(
                       (elder) => (
                         <SelectItem key={elder.id} value={elder.id} className="text-xs focus:bg-teal/20 focus:text-teal">
                           {elder.full_name} ({elder.age}y)
@@ -2737,22 +2723,10 @@ const WatchSimulator: React.FC<
                     </div>
 
                     {/* -------------------------------- */}
-                    {/* EMERGENCY SOS BUTTON              */}
-                    {/* -------------------------------- */}
-                    <button
-                      type="button"
-                      onClick={handleTriggerWatchSos}
-                      className="mb-3 w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 py-2 px-3 text-xs font-bold text-white shadow-lg shadow-red-950/50 border border-red-400/40 active:scale-95 transition-all cursor-pointer"
-                    >
-                      <ShieldAlert className="h-4 w-4 animate-bounce shrink-0 text-white" />
-                      <span>🚨 ತುರ್ತು SOS / EMERGENCY SOS</span>
-                    </button>
-
-                    {/* -------------------------------- */}
                     {/* VITALS                            */}
                     {/* -------------------------------- */}
 
-                    <div className="flex-1 space-y-2.5 overflow-hidden">
+                    <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto pr-1">
 
                       <div className="flex items-center justify-between px-1">
                         <span className="text-[10px] uppercase tracking-wider font-semibold text-teal/90 flex items-center gap-1">
@@ -2846,6 +2820,10 @@ const WatchSimulator: React.FC<
                               </Badge>
                             </div>
 
+                            <p className="mt-2 text-xs leading-relaxed text-emerald-100">
+                              {appointmentNotice.displayText || appointmentNotice.kannadaMessage}
+                            </p>
+
                             <div className="mt-2 space-y-1 text-xs">
                               <div className="flex items-center justify-between text-[11px] text-emerald-100">
                                 <span className="text-slate-300">{dateLabel}</span>
@@ -2877,7 +2855,7 @@ const WatchSimulator: React.FC<
                             <div className="mt-2 flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => speakText(appointmentNotice.spokenText || appointmentNotice.kannadaMessage, appointmentNotice.speechLang || 'kn-IN')}
+                                onClick={() => speakText(appointmentNotice.spokenText || appointmentNotice.kannadaMessage, appointmentNotice.speechLang || 'kn-IN', () => { setAppointmentNotice(null); setWatchScreenMode('main'); })}
                                 className="flex-1 rounded-xl bg-teal/25 hover:bg-teal/35 border border-teal/40 py-1.5 px-2 text-[10px] font-semibold text-teal-200 flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                               >
                                 <Volume2 className="h-3.5 w-3.5 text-teal-300 shrink-0" />
@@ -3172,6 +3150,18 @@ const WatchSimulator: React.FC<
 
                         </div>
                       )}
+
+                    {/* -------------------------------- */}
+                    {/* EMERGENCY SOS BUTTON              */}
+                    {/* -------------------------------- */}
+                    <button
+                      type="button"
+                      onClick={handleTriggerWatchSos}
+                      className="mt-4 w-full flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-500 py-2 px-3 text-xs font-bold text-white shadow-lg shadow-red-950/50 border border-red-400/40 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <ShieldAlert className="h-4 w-4 shrink-0 text-white" />
+                      <span>🚨 ತುರ್ತು SOS / EMERGENCY SOS</span>
+                    </button>
 
                     </div>
 

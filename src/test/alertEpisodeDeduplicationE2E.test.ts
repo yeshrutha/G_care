@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+vi.mock('@/lib/api', () => ({ apiFetch: vi.fn(() => Promise.resolve(null)), getStoredToken: () => null, getStoredUser: () => null }));
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useAppStore } from '@/store';
 import { useGuardianStore } from '@/store/guardianStore';
 import { DEMO_ELDERS, DEMO_VITALS } from '@/lib/demoData';
@@ -18,6 +19,7 @@ describe('ALERT EPISODE DEDUPLICATION & LIFECYCLE (TEST SUITE A-J)', () => {
   const venkatesh = DEMO_ELDERS.find((e) => e.id === 'elder-3')!;
 
   beforeEach(() => {
+    window.localStorage.removeItem('gcare_episode_lifecycle');
     resetAllEpisodeRecords();
     clearAnomalyCooldowns();
     useAppStore.setState({ activeAlerts: [] });

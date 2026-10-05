@@ -1,3 +1,4 @@
+import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
@@ -67,6 +68,7 @@ const GuardianDashboard: React.FC = () => {
     Promise.all([apiFetch<any[]>('/alerts'), apiFetch<any>('/dashboard-data')])
       .then(([serverAlerts, dashboard]) => {
         if (cancelled) return;
+        hydrateAlertRecords(serverAlerts || []);
         (serverAlerts || []).filter((alert) => alert.type === 'appointment').forEach((alert) => {
           const appointmentElder = alert.elder_name || alert.elderName || guardianUser?.elderName || 'Registered elder';
           if (guardianUser?.elderName && !isAlertForElder({ ...alert, elderName: appointmentElder }, guardianUser.elderName)) {

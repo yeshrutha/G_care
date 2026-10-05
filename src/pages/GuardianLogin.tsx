@@ -1,3 +1,4 @@
+import VerificationFields, { emptyVerification } from '@/components/VerificationFields';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -14,6 +15,8 @@ const GuardianLogin: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { login, register, loading } = useAuthStore();
+  const [verification, setVerification] = useState(emptyVerification);
+  const [success, setSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: '', password: '', name: '', phone: '', elderName: '' });
   const [isSignup, setIsSignup] = useState(false);
@@ -23,6 +26,7 @@ const GuardianLogin: React.FC = () => {
     e.preventDefault();
     setError('');
 
+    if (isSignup && !verification.proofFile) { setError('Select a valid proof document and wait until it finishes loading.'); return; }
     try {
       const user = isSignup
         ? await register({
@@ -30,11 +34,13 @@ const GuardianLogin: React.FC = () => {
             password: form.password,
             name: form.name,
             role: 'guardian',
+            ...verification,
             phone: form.phone,
             elderName: form.elderName,
           })
-        : await login(form.email, form.password);
+        : await login(form.email, form.password, 'guardian');
 
+      if (isSignup) { setSuccess('Request submitted. Your doctor must review your evidence and assign your patient before sign-in.'); setIsSignup(false); return; }
       if (user.role === 'doctor') {
         navigate('/doctor');
         return;
@@ -99,6 +105,7 @@ const GuardianLogin: React.FC = () => {
               </p>
             </div>
 
+            {success && <p role="status" className="rounded-lg bg-teal/10 p-3 text-sm">{success}</p>}
             {error && (
               <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
             )}
@@ -142,6 +149,7 @@ const GuardianLogin: React.FC = () => {
                 </div>
               </div>
 
+              {isSignup && <VerificationFields role="guardian" value={verification} onChange={setVerification} />}
               <Button type="submit" disabled={loading} className="w-full h-12 bg-teal hover:bg-teal/90 text-primary-foreground rounded-xl text-base font-semibold">
                 {isSignup ? 'Create Account' : 'Sign In'}
               </Button>
