@@ -21,7 +21,8 @@ services:
           name: g-care-db
           property: connectionString
       - key: JWT_SECRET
-        generateValue: true      - key: DATA_DIR
+        generateValue: true
+      - key: DATA_DIR
         value: /var/data/gcare
       - key: DEMO_AUTH_ENABLED
         value: false
