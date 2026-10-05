@@ -24,6 +24,10 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: 'autoUpdate',
+      workbox: {
+        clientsClaim: true,
+        skipWaiting: true,
+      },
       includeAssets: ['favicon.ico', 'robots.txt', 'logo.svg'],
       manifest: {
         name: 'GuardianCare',

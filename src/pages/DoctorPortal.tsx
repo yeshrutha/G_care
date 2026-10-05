@@ -165,6 +165,7 @@ const DoctorPortal: React.FC = () => {
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewReport, setPreviewReport] = useState<ClinicalReport | null>(null);
   const [careTeam, setCareTeam] = useState<DoctorCareTeam[]>([]);
@@ -319,14 +320,13 @@ const DoctorPortal: React.FC = () => {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const validateAndSetFile = (file: File) => {
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.pdf') && file.type !== 'application/pdf') {
       toast({
-        title: 'Invalid File',
-        description: 'Please select a valid PDF clinical document.',
+        title: 'Invalid File Format',
+        description: 'Please select a valid PDF clinical document (.pdf).',
         variant: 'destructive',
       });
       return;
@@ -346,6 +346,18 @@ const DoctorPortal: React.FC = () => {
       const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]+/g, ' ').trim();
       setNewReport((prev) => ({ ...prev, title: cleanTitle }));
     }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) validateAndSetFile(file);
+  };
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) validateAndSetFile(file);
   };
 
   const handleUploadReport = async (e: React.FormEvent) => {
@@ -1360,26 +1372,36 @@ const DoctorPortal: React.FC = () => {
                           </div>
 
                           <div className="space-y-2">
-                            <Label>Attach Medical Report Document (PDF) *</Label>
+                            <Label htmlFor="doctor-medical-report-file" className="text-sm font-semibold flex items-center justify-between">
+                              <span>Attach Medical Document (PDF) *</span>
+                              <span className="text-xs font-normal text-muted-foreground">Select file from local computer</span>
+                            </Label>
                             <input
                               type="file"
+                              id="doctor-medical-report-file"
                               ref={fileInputRef}
                               accept=".pdf,application/pdf"
                               onChange={handleFileChange}
-                              className="hidden"
+                              className="sr-only"
                             />
                             {selectedFile ? (
-                              <div className="flex items-center justify-between p-3 bg-secondary/35 rounded-lg border border-teal/20 text-xs">
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  <FileText className="h-4 w-4 text-teal shrink-0" />
-                                  <span className="font-medium text-teal truncate">{selectedFile.name}</span>
-                                  <span className="text-muted-foreground shrink-0">({(selectedFile.size / 1024).toFixed(1)} KB)</span>
+                              <div className="flex items-center justify-between p-3.5 bg-secondary/35 rounded-xl border border-teal/30 text-xs">
+                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                  <div className="p-2 bg-teal/15 text-teal rounded-lg shrink-0">
+                                    <FileText className="h-5 w-5" />
+                                  </div>
+                                  <div className="overflow-hidden">
+                                    <span className="font-semibold text-foreground truncate block">{selectedFile.name}</span>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {(selectedFile.size / 1024).toFixed(1)} KB · Local file ready to upload
+                                    </span>
+                                  </div>
                                 </div>
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-6 text-destructive px-2 shrink-0"
+                                  className="h-8 text-destructive hover:bg-destructive/10 px-3 shrink-0 text-xs font-medium"
                                   onClick={() => {
                                     setSelectedFile(null);
                                     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1389,14 +1411,30 @@ const DoctorPortal: React.FC = () => {
                                 </Button>
                               </div>
                             ) : (
-                              <div
-                                onClick={() => fileInputRef.current?.click()}
-                                className="border-2 border-dashed border-border hover:border-teal/50 cursor-pointer rounded-lg p-5 flex flex-col items-center justify-center text-xs text-muted-foreground gap-1.5 transition-colors"
+                              <label
+                                htmlFor="doctor-medical-report-file"
+                                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                                onDragLeave={() => setIsDragging(false)}
+                                onDrop={handleFileDrop}
+                                className={`border-2 border-dashed rounded-xl p-6 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-200 ${
+                                  isDragging
+                                    ? 'border-teal bg-teal/5 scale-[1.01]'
+                                    : 'border-border hover:border-teal/50 hover:bg-muted/30'
+                                }`}
                               >
-                                <UploadCloud className="h-6 w-6 text-teal" />
-                                <span className="font-medium text-foreground">Click to select PDF from local computer</span>
-                                <span className="text-[11px] text-muted-foreground">Supported: PDF (up to 10 MB) · Diagnostic & Lab Reports</span>
-                              </div>
+                                <div className="p-3 rounded-full bg-teal/10 text-teal mb-2">
+                                  <UploadCloud className="h-6 w-6" />
+                                </div>
+                                <span className="font-semibold text-foreground text-sm">
+                                  Click here to choose PDF from your computer
+                                </span>
+                                <span className="text-xs text-muted-foreground mt-0.5">
+                                  Drag & drop your medical document here, or click to open file explorer
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/80 mt-2 bg-muted/60 px-2 py-0.5 rounded-full border border-border/50">
+                                  Accepts PDF up to 10 MB (Blood tests, CBC, ECG, Radiology, Prescriptions)
+                                </span>
+                              </label>
                             )}
                           </div>
 
