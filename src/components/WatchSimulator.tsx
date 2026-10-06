@@ -115,6 +115,15 @@ interface AssistantChatResponse {
   response: string;
 }
 
+// Public watch examples; authenticated users see only their assigned database patients.
+const WATCH_EXAMPLE_PATIENTS = DEMO_ELDERS.map((patient,index) => ({
+  ...patient,
+  full_name: ['Usha','Lakshmi Devi','Shekar'][index],
+  age: [45,70,52][index],
+  medical_conditions: [['Breast cancer'],['Diabetes'],['Hypertension, High BP']][index],
+  language_pref: ['kn','hi','en'][index],
+}));
+
 interface WatchSimulatorProps {
   buttonClassName?: string;
   buttonVariant?:
@@ -481,7 +490,7 @@ const WatchSimulator: React.FC<
   );
 
   const activeElder = useMemo(() => {
-    const list = getStoredToken() ? demoElders : (demoElders.length > 0 ? demoElders : DEMO_ELDERS);
+    const list = getStoredToken() ? demoElders : WATCH_EXAMPLE_PATIENTS;
     const found = list.find((e) => e.id === selectedElderId) || list[0];
     return found;
   }, [
@@ -2411,7 +2420,7 @@ const WatchSimulator: React.FC<
                     <SelectValue placeholder="Select patient" />
                   </SelectTrigger>
                   <SelectContent className="border-white/15 bg-slate-900 text-white">
-                    {(getStoredToken() ? demoElders : (demoElders.length > 0 ? demoElders : DEMO_ELDERS)).map(
+                    {(getStoredToken() ? demoElders : WATCH_EXAMPLE_PATIENTS).map(
                       (elder) => (
                         <SelectItem key={elder.id} value={elder.id} className="text-xs focus:bg-teal/20 focus:text-teal">
                           {elder.full_name} ({elder.age}y)
