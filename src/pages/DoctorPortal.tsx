@@ -751,9 +751,23 @@ const DoctorPortal: React.FC = () => {
     event.preventDefault();
     if (!appointmentAlert) return;
 
-    const elder = elders.find((item) => item.id === (appointmentAlert.elder_id || (appointmentAlert as any).elderId));
-    if (!elder) {
-      toast({ title: 'Unable to schedule', description: 'Choose a patient before scheduling an appointment.', variant: 'destructive' });
+    let storedAlert: any;
+    let elder: any;
+    try {
+      const [storedAlerts, assignedPatients] = await Promise.all([
+        apiFetch<any[]>('/alerts'), apiFetch<any[]>('/elders'),
+      ]);
+      storedAlert = storedAlerts.find(a => a.id === appointmentAlert.id);
+      if (!storedAlert) {
+        const matches = storedAlerts.filter(a => !a.resolved && a.type === appointmentAlert.type && a.message === appointmentAlert.message
+          && (a.elder_name || a.elderName) === appointmentAlert.elder_name);
+        if (matches.length === 1) storedAlert = matches[0];
+      }
+      if (!storedAlert) throw new Error('This alert is no longer available. Refresh Alerts and open the current alert.');
+      elder = assignedPatients.find(p => p.id === (storedAlert.elder_id || storedAlert.elderId));
+      if (!elder) throw new Error('The patient for this alert is not assigned to your account. Refresh the portal.');
+    } catch (error: any) {
+      toast({ title: 'Unable to schedule', description: error.message, variant: 'destructive' });
       return;
     }
 
@@ -790,9 +804,6 @@ const DoctorPortal: React.FC = () => {
     const notification = `Appointment booked by Dr. ${doctorName} for ${elder.full_name} on ${appointmentForm.date} at ${appointmentForm.time}.`;
 
     try {
-      const storedAlerts=await apiFetch<any[]>('/alerts');
-      const storedAlert=storedAlerts.find(a=>a.id===appointmentAlert.id) || storedAlerts.find(a=>(a.elder_id||a.elderId)===elder.id && a.type===appointmentAlert.type && a.message===appointmentAlert.message && !a.resolved);
-      if(!storedAlert)throw new Error('This alert is not saved or is no longer available. Refresh Alerts before scheduling.');
       const savedAlertId=storedAlert.id;
       // 1. Save Main Appointment Alarm
       const savedAlarm = await apiFetch<DashboardAlarm>('/alarms', {
