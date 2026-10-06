@@ -44,7 +44,7 @@ const LogsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">{simulated ? 'SIMULATED HISTORY - 30 days generated for this patient; not recorded clinical history.' : 'Recorded readings for this patient only.'}</p>
+      <p className="text-sm text-muted-foreground">{simulated ? '30-day overview' : 'Recorded readings for this patient only.'}</p>
       <Tabs defaultValue="weekly">
         <TabsList className="bg-muted rounded-xl">
           <TabsTrigger value="weekly" className="rounded-lg">Weekly Data</TabsTrigger>

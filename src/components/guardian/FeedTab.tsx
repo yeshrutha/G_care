@@ -87,7 +87,7 @@ const FeedTab: React.FC = () => {
       {/* Connection Status */}
       <div className="flex items-center gap-3">
         <div className="w-3 h-3 rounded-full bg-gw-green animate-pulse-dot" />
-        <span className="text-sm font-medium text-foreground">{v.source==='simulator'?'SIMULATED VITALS - demo data, not sensor measurements':v.source==='device'?'Device telemetry':'Recorded vitals'}</span>
+        <span className="text-sm font-medium text-foreground">{v.source==='simulator'?'Vitals':v.source==='device'?'Device telemetry':'Recorded vitals'}</span>
       </div>
 
       {/* Fall Detection Alert */}
@@ -196,8 +196,8 @@ const FeedTab: React.FC = () => {
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Language:</span><span className="font-medium text-foreground">{elderLanguage}</span></div>
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Phone:</span><span className="font-medium text-foreground">{elderPhone}</span></div>
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Address:</span><span className="font-medium text-foreground truncate">{elderAddress}</span></div>
-            <div className="flex items-center gap-2"><span className="text-muted-foreground">Battery:</span><span className="font-medium text-gw-green">{v.source === 'simulator' && patient ? demoBattery(patient,new Date(v.timestamp || Date.now()).getTime())+'% (simulated)' : patient?.battery != null ? patient.battery+'%' : 'Not available'}</span></div>
-            <div className="flex items-center gap-2"><span className="text-muted-foreground">Steps Today:</span><span className="font-medium text-foreground">{v.source === 'simulator' && patient ? demoReading(patient,new Date(v.timestamp || Date.now()).getTime()).steps.toLocaleString()+' (simulated)' : 'Not available'}</span></div>
+            <div className="flex items-center gap-2"><span className="text-muted-foreground">Battery:</span><span className="font-medium text-gw-green">{v.source === 'simulator' && patient ? demoBattery(patient,new Date(v.timestamp || Date.now()).getTime())+'%' : patient?.battery != null ? patient.battery+'%' : 'Not available'}</span></div>
+            <div className="flex items-center gap-2"><span className="text-muted-foreground">Steps Today:</span><span className="font-medium text-foreground">{v.source === 'simulator' && patient ? demoReading(patient,new Date(v.timestamp || Date.now()).getTime()).steps.toLocaleString() : 'Not available'}</span></div>
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Last Sync:</span><span className="font-medium text-foreground">{v.timestamp ? new Date(v.timestamp).toLocaleTimeString() : 'Not available'}</span></div>
           </div>
         </CardContent>

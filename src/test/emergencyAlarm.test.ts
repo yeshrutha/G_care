@@ -1,0 +1,5 @@
+import {it,expect,vi} from 'vitest';
+it('loops the emergency sound and vibration until acknowledged or switched off',async()=>{
+ vi.resetModules();vi.useFakeTimers();const play=vi.fn().mockResolvedValue(undefined),pause=vi.fn(),vibrate=vi.fn();const audio={play,pause,currentTime:0,loop:false};vi.stubGlobal('Audio',class{constructor(){return audio;}});Object.defineProperty(navigator,'vibrate',{value:vibrate,configurable:true});
+ try{const {startAlertLoop,stopAlertLoop}=await import('@/lib/audioAlerts');startAlertLoop('vital');expect(audio.loop).toBe(true);expect(play).toHaveBeenCalledOnce();vi.advanceTimersByTime(3600);expect(vibrate.mock.calls.length).toBeGreaterThan(1);stopAlertLoop('vital');expect(audio.loop).toBe(false);expect(pause).toHaveBeenCalledOnce();expect(vibrate).toHaveBeenLastCalledWith(0);const count=vibrate.mock.calls.length;vi.advanceTimersByTime(4000);expect(vibrate.mock.calls.length).toBe(count);}finally{vi.useRealTimers();vi.unstubAllGlobals();delete (navigator as any).vibrate;}
+});

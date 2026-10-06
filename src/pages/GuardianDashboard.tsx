@@ -10,7 +10,7 @@ import { GuardianLogo } from '@/components/GuardianLogo';
 import { useGuardianStore, isAlertForElder } from '@/store/guardianStore';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '@/store';
-import { triggerAlert } from '@/lib/audioAlerts';
+import { startAlertLoop, stopAlertLoop } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
 import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, LogOut, User, Heart, FileText, Settings as SettingsIcon } from 'lucide-react';
 import FeedTab from '@/components/guardian/FeedTab';
@@ -94,8 +94,11 @@ const GuardianDashboard: React.FC = () => {
   const unresolvedVitalAlerts = visibleAlerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
 
   const [demoMode,setDemoMode]=useState(false);
-  const [demoStep,setDemoStep]=useState(0);
-  const startEmergencyDemo=(enabled:boolean)=>{setDemoMode(enabled);setDemoStep(0);if(enabled){triggerAlert('sos');}};
+  const [acknowledged,setAcknowledged]=useState(false);
+  const activePatientId=useAppStore(s=>s.activeElderId);
+  useEffect(()=>()=>stopAlertLoop('vital'),[]);
+  useEffect(()=>{setDemoMode(false);setAcknowledged(false);stopAlertLoop('vital');},[activePatientId]);
+  const startEmergencyDemo=(enabled:boolean)=>{setDemoMode(enabled);setAcknowledged(false);if(enabled)startAlertLoop('vital');else stopAlertLoop('vital');};
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top Bar */}
@@ -109,6 +112,7 @@ const GuardianDashboard: React.FC = () => {
             <span className="text-xs text-muted-foreground">Demo Mode</span>
             <Switch checked={demoMode} onCheckedChange={startEmergencyDemo} />
           </div>
+          {useAppStore.getState().demoVitals[activePatientId]?.source==='simulator' && <Badge variant="outline">Demo data</Badge>}
           <Badge variant="outline" className="text-xs border-teal/30 text-teal">
             Elder: {guardianUser?.elderName || 'Registered elder'}
           </Badge>
@@ -127,19 +131,12 @@ const GuardianDashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 p-4 lg:p-6 max-w-6xl mx-auto w-full">
-        {demoMode && <Card className="border-2 border-destructive mb-6 p-5 space-y-3" role="alert">
-          <Badge variant="outline">SIMULATED EMERGENCY - no real calls or messages sent</Badge>
-          <h2 className="font-semibold text-destructive text-lg">Fall detected + SOS: {guardianUser?.elderName}</h2>
-          <p>Demo notification: urgent fall alert received. Check whether the patient is responsive and safe.</p>
-          <ol className="list-decimal pl-5 space-y-2">
-            <li>{demoStep>=1?'Alert acknowledged.':'Acknowledge the notification.'}</li>
-            <li>{demoStep>=2?'Contact step demonstrated. No real call was placed.':'Call the patient or a guardian-added emergency contact. If unresponsive or seriously injured, call local emergency services.'}</li>
-            <li>{demoStep>=3?'Escalation step demonstrated.':'Escalate to emergency services when needed; contact an assigned clinician if available.'}</li>
-          </ol>
-          <div className="flex flex-wrap gap-2">
-            <Button onClick={()=>setDemoStep(Math.min(3,demoStep+1))} disabled={demoStep>=3}>{['Acknowledge demo alert','Demonstrate contact step','Demonstrate escalation','Scenario completed'][demoStep]}</Button>
-            <Button variant="outline" onClick={()=>startEmergencyDemo(false)}>End Demo</Button>
-          </div>
+        {demoMode && <Card className={"border-2 mb-6 p-5 space-y-3 "+(acknowledged?'border-gw-green':'border-destructive animate-pulse-border')} role="alert" aria-live="assertive">
+          <h2 className="font-semibold text-destructive text-lg">Emergency alert: {guardianUser?.elderName} has high blood pressure</h2>
+          <p className="font-bold text-xl">Blood pressure: 185/115 mmHg</p>
+          <p>{acknowledged?'Alert acknowledged.':'Urgent blood-pressure alert. Check on the patient and seek prompt medical assessment.'}</p>
+          <p className="text-sm text-muted-foreground">If the patient has chest pain, breathing difficulty, weakness, or confusion, call local emergency services.</p>
+          <Button className="bg-gw-green hover:bg-gw-green/90 text-white" disabled={acknowledged} onClick={()=>{setAcknowledged(true);stopAlertLoop('vital');}}>{acknowledged?'Acknowledged':'Acknowledge'}</Button>
         </Card>}
 
         {/* Critical Vital Anomaly Banner for Guardians */}
