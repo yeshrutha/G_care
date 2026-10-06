@@ -55,5 +55,44 @@
   "footer": {
     "tagline": "असीमित देखभाल।",
     "copyright": "© 2025 गार्डियनवॉच।"
+  },
+  "settings": {
+    "app_language": "ऐप की भाषा",
+    "font_size": "अक्षर का आकार",
+    "high_contrast": "उच्च कंट्रास्ट",
+    "full_name": "पूरा नाम",
+    "email": "ईमेल",
+    "phone": "फ़ोन",
+    "elder_name": "बुज़ुर्ग का नाम",
+    "elder_age": "बुज़ुर्ग की आयु",
+    "preferred_language": "पसंदीदा भाषा",
+    "elder_phone": "बुज़ुर्ग का फ़ोन",
+    "medical_conditions": "स्वास्थ्य स्थितियाँ",
+    "address": "पता",
+    "no_contacts": "कोई आपातकालीन संपर्क नहीं। भरोसेमंद संपर्क जोड़ें।",
+    "contact_name": "संपर्क का नाम",
+    "contact_phone": "संपर्क का फ़ोन",
+    "relationship": "संबंध",
+    "remove": "हटाएँ",
+    "add_contact": "संपर्क जोड़ें",
+    "contact_required": "हर संपर्क का नाम और फ़ोन भरें।",
+    "contacts_saved": "संपर्क सहेजे गए",
+    "save_contacts": "संपर्क सहेजें"
+  },
+  "guardian": {
+    "feed": "स्वास्थ्य जानकारी",
+    "reports": "चिकित्सा रिकॉर्ड",
+    "logs": "गतिविधियाँ",
+    "alerts": "अलर्ट",
+    "reminders": "अनुस्मारक",
+    "sos": "आपातकाल",
+    "heart_rate": "हृदय गति",
+    "blood_pressure": "रक्तचाप",
+    "stress": "तनाव",
+    "hydration": "जल स्तर",
+    "temperature": "तापमान",
+    "motion": "गतिविधि निगरानी",
+    "shiver": "कंपकंपी निगरानी",
+    "portal": "अभिभावक पोर्टल"
   }
 }

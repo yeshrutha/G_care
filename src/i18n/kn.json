@@ -69,5 +69,44 @@
   "footer": {
     "tagline": "ಮಿತಿಯಿಲ್ಲದ ಆರೈಕೆ.",
     "copyright": "© 2025 ಗಾರ್ಡಿಯನ್‌ವಾಚ್."
+  },
+  "settings": {
+    "app_language": "ಅಪ್ಲಿಕೇಶನ್ ಭಾಷೆ",
+    "font_size": "ಅಕ್ಷರದ ಗಾತ್ರ",
+    "high_contrast": "ಹೆಚ್ಚಿನ ಕಾಂಟ್ರಾಸ್ಟ್",
+    "full_name": "ಪೂರ್ಣ ಹೆಸರು",
+    "email": "ಇಮೇಲ್",
+    "phone": "ದೂರವಾಣಿ",
+    "elder_name": "ಹಿರಿಯರ ಹೆಸರು",
+    "elder_age": "ಹಿರಿಯರ ವಯಸ್ಸು",
+    "preferred_language": "ಆದ್ಯತೆಯ ಭಾಷೆ",
+    "elder_phone": "ಹಿರಿಯರ ದೂರವಾಣಿ",
+    "medical_conditions": "ಆರೋಗ್ಯ ಸ್ಥಿತಿಗಳು",
+    "address": "ವಿಳಾಸ",
+    "no_contacts": "ತುರ್ತು ಸಂಪರ್ಕಗಳಿಲ್ಲ. ನೀವು ನಂಬುವ ಸಂಪರ್ಕಗಳನ್ನು ಸೇರಿಸಿ.",
+    "contact_name": "ಸಂಪರ್ಕದ ಹೆಸರು",
+    "contact_phone": "ಸಂಪರ್ಕದ ದೂರವಾಣಿ",
+    "relationship": "ಸಂಬಂಧ",
+    "remove": "ತೆಗೆದುಹಾಕಿ",
+    "add_contact": "ಸಂಪರ್ಕ ಸೇರಿಸಿ",
+    "contact_required": "ಪ್ರತಿ ಸಂಪರ್ಕದ ಹೆಸರು ಮತ್ತು ದೂರವಾಣಿ ನಮೂದಿಸಿ.",
+    "contacts_saved": "ಸಂಪರ್ಕಗಳು ಉಳಿಸಲಾಗಿದೆ",
+    "save_contacts": "ಸಂಪರ್ಕಗಳನ್ನು ಉಳಿಸಿ"
+  },
+  "guardian": {
+    "feed": "ಆರೋಗ್ಯ ಮಾಹಿತಿ",
+    "reports": "ವೈದ್ಯಕೀಯ ದಾಖಲೆಗಳು",
+    "logs": "ಚಟುವಟಿಕೆಗಳು",
+    "alerts": "ಎಚ್ಚರಿಕೆಗಳು",
+    "reminders": "ಜ್ಞಾಪನೆಗಳು",
+    "sos": "ತುರ್ತು ಸಹಾಯ",
+    "heart_rate": "ಹೃದಯ ಬಡಿತ",
+    "blood_pressure": "ರಕ್ತದೊತ್ತಡ",
+    "stress": "ಒತ್ತಡ",
+    "hydration": "ಜಲಾಂಶ",
+    "temperature": "ತಾಪಮಾನ",
+    "motion": "ಚಲನೆಯ ಮೇಲ್ವಿಚಾರಣೆ",
+    "shiver": "ನಡುಕ ಮೇಲ್ವಿಚಾರಣೆ",
+    "portal": "ಪಾಲಕರ ಪೋರ್ಟಲ್"
   }
 }

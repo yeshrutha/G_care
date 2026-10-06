@@ -185,7 +185,28 @@
     "alert_history": "Alert History",
     "emergency_contacts": "Emergency Contacts",
     "language_accessibility": "Language & Accessibility",
-    "security": "Security"
+    "security": "Security",
+    "app_language": "App Language",
+    "font_size": "Font Size",
+    "high_contrast": "High Contrast Mode",
+    "full_name": "Full Name",
+    "email": "Email",
+    "phone": "Phone",
+    "elder_name": "Elder Name",
+    "elder_age": "Elder Age",
+    "preferred_language": "Preferred Language",
+    "elder_phone": "Elder Phone",
+    "medical_conditions": "Medical Conditions",
+    "address": "Address",
+    "no_contacts": "No emergency contacts added. Add contacts you trust.",
+    "contact_name": "Contact name",
+    "contact_phone": "Contact phone",
+    "relationship": "Relationship",
+    "remove": "Remove",
+    "add_contact": "Add Contact",
+    "contact_required": "Enter a name and phone for each contact.",
+    "contacts_saved": "Contacts saved",
+    "save_contacts": "Save Contacts"
   },
   "footer": {
     "tagline": "Care without limits.",
@@ -194,5 +215,21 @@
     "hipaa": "HIPAA",
     "contact": "Contact",
     "copyright": "© 2025 GuardianWatch."
+  },
+  "guardian": {
+    "feed": "Feed",
+    "reports": "Medical Records",
+    "logs": "Logs",
+    "alerts": "Alerts",
+    "reminders": "Reminders",
+    "sos": "SOS",
+    "heart_rate": "Heart Rate",
+    "blood_pressure": "Blood Pressure",
+    "stress": "Stress",
+    "hydration": "Hydration",
+    "temperature": "Temperature",
+    "motion": "Motion Monitor",
+    "shiver": "Shiver Monitor",
+    "portal": "Guardian Portal"
   }
 }

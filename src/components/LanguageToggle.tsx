@@ -15,6 +15,8 @@ export const LanguageToggle: React.FC<{ compact?: boolean }> = ({ compact }) => 
   const setLanguage = useAppStore((s) => s.setLanguage);
 
   const handleChange = (val: string) => {
+    localStorage.setItem('gcare_language',val);
+    document.documentElement.lang=val;
     i18n.changeLanguage(val);
     setLanguage(val);
   };

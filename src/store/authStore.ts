@@ -49,6 +49,7 @@ function syncLegacyStores(user: AuthUser | null) {
       elderConditions: user.profile?.elderConditions,
       elderPhone: user.profile?.elderPhone,
       elderAddress: user.profile?.elderAddress,
+      emergencyContacts: (user.profile as any)?.emergencyContacts || [],
     });
     appStore.setAuthUser(null);
     return;

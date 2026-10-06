@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +29,7 @@ const MOTION_LABELS: Record<MotionState, { label: string; color: string }> = {
 };
 
 const FeedTab: React.FC = () => {
+  const { t } = useTranslation();
   const guardianUser = useGuardianStore((state) => state.guardianUser);
   const activeElderId = useAppStore((state) => state.activeElderId);
   const storeVitals = useAppStore((state) => state.demoVitals[activeElderId]);
@@ -70,12 +72,12 @@ const FeedTab: React.FC = () => {
   const elderPhone = guardianUser?.elderPhone || 'Not added';
   const elderAddress = guardianUser?.elderAddress || 'Not added';
   const vitalsCards = [
-    { label: 'Heart Rate', value: `${Math.round(v.heart_rate)}`, unit: 'bpm', icon: Heart, low: 55, high: 100, current: v.heart_rate },
-    { label: 'Blood Pressure', value: `${Math.round(v.systolic_bp)}/${Math.round(v.diastolic_bp)}`, unit: 'mmHg', icon: Activity, low: 90, high: 140, current: v.systolic_bp },
+    { label: t('guardian.heart_rate'), value: `${Math.round(v.heart_rate)}`, unit: 'bpm', icon: Heart, low: 55, high: 100, current: v.heart_rate },
+    { label: t('guardian.blood_pressure'), value: `${Math.round(v.systolic_bp)}/${Math.round(v.diastolic_bp)}`, unit: 'mmHg', icon: Activity, low: 90, high: 140, current: v.systolic_bp },
     { label: 'SpO₂', value: `${v.spo2.toFixed(1)}`, unit: '%', icon: Wind, low: 93, high: 100, current: v.spo2 },
-    { label: 'Stress', value: `${Math.round(v.stress)}`, unit: '/100', icon: Brain, low: 0, high: 70, current: v.stress },
-    { label: 'Hydration', value: `${Math.round(v.hydration)}`, unit: '%', icon: Droplets, low: 50, high: 100, current: v.hydration },
-    { label: 'Temperature', value: `${typeof v.skin_temp === 'number' ? v.skin_temp.toFixed(1) : v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },
+    { label: t('guardian.stress'), value: `${Math.round(v.stress)}`, unit: '/100', icon: Brain, low: 0, high: 70, current: v.stress },
+    { label: t('guardian.hydration'), value: `${Math.round(v.hydration)}`, unit: '%', icon: Droplets, low: 50, high: 100, current: v.hydration },
+    { label: t('guardian.temperature'), value: `${typeof v.skin_temp === 'number' ? v.skin_temp.toFixed(1) : v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },
   ];
 
   return (
@@ -105,7 +107,7 @@ const FeedTab: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Footprints className="h-4 w-4 text-teal" />
-              <span className="text-xs text-muted-foreground font-medium">Motion Monitor</span>
+              <span className="text-xs text-muted-foreground font-medium">{t('guardian.motion')}</span>
             </div>
             <span className={`text-lg font-bold ${motionInfo.color}`}>{motionInfo.label}</span>
             <p className="text-xs text-muted-foreground mt-1">Accelerometer + Gyroscope</p>
@@ -115,7 +117,7 @@ const FeedTab: React.FC = () => {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Vibrate className="h-4 w-4 text-gw-purple" />
-              <span className="text-xs text-muted-foreground font-medium">Shiver Monitor</span>
+              <span className="text-xs text-muted-foreground font-medium">{t('guardian.shiver')}</span>
             </div>
             <span className={`text-lg font-bold ${isShivering ? 'text-gw-amber' : 'text-gw-green'}`}>
               {isShivering ? '⚠️ Shivering Detected' : '✅ Normal'}

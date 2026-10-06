@@ -61,7 +61,7 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const token = signToken(doctor);
     const saved = await request('/api/auth/profile', 'PUT', {
       name: 'Updated Test Name', phone: '+91 9000000000',
-      profile: { elderPhone: '+91 9111111111', elderAddress: 'Test address', elderLanguage: 'kn' },
+      profile: { elderPhone: '+91 9111111111', elderAddress: 'Test address', elderLanguage: 'kn', emergencyContacts: [{id:'test-contact',name:'Chosen contact',phone:'+91 9222222222',relation:'Son'}] },
     }, token);
     expect(saved.status).toBe(200);
     const refreshed = await request('/api/auth/me', 'GET', undefined, token);
@@ -69,6 +69,7 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     expect(refreshed.data.user.phone).toBe('+91 9000000000');
     expect(refreshed.data.user.profile.elderAddress).toBe('Test address');
     expect(refreshed.data.user.profile.elderLanguage).toBe('kn');
+    expect(refreshed.data.user.profile.emergencyContacts[0].name).toBe('Chosen contact');
     expect(refreshed.data.user.accessStatus).toBe('approved');
   });
   it('creates an owner-approved guardian with persistent private proof, one patient and a one-use temporary password', async () => {

@@ -16,7 +16,8 @@ export function canReviewAccounts(user) {
 }
 export function safeEditableProfile(profile) {
   const allowed = ['elderName', 'elderAge', 'elderLanguage', 'elderConditions', 'elderPhone', 'elderAddress', 'hospital', 'specialization'];
-  return Object.fromEntries(allowed.filter(k => typeof profile?.[k] === 'string').map(k => [k, profile[k].slice(0, 500)]));
+  const contacts = Array.isArray(profile?.emergencyContacts) ? profile.emergencyContacts.slice(0,20).filter(c=>c && typeof c.name==='string' && typeof c.phone==='string').map(c=>({id:String(c.id||'').slice(0,80),name:c.name.slice(0,120),phone:c.phone.slice(0,40),relation:String(c.relation||'').slice(0,80),primary:c.primary===true})) : undefined;
+  return { ...(contacts ? {emergencyContacts:contacts}:{}), ...Object.fromEntries(allowed.filter(k => typeof profile?.[k] === 'string').map(k => [k, profile[k].slice(0, 500)])) };
 }
 export function publicAccount(user) {
   if (!user) return null;

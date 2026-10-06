@@ -39,6 +39,13 @@ const Settings: React.FC = () => {
   const isCaretaker = user?.role === 'caretaker';
   const isGuardian = user?.role === 'guardian' || (!isDoctor && !isCaretaker);
 
+  const [contacts,setContacts]=useState<NonNullable<GuardianUser['emergencyContacts']>>([]);
+  const [savingContacts,setSavingContacts]=useState(false);
+  useEffect(()=>{setContacts((user?.profile as any)?.emergencyContacts || []);},[user?.id]);
+  const [fontSize,setFontSize]=useState(()=>localStorage.getItem('gcare_font_size')||'Medium');
+  const [contrast,setContrast]=useState(()=>localStorage.getItem('gcare_contrast')==='true');
+  useEffect(()=>{document.documentElement.style.fontSize=({Small:'14px',Medium:'16px',Large:'18px',XL:'20px'} as Record<string,string>)[fontSize];localStorage.setItem('gcare_font_size',fontSize);},[fontSize]);
+  useEffect(()=>{document.documentElement.classList.toggle('high-contrast',contrast);localStorage.setItem('gcare_contrast',String(contrast));},[contrast]);
   const [clearingAlerts, setClearingAlerts] = useState(false);
   const [confirmClearAllOpen, setConfirmClearAllOpen] = useState(false);
 
@@ -87,12 +94,12 @@ const Settings: React.FC = () => {
         name: guardianUser?.name || user?.name || 'Guardian User',
         email: guardianUser?.email || user?.email || 'guardian@example.com',
         phone: guardianUser?.phone || user?.phone || '+91 98765 43210',
-        elderName: guardianUser?.elderName || 'Usha',
-        elderAge: guardianUser?.elderAge || '78',
-        elderLanguage: guardianUser?.elderLanguage || 'Kannada',
-        elderConditions: guardianUser?.elderConditions || 'Hypertension, Diabetes',
-        elderPhone: guardianUser?.elderPhone || '+91 98765 00000',
-        elderAddress: guardianUser?.elderAddress || 'Sadashivanagar, Bangalore',
+        elderName: guardianUser?.elderName || '',
+        elderAge: guardianUser?.elderAge || '',
+        elderLanguage: guardianUser?.elderLanguage || '',
+        elderConditions: guardianUser?.elderConditions || '',
+        elderPhone: guardianUser?.elderPhone || '',
+        elderAddress: guardianUser?.elderAddress || '',
         emergencyContacts: guardianUser?.emergencyContacts || [],
       });
     }
@@ -282,42 +289,42 @@ const Settings: React.FC = () => {
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
-                    <Label>Full Name</Label>
+                    <Label>{t('settings.full_name')}</Label>
                     <Input value={profileForm.name} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Email</Label>
+                    <Label>{t('settings.email')}</Label>
                     <Input type="email" value={profileForm.email} readOnly className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} />
                   </div>
                   <div>
-                    <Label>Phone</Label>
+                    <Label>{t('settings.phone')}</Label>
                     <Input value={profileForm.phone} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })} />
                   </div>
                   
                   {isGuardian && (
                     <>
                       <div>
-                        <Label>Elder Name</Label>
+                        <Label>{t('settings.elder_name')}</Label>
                         <Input value={profileForm.elderName} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderName: e.target.value })} />
                       </div>
                       <div>
-                        <Label>Elder Age</Label>
+                        <Label>{t('settings.elder_age')}</Label>
                         <Input type="number" value={profileForm.elderAge || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAge: e.target.value })} />
                       </div>
                       <div>
-                        <Label>Preferred Language</Label>
+                        <Label>{t('settings.preferred_language')}</Label>
                         <Input value={profileForm.elderLanguage || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderLanguage: e.target.value })} />
                       </div>
                       <div>
-                        <Label>Elder Phone</Label>
+                        <Label>{t('settings.elder_phone')}</Label>
                         <Input value={profileForm.elderPhone || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderPhone: e.target.value })} />
                       </div>
                       <div>
-                        <Label>Medical Conditions</Label>
+                        <Label>{t('settings.medical_conditions')}</Label>
                         <Input value={profileForm.elderConditions || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderConditions: e.target.value })} />
                       </div>
                       <div className="md:col-span-2">
-                        <Label>Address</Label>
+                        <Label>{t('settings.address')}</Label>
                         <Textarea value={profileForm.elderAddress || ''} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, elderAddress: e.target.value })} />
                       </div>
                     </>
@@ -342,40 +349,6 @@ const Settings: React.FC = () => {
                   </div>
                 ))}
 
-                {/* Direct Clear Alert History Box in Notifications Tab */}
-                <div className="pt-4 border-t border-border">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl bg-muted/40 border border-border">
-                    <div>
-                      <div className="flex items-center gap-2 font-medium text-foreground text-sm">
-                        <Trash2 className="h-4 w-4 text-rose-500" />
-                        <span>Alert History & Notification Cleanup</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Currently storing {totalCount} alert(s) ({unresolvedCount} active, {resolvedCount} resolved).
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleClearAlertHistory('resolved')}
-                        disabled={clearingAlerts || resolvedCount === 0}
-                      >
-                        Clear Resolved
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        onClick={() => setConfirmClearAllOpen(true)}
-                        disabled={clearingAlerts || totalCount === 0}
-                        className="gap-1.5"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Clear All History
-                      </Button>
-                    </div>
-                  </div>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -510,19 +483,21 @@ const Settings: React.FC = () => {
             <TabsContent value="contacts" className="mt-6">
               <Card className="rounded-xl">
                 <CardContent className="p-6 space-y-4">
-                  {[
-                    { name: 'Priya Sharma', phone: '+91 98765 43210', rel: 'Daughter' },
-                    { name: 'Dr. Ramesh Kumar', phone: '+91 98765 12345', rel: 'Doctor' },
-                  ].map((c, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{c.name}</p>
-                        <p className="text-xs text-muted-foreground">{c.phone} · {c.rel}</p>
-                      </div>
-                      <Button size="sm" variant="outline">Test Alert</Button>
-                    </div>
-                  ))}
-                  <Button variant="outline" className="w-full border-dashed">+ Add Contact</Button>
+                  {contacts.length === 0 && <p className="text-sm text-muted-foreground">{t('settings.no_contacts')}</p>}
+                  {contacts.map((c, i) => <div key={c.id} className="grid sm:grid-cols-3 gap-2">
+                    <Input aria-label="Contact name" placeholder={t('settings.contact_name')} value={c.name} onChange={e=>setContacts(contacts.map((v,j)=>j===i?{...v,name:e.target.value}:v))}/>
+                    <Input aria-label="Contact phone" placeholder={t('settings.contact_phone')} value={c.phone} onChange={e=>setContacts(contacts.map((v,j)=>j===i?{...v,phone:e.target.value}:v))}/>
+                    <div className="flex gap-2"><Input aria-label="Relationship" placeholder={t('settings.relationship')} value={c.relation} onChange={e=>setContacts(contacts.map((v,j)=>j===i?{...v,relation:e.target.value}:v))}/><Button variant="outline" onClick={()=>setContacts(contacts.filter((_,j)=>j!==i))}>{t('settings.remove')}</Button></div>
+                  </div>)}
+                  <Button variant="outline" onClick={()=>setContacts([...contacts,{id:crypto.randomUUID(),name:'',phone:'',relation:'',primary:false}])}>{t('settings.add_contact')}</Button>
+                  <Button disabled={savingContacts} onClick={async()=>{
+                    if(contacts.some(c=>!c.name.trim()||!c.phone.trim())) { toast({title:t('settings.contact_required'),variant:'destructive'});return; }
+                    setSavingContacts(true);
+                    try { const {user:saved}=await apiFetch<{user:AuthUser}>('/auth/profile',{method:'PUT',body:JSON.stringify({profile:{emergencyContacts:contacts}})});
+                      const token=useAuthStore.getState().token;if(token)storeSession(token,saved);useAuthStore.setState({user:saved});useAuthStore.getState().syncLegacyStores(saved);toast({title:t('settings.contacts_saved')});
+                    }catch(error){toast({title:'Could not save contacts',description:error instanceof Error?error.message:'Try again',variant:'destructive'});}finally{setSavingContacts(false);}
+                  }}>{t('settings.save_contacts')}</Button>
+
                 </CardContent>
               </Card>
             </TabsContent>
@@ -533,20 +508,20 @@ const Settings: React.FC = () => {
             <Card className="rounded-xl">
               <CardContent className="p-6 space-y-4">
                 <div>
-                  <Label>App Language</Label>
+                  <Label>{t('settings.app_language')}</Label>
                   <div className="mt-2"><LanguageToggle /></div>
                 </div>
                 <div>
-                  <Label>Font Size</Label>
+                  <Label>{t('settings.font_size')}</Label>
                   <div className="flex gap-2 mt-2">
                     {['Small', 'Medium', 'Large', 'XL'].map(s => (
-                      <Button key={s} variant="outline" size="sm" className={s === 'Medium' ? 'ring-2 ring-teal' : ''}>{s}</Button>
+                      <Button key={s} onClick={()=>setFontSize(s)} variant="outline" size="sm" className={s === fontSize ? 'ring-2 ring-teal' : ''}>{s}</Button>
                     ))}
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <Label>High Contrast Mode</Label>
-                  <Switch />
+                  <Label>{t('settings.high_contrast')}</Label>
+                  <Switch checked={contrast} onCheckedChange={setContrast} />
                 </div>
               </CardContent>
             </Card>
@@ -562,37 +537,6 @@ const Settings: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between"><Label>Two-Factor Authentication</Label><Switch /></div>
                 
-                {/* Alert History Data Purge Section in Security */}
-                <div className="p-4 rounded-xl border border-destructive/20 bg-destructive/5 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                    <span className="text-sm font-semibold text-foreground">Alert History & Telemetry Storage</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Purge all recorded vital sign anomalies, SOS events, and notifications from the local storage cache and database ({totalCount} total alerts).
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleClearAlertHistory('resolved')}
-                      disabled={clearingAlerts || resolvedCount === 0}
-                    >
-                      Clear Resolved ({resolvedCount})
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => setConfirmClearAllOpen(true)}
-                      disabled={clearingAlerts || totalCount === 0}
-                      className="gap-1.5"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Clear All Alert History
-                    </Button>
-                  </div>
-                </div>
-
                 <Button variant="outline">Export My Data</Button>
                 <Button variant="destructive" className="w-full">Delete Account</Button>
               </CardContent>

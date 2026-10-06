@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -30,6 +31,7 @@ const TAB_CONFIG = [
 ];
 
 const GuardianDashboard: React.FC = () => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     guardianUser, setGuardianUser, activeTab, setActiveTab, alerts, acknowledgeAlert,
@@ -137,7 +139,7 @@ const GuardianDashboard: React.FC = () => {
       <header className="sticky top-0 z-40 bg-card border-b border-border px-4 lg:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <GuardianLogo />
-          <span className="hidden md:inline font-display text-lg text-foreground">Guardian Portal</span>
+          <span className="hidden md:inline font-display text-lg text-foreground">{t('guardian.portal')}</span>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
@@ -237,7 +239,7 @@ const GuardianDashboard: React.FC = () => {
             {TAB_CONFIG.map(tab => (
               <TabsTrigger key={tab.id} value={tab.id} className="rounded-lg text-xs lg:text-sm flex items-center gap-1.5 relative">
                 <tab.icon className="h-4 w-4" />
-                <span className="hidden sm:inline">{tab.label}</span>
+                <span className="hidden sm:inline">{t('guardian.'+tab.id)}</span>
                 {tab.id === 'alerts' && unresolvedAlerts > 0 && (
                   <Badge className="bg-destructive text-primary-foreground text-[9px] h-4 min-w-[16px] flex items-center justify-center ml-1 p-0">
                     {unresolvedAlerts}
