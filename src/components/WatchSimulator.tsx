@@ -1,3 +1,4 @@
+import {buildWatchReminders} from '@/lib/watchReminders.js';
 import {answerWatchQuestion} from '@/lib/watchLocalAnswers.js';
 import {hasAppointmentReceipt,recordAppointmentReceipt} from '@/lib/watchAppointmentReceipts.js';
 import { getStoredToken } from '@/lib/api';
@@ -507,17 +508,17 @@ const WatchSimulator: React.FC<
   useEffect(()=>{
     if (!open || !activeElder) return;
     const connection = pairedWatches.find(w=>w.patient.id===activeElder.id);
-    if (!connection) return;
+    if (!connection && !getStoredToken()) return;
     let cancelled=false, busy=false;
     const poll=async()=>{
       if(busy)return;busy=true;
       try{
-        const data=await apiFetch<any>('/watch-simulator/state',{headers:{'x-watch-token':connection.token}});
+        const data=await apiFetch<any>(connection ? '/watch-simulator/state' : '/dashboard-data',{headers:connection ? {'x-watch-token':connection.token} : {}});
         if(cancelled)return;
-        if(data.vitals)useAppStore.getState().setDemoVitals(activeElder.id,data.vitals);
+        if(data.vitals){const reading=connection?data.vitals:data.vitals[activeElder.id];if(reading)useAppStore.getState().setDemoVitals(activeElder.id,reading);}
         if(!getStoredToken())useAppStore.setState({medications:data.medications||[],alarms:data.alarms||[],activeAlerts:data.alerts||[]});
-        setGuardianReminders([...(data.medications||[]).flatMap((m:any)=>(m.times||[]).map((time:string,i:number)=>({id:'med-'+m.id+'-'+i,elderId:activeElder.id,title:m.brand_name,type:'medication',time,repeat:'daily',verified:false}))),...(data.alarms||[]).map((a:any)=>({...a,id:'alarm-'+a.id,verified:false}))]);
-        const booked=(data.alarms||[]).filter((a:any)=>a.appointmentId&&!a.isOneHourReminder).at(0);
+        setGuardianReminders(buildWatchReminders(data,activeElder));
+        const booked=(data.alarms||[]).filter((a:any)=>a.elderId===activeElder.id&&a.appointmentId&&!a.isOneHourReminder).at(0);
         if(booked && observedAppointment.current!==booked.appointmentId && !hasAppointmentReceipt(localStorage,activeElder.id,booked.appointmentId)){
           observedAppointment.current=booked.appointmentId;
           const prep=(data.alarms||[]).find((a:any)=>a.appointmentId===booked.appointmentId&&a.isOneHourReminder);
@@ -757,169 +758,6 @@ const WatchSimulator: React.FC<
     getLanguageConfig(
       assistantLanguage,
     );
-
-  /*
-   * -------------------------------------------------------
-   * SYNC REMINDERS
-   * -------------------------------------------------------
-   */
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    if (
-      'Notification' in window &&
-      Notification.permission ===
-        'default'
-    ) {
-      Notification.requestPermission().catch(
-        () => {},
-      );
-    }
-
-    const syncReminders = () => {
-      apiFetch<{
-        medications?: any[];
-        alarms?: any[];
-      }>('/dashboard-data')
-        .then((data) => {
-          const medReminders = (
-            data.medications || []
-          )
-            .map((med) => {
-              const dosage =
-                `${med.dose_amount}${med.dose_unit}`;
-
-              return (
-                med.times || []
-              ).map(
-                (
-                  time: string,
-                  idx: number,
-                ) => ({
-                  id: `med-${med.id}-${idx}`,
-                  elderId:
-                    med.elder_id,
-                  elderName:
-                    demoElders.find(
-                      (elder) =>
-                        elder.id ===
-                        med.elder_id,
-                    )?.full_name ||
-                    activeElder.full_name,
-                  type: 'medication' as const,
-                  title:
-                    `${med.brand_name} ${dosage}`,
-                  time,
-                  repeat:
-                    'daily' as const,
-                  verified: false,
-                  pillName:
-                    med.brand_name,
-                  dosage,
-                  photo:
-                    med.photo || '',
-                  createdAt:
-                    new Date().toISOString(),
-                }),
-              );
-            })
-            .flat();
-
-          const alarmReminders =
-            (
-              data.alarms || []
-            ).map((alarm) => ({
-              id: `alarm-${alarm.id}`,
-              elderId:
-                alarm.elderId,
-              elderName:
-                demoElders.find(
-                  (elder) =>
-                    elder.id ===
-                    alarm.elderId,
-                )?.full_name ||
-                activeElder.full_name,
-              type: alarm.type,
-              title: alarm.title,
-              time: alarm.time,
-              repeat:
-                'daily' as const,
-              verified: false,
-              createdAt:
-                new Date().toISOString(),
-            }));
-
-          setGuardianReminders([
-            ...medReminders,
-            ...alarmReminders,
-          ]);
-        })
-        .catch(() => {
-          const medReminders = storeMedications.flatMap((med) => {
-            const dosage = `${med.dose_amount}${med.dose_unit}`;
-            return (med.times || []).map((time: string, idx: number) => ({
-              id: `med-${med.id}-${idx}`,
-              elderId: med.elder_id,
-              elderName:
-                demoElders.find((e) => e.id === med.elder_id)?.full_name ||
-                activeElder.full_name,
-              type: 'medication' as const,
-              title: `${med.brand_name} ${dosage}`,
-              time,
-              repeat: 'daily' as const,
-              verified: false,
-              pillName: med.brand_name,
-              dosage,
-              photo: med.photo || '',
-              createdAt: new Date().toISOString(),
-            }));
-          });
-
-          const alarmReminders = storeAlarms.map((alarm) => ({
-            id: alarm.id,
-            elderId: alarm.elderId,
-            elderName:
-              demoElders.find((e) => e.id === alarm.elderId)?.full_name ||
-              activeElder.full_name,
-            type: alarm.type,
-            title: alarm.title,
-            time: alarm.time,
-            repeat: 'daily' as const,
-            verified: false,
-            createdAt: new Date().toISOString(),
-          }));
-
-          setGuardianReminders([
-            ...medReminders,
-            ...alarmReminders,
-          ]);
-        });
-    };
-
-    syncReminders();
-
-    const interval =
-      window.setInterval(
-        syncReminders,
-        4000,
-      );
-
-    return () =>
-      window.clearInterval(
-        interval,
-      );
-  }, [
-    activeElder.full_name,
-    demoElders,
-    open,
-    selectedElderId,
-    storeMedications,
-    storeAlarms,
-    setGuardianReminders,
-  ]);
 
   /*
    * -------------------------------------------------------

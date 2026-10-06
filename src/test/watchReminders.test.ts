@@ -1,0 +1,5 @@
+import {it,expect} from 'vitest';import {buildWatchReminders} from '../lib/watchReminders.js';
+it('keeps medicine images and one-time alarm dates and excludes other patients and paused records',()=>{
+ const reminders=buildWatchReminders({medications:[{id:'dolo',elder_id:'usha',brand_name:'DOLO',dose_amount:650,dose_unit:'mg',photo:'picture',times:['01:29'],active:true},{id:'draft',elder_id:'usha',times:['01:30'],active:false},{id:'other',elder_id:'shekar',times:['01:29']}],alarms:[{id:'lunch',elderId:'usha',title:'Lunch',time:'13:40',repeat:'once',appointmentDate:'2026-10-07',status:'Scheduled'},{id:'paused',elderId:'usha',status:'Paused'}]},{id:'usha',full_name:'Usha'});
+ expect(reminders).toHaveLength(2);expect(reminders[0]).toMatchObject({id:'med-dolo-0',time:'01:29',photo:'picture',dosage:'650 mg'});expect(reminders[1]).toMatchObject({id:'alarm-lunch',repeat:'once',appointmentDate:'2026-10-07'});
+});
