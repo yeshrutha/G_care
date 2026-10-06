@@ -41,7 +41,8 @@ export default function OwnerPortal(){
  const labels:Record<string,string>={applications:'Applications',accounts:'All accounts',patients:'Patients',medications:'Medications',appointments:'Appointments',alerts:'Alerts',reports:'Medical records',audit:'Activity log',vitals:'Latest vitals'};
  const icons:Record<string,any>={applications:FileCheck2,accounts:Users,patients:HeartPulse,medications:Pill,appointments:CalendarDays,alerts:Bell,reports:FolderOpen,audit:History,vitals:Activity};
  const rows=(records[section]||[]).filter(row=>JSON.stringify(row).toLowerCase().includes(search.toLowerCase()));
- const columns=[...new Set(rows.flatMap(row=>Object.keys(row)))];
+ const watchColumns=['elder_id','timestamp','heart_rate','spo2','systolic_bp','diastolic_bp','skin_temp','stress','hydration','steps','motion_state','shiver_detected','fall_detected'];
+ const columns=section==='vitals'?watchColumns.filter(k=>rows.some(row=>Object.prototype.hasOwnProperty.call(row,k))):[...new Set(rows.flatMap(row=>Object.keys(row)))];
  const title=(key:string)=>key.replace(/_/g,' ').replace(/([a-z])([A-Z])/g,'$1 $2').replace(/\b\w/g,x=>x.toUpperCase());
  const cell=(value:any):string=>value==null?'—':Array.isArray(value)?value.map(cell).join(', '):typeof value==='object'?Object.entries(value).map(([k,v])=>title(k)+': '+cell(v)).join(' · '):String(value);
  const empty=(text:string)=><div className="op-empty"><CheckCircle2 size={32}/><h3>{text}</h3><p>New records will appear here when available.</p></div>;
