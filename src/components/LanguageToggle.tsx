@@ -7,7 +7,6 @@ const LANGS = [
   { code: 'en', label: 'English' },
   { code: 'kn', label: 'ಕನ್ನಡ' },
   { code: 'hi', label: 'हिंदी' },
-  { code: 'ta', label: 'தமிழ்' },
 ];
 
 export const LanguageToggle: React.FC<{ compact?: boolean }> = ({ compact }) => {

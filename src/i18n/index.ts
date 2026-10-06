@@ -12,7 +12,7 @@ i18n.use(initReactI18next).init({
     hi: { translation: hi },
     ta: { translation: ta },
   },
-  lng: localStorage.getItem('gcare_language') || 'en',
+  lng: ['en', 'kn', 'hi'].includes(localStorage.getItem('gcare_language') || '') ? localStorage.getItem('gcare_language')! : 'en',
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
 });
