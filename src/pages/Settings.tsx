@@ -535,7 +535,7 @@ const Settings: React.FC = () => {
                   <Shield className="h-5 w-5 text-gw-green" />
                   <span className="text-sm font-medium text-gw-green">HIPAA Aligned</span>
                 </div>
-                <div className="flex items-center justify-between"><Label>Two-Factor Authentication</Label><Switch /></div>
+
                 
                 <Button variant="outline">Export My Data</Button>
                 <Button variant="destructive" className="w-full">Delete Account</Button>
