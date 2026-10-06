@@ -16,7 +16,7 @@ export async function reviewAccess(reviewer, accountId, decision, elderIds, note
   }
   const assigned = decision === 'approved' ? [...new Set(elderIds || [])] : [];
   if (decision === 'approved') {
-    if (!assigned.length) throw Object.assign(new Error('Select the patients this account may access.'), { statusCode: 400 });
+    if (!assigned.length && !(ownerReview && account.role === 'doctor')) throw Object.assign(new Error('Select the patients this account may access.'), { statusCode: 400 });
     if (account.role === 'caretaker' && !['nurse', 'assistant'].includes(verification.staffKind)) {
       throw Object.assign(new Error('Caretaker access is restricted to a nurse or doctor assistant.'), { statusCode: 400 });
     }
@@ -24,7 +24,7 @@ export async function reviewAccess(reviewer, accountId, decision, elderIds, note
       const doctor = await dbService.findUserById(verification.supervisingDoctorId);
       if (!canReviewAccounts(doctor)) throw Object.assign(new Error('A verified supervising doctor is required.'), { statusCode: 400 });
       if (assigned.some(id => !doctor.assignedElderIds?.includes(id))) {
-        throw Object.assign(new Error('A patient is outside the supervising doctor’s assignments.'), { statusCode: 403 });
+        throw Object.assign(new Error('A patient is outside the supervising doctorâ€™s assignments.'), { statusCode: 403 });
       }
     }
     for (const id of assigned) if (!(await dbService.getElderById(id))) {

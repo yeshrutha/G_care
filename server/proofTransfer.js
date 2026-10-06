@@ -16,6 +16,6 @@ export async function fetchRemoteProof(id){
  if(!origin||!key)throw Error('Private proof connection is not configured.');
  const u=new URL(origin);if(u.protocol!=='https:')throw Error('Proof connection requires HTTPS.');
  const time=String(Math.floor(Date.now()/1000));const res=await fetch(new URL('/api/private-proof/'+encodeURIComponent(id),u),{headers:{'X-Proof-Time':time,'X-Proof-Signature':proofSignature(key,id,time)},signal:AbortSignal.timeout(20000),redirect:'error'});
- if(!res.ok)throw Error('Live proof unavailable. Check the private transfer configuration and persistent storage.');
+ if(!res.ok){const body=await res.json().catch(()=>null);if(body?.error?.includes('redeployment'))throw Error('This uploaded proof was not found in live storage. The applicant must supply it again; the database keeps only its filename.');if(body?.error==='Proof unavailable')throw Error('This account has no available uploaded proof.');throw Error('Live proof access is not activated. In Render, set OWNER_PROOF_TRANSFER_KEY to the same private value as your local .env, then deploy the latest backend.');}
  const parts=[];let size=0;for await(const part of res.body){size+=part.length;if(size>5*1024*1024)throw Error('Proof exceeds the upload size limit.');parts.push(part);}return Buffer.concat(parts);
 }

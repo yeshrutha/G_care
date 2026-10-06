@@ -21,3 +21,7 @@ Save OWNER_DATABASE_URL privately in .env or .env.owner. Run npm run owner:serve
 ## Live proof transfer activation
 
 A random OWNER_PROOF_TRANSFER_KEY is saved only in ignored local .env. Copy this exact value privately to the Render backend Environment under the same name, then deploy the proof-transfer code. OWNER_PROOF_ORIGIN stays backend-only and points at https://g-care.onrender.com. A signed, account-specific request expires after 60 seconds; the server exposes only the requested proof after signature verification and records an audit event. This does not enable public owner sign-in or owner review APIs. Proofs already lost from ephemeral storage remain unavailable. Never share this key or put it in a VITE_ variable. The local website remains localhost-only.
+
+## Review and patient enrollment
+
+Owner-approved doctors may start with zero assigned patients; this grants sign-in but no patient records. Caretakers and guardians still require selected patients within their supervising doctor assignments. Owners can add a real patient profile through Patients → Add patient, then assign it under All accounts. No demo patients or vitals are automatically created in the live database. Refresh shows a loading state rather than fake zero counts. Signed proof transfer rejection is reported separately from confirmed missing upload storage. PDF previews use a local PDF.js canvas reader with page/zoom controls; images display in the modal. Word previews require a PDF/image copy.

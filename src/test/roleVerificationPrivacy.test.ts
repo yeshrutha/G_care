@@ -98,12 +98,14 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const user=(await request('/api/auth/register','POST',{...payload(),proofReference:'',proofFile:{fileName:'proof.pdf',fileType:'application/pdf',fileSize:bytes.length,fileData:bytes.toString('base64')}})).data.user;
     const list=await request('/api/owner/accounts','GET',undefined,token);expect(list.status).toBe(200);expect(list.data.find((a:any)=>a.id===user.id).passwordHash).toBeUndefined();
     const file=await fetch(base+`/api/owner/accounts/${user.id}/proof`,{headers:{Authorization:`Bearer ${token}`}});expect(file.status).toBe(200);expect(Buffer.from(await file.arrayBuffer())).toEqual(bytes);
+    expect((await request('/api/owner/patients','POST',{full_name:'Synthetic patient',age:72,language_pref:'kn',medical_conditions:[]},signToken(doctor))).status).toBe(401);
     const records=await request('/api/owner/records','GET',undefined,token);expect(records.status).toBe(200);expect(records.data.patients).toHaveLength(3);
-    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:[],note:'Checked'},token)).status).toBe(400);
+    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:[],note:'Checked'},token)).status).toBe(200);
     expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'rejected',elderIds:[],note:'Blood test is not professional identity proof.'},token)).status).toBe(200);
     expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(403);
     expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Valid evidence independently checked.'},token)).status).toBe(200);
     expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(200);
+    const created=await request('/api/owner/patients','POST',{full_name:'Synthetic patient',age:72,language_pref:'kn',medical_conditions:[]},token);expect(created.status).toBe(201);expect((await dbService.getElderById(created.data.id)).full_name).toBe('Synthetic patient');
     vi.stubEnv('OWNER_EMAIL','changed@example.invalid');expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);vi.stubEnv('OWNER_EMAIL','owner@example.invalid');
     expect((await request('/api/owner/logout','POST',undefined,token)).status).toBe(200);expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);
     vi.stubEnv('OWNER_EMAIL','');vi.stubEnv('OWNER_PASSWORD_HASH','');

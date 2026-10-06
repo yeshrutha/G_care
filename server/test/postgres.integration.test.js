@@ -155,6 +155,8 @@ test('owner PostgreSQL review and read-only records enforce separate authenticat
  const applicant=await db.findUserByEmail('proof-caretaker@example.invalid');
  assert.equal((await request('accounts/'+applicant.id,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Synthetic owner checked evidence.'})).status,200);
  assert.equal((await db.findUserById(applicant.id)).profile.accessVerification.reviewedBy,'project-owner');
+ const patient=await request('patients','POST',{full_name:'Synthetic owner patient',age:76,language_pref:'kn',medical_conditions:[]});assert.equal(patient.status,201);assert.equal((await db.getElderById(patient.data.id)).full_name,'Synthetic owner patient');
+ const clinician=await db.findUserByEmail('new-doctor@example.invalid');assert.equal((await request('accounts/'+clinician.id,'PUT',{decision:'approved',elderIds:[],note:'Verified identity; no patient access yet.'})).status,200);assert.deepEqual((await db.findUserById(clinician.id)).assignedElderIds,[]);
  assert.equal((await request('logout','POST')).status,200);assert.equal((await request('records')).status,401);
  delete process.env.OWNER_EMAIL;delete process.env.OWNER_PASSWORD_HASH;
 });
