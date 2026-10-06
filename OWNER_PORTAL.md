@@ -13,3 +13,11 @@ By default this manages local PostgreSQL, not Render accounts. A local private b
 ## Features and limits
 
 Owners review submitted doctor/caretaker/guardian applications, download available proofs, approve/reject/suspend accounts and assign existing patients. Manual review and notes are required; caretaker and supervising-doctor patient restrictions stay in place. Read-only records show up to 500 patients, medications, appointments, alerts, report metadata, latest vitals and audit events. This is not arbitrary SQL or a full database export; password hashes, secrets and document storage paths are excluded. Sessions last at most one hour and logout revokes the token. Uploaded files need persistent storage/backups; lost evidence cannot be reconstructed from metadata. No MFA or public owner signup exists.
+
+## Live database connection from your laptop
+
+Save OWNER_DATABASE_URL privately in .env or .env.owner. Run npm run owner:server; this backend binds only to 127.0.0.1:8788, uses verified TLS, and verifies existing migrations without modifying them or seeding. npm run owner:dev proxies to that backend. Normal G-Care continues using DATABASE_URL and port 8787. Approval decisions in this mode affect the real website. Existing proofs uploaded on Render cannot be downloaded from your local disk; a protected remote proof transfer is still required.
+
+## Live proof transfer activation
+
+A random OWNER_PROOF_TRANSFER_KEY is saved only in ignored local .env. Copy this exact value privately to the Render backend Environment under the same name, then deploy the proof-transfer code. OWNER_PROOF_ORIGIN stays backend-only and points at https://g-care.onrender.com. A signed, account-specific request expires after 60 seconds; the server exposes only the requested proof after signature verification and records an audit event. This does not enable public owner sign-in or owner review APIs. Proofs already lost from ephemeral storage remain unavailable. Never share this key or put it in a VITE_ variable. The local website remains localhost-only.

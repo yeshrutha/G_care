@@ -1,3 +1,4 @@
+import { handleProofTransfer } from './proofTransfer.js';
 import { handleOwner } from './ownerPortal.js';
 import crypto from 'node:crypto';
 import { validateProofFile, saveProofFile, readProofFile, removeProofFile } from './verificationFiles.js';
@@ -160,6 +161,8 @@ function parseBody(schema, body, res, req) {
 }
 
 export async function handleRequest(req, res, pathName) {
+  const transfer=pathName.match(/^\/api\/private-proof\/([^/]+)$/);
+  if(transfer) return handleProofTransfer(req,res,decodeURIComponent(transfer[1]));
   if (pathName.startsWith('/api/owner/')) return handleOwner(req, res, pathName);
   if (req.method === 'GET' && pathName === '/api/health') {
     if (databasePool) await databasePool.query('SELECT 1');

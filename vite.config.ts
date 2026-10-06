@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/verification-proofs/**"] },
     proxy: {
       "/api": {
-        target: "http://127.0.0.1:8787",
+        target: mode === "owner" ? "http://127.0.0.1:8788" : "http://127.0.0.1:8787",
         changeOrigin: true,
       },
     },

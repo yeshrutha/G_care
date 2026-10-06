@@ -1,0 +1,3 @@
+import {it,expect} from 'vitest';
+import {proofSignature,validProofSignature} from '../../server/proofTransfer.js';
+it('requires a private key, an account-bound signature and fresh timestamp',()=>{const key='a'.repeat(64),time=String(Math.floor(Date.now()/1000));const signature=proofSignature(key,'applicant',time);expect(validProofSignature(key,'applicant',time,signature)).toBe(true);expect(validProofSignature(key,'other',time,signature)).toBe(false);expect(validProofSignature('b'.repeat(64),'applicant',time,signature)).toBe(false);expect(validProofSignature('', 'applicant',time,signature)).toBe(false);expect(validProofSignature(key,'applicant','1',signature)).toBe(false);});

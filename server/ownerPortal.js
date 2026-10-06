@@ -1,3 +1,4 @@
+import {fetchRemoteProof} from './proofTransfer.js';
 import crypto from 'node:crypto';
 import { dbService, databasePool, readDb } from './db.js';
 import { verifyPassword, signToken, verifyToken, sanitizeUser } from './auth.js';
@@ -37,8 +38,8 @@ export async function handleOwner(req,res,pathName) {
  if(proof && req.method==='GET') {
   const account=await dbService.findUserById(decodeURIComponent(proof[1])); const file=account?.profile?.accessVerification?.proofFile;
   if(!file) return sendJson(res,404,{error:'No uploaded proof found.'},req);
-  try { const bytes=await readProofFile(file);await dbService.addAuditLog(owner,'view_proof','user',account.id);return sendBinary(res,bytes,file.fileType,file.fileName,req,true); }
-  catch { return sendJson(res,404,{error:'Proof file unavailable. It may have been lost if server storage was not persistent.'},req); }
+  try { const bytes=process.env.OWNER_LIVE_CONNECTION === 'true' ? await fetchRemoteProof(account.id) : await readProofFile(file);await dbService.addAuditLog(owner,'view_proof','user',account.id);return sendBinary(res,bytes,file.fileType,file.fileName,req,true); }
+  catch { return sendJson(res,404,{error:'Proof file unavailable. Check the private live proof connection and persistent server storage.'},req); }
  }
  const review=pathName.match(/^\/api\/owner\/accounts\/([^/]+)$/);
  if(review && req.method==='PUT') {
