@@ -21,5 +21,6 @@ export function safeEditableProfile(profile) {
 export function publicAccount(user) {
   if (!user) return null;
   const { passwordHash, ...safe } = user;
+  if (safe.profile) { const { guardianProofData, ...profile } = safe.profile; safe.profile = profile; }
   return { ...safe, accessStatus: isDemoAccount(user) ? 'demo' : (user.profile?.accessVerification?.status || 'pending') };
 }

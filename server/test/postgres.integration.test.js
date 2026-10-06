@@ -156,6 +156,14 @@ test('owner PostgreSQL review and read-only records enforce separate authenticat
  assert.equal((await request('accounts/'+applicant.id,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Synthetic owner checked evidence.'})).status,200);
  assert.equal((await db.findUserById(applicant.id)).profile.accessVerification.reviewedBy,'project-owner');
  const patient=await request('patients','POST',{full_name:'Synthetic owner patient',age:76,language_pref:'kn',medical_conditions:[]});assert.equal(patient.status,201);assert.equal((await db.getElderById(patient.data.id)).full_name,'Synthetic owner patient');
+ const proofBytes=Buffer.from('%PDF-1.4\nSynthetic PostgreSQL consent\n%%EOF');
+ const enrolled=await request('patients/'+patient.data.id+'/guardian','POST',{name:'Synthetic Guardian',email:'owner-guardian@example.invalid',phone:'',relationship:'daughter',note:'Synthetic authorization checked.',evidenceReviewed:true,proofFile:{fileName:'consent.pdf',fileType:'application/pdf',fileSize:proofBytes.length,fileData:proofBytes.toString('base64')}});assert.equal(enrolled.status,201);
+ assert.equal(enrolled.data.user.profile.guardianProofData,undefined);
+ const storedGuardian=await db.findUserById(enrolled.data.user.id);assert.deepEqual(await db.getAccessibleElderIds(storedGuardian),[patient.data.id]);
+ const child=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();const a=await dbService.findUserById('"+storedGuardian.id+"');console.log(a.profile.guardianProofData);await closeDb();"],{env:process.env,encoding:'utf8'});assert.equal(child.trim().split('\n').at(-1),proofBytes.toString('base64'));
+ const proofRes=await fetch(base+'/api/owner/accounts/'+storedGuardian.id+'/proof',{headers:{Authorization:'Bearer '+token}});assert.equal(proofRes.status,200);assert.deepEqual(Buffer.from(await proofRes.arrayBuffer()),proofBytes);
+ const credentials={email:storedGuardian.email,password:enrolled.data.temporaryPassword,role:'guardian'};assert.equal((await api('/auth/login','POST',credentials,null)).status,428);
+ assert.equal((await api('/auth/login','POST',{...credentials,newPassword:'FreshSyntheticPassword123!'},null)).status,200);assert.equal((await api('/auth/login','POST',credentials,null)).status,401);
  const clinician=await db.findUserByEmail('new-doctor@example.invalid');assert.equal((await request('accounts/'+clinician.id,'PUT',{decision:'approved',elderIds:[],note:'Verified identity; no patient access yet.'})).status,200);assert.deepEqual((await db.findUserById(clinician.id)).assignedElderIds,[]);
  assert.equal((await request('logout','POST')).status,200);assert.equal((await request('records')).status,401);
  delete process.env.OWNER_EMAIL;delete process.env.OWNER_PASSWORD_HASH;

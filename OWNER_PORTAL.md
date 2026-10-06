@@ -25,3 +25,11 @@ A random OWNER_PROOF_TRANSFER_KEY is saved only in ignored local .env. Copy this
 ## Review and patient enrollment
 
 Owner-approved doctors may start with zero assigned patients; this grants sign-in but no patient records. Caretakers and guardians still require selected patients within their supervising doctor assignments. Owners can add a real patient profile through Patients → Add patient, then assign it under All accounts. No demo patients or vitals are automatically created in the live database. Refresh shows a loading state rather than fake zero counts. Signed proof transfer rejection is reported separately from confirmed missing upload storage. PDF previews use a local PDF.js canvas reader with page/zoom controls; images display in the modal. Word previews require a PDF/image copy.
+
+## Create a guardian for an existing patient
+
+Open Patients and select Add guardian beside the patient. Enter the guardian name, email, optional phone and relationship; upload consent/authorization evidence (up to 5 MB), record how it was reviewed and confirm authorization. This immediately creates an approved guardian linked only to that patient. Existing emails cannot be overwritten.
+
+The generated temporary password is returned once and kept only in the current page state. Share privately and dismiss the credentials. The public login requires a new password before issuing a session; the temporary password stops working after replacement. New guardian proof bytes are stored in the private PostgreSQL user profile (JSON fallback stores them in its private data file). Public account responses strip the proof bytes; the authenticated owner preview reads them from the database. Existing disk-based uploads are unchanged.
+
+The public frontend/backend must be updated together for first-login password replacement. Owner-managed guardians do not require a supervising doctor, but ordinary doctor-approved guardian registration continues to follow existing supervisor checks. The Owner Portal stays local only.

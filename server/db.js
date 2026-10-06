@@ -534,6 +534,15 @@ export const dbService = {
     }
   },
 
+  changeTemporaryPassword: async (id, oldHash, passwordHash) => {
+    if (usePostgres) {
+      const r=await pool.query("UPDATE users SET password_hash=$1, profile=jsonb_set(profile,'{mustChangePassword}','false'::jsonb) WHERE id=$2 AND password_hash=$3 AND profile->>'mustChangePassword'='true'",[passwordHash,id,oldHash]);
+      return r.rowCount===1;
+    }
+    const data=await readDb();const u=data.users.find(u=>u.id===id);
+    if(!u||u.passwordHash!==oldHash||!u.profile?.mustChangePassword)return false;
+    u.passwordHash=passwordHash;u.profile.mustChangePassword=false;await writeDb(data);return true;
+  },
   listUsers: async () => {
     if (usePostgres) {
       const { rows } = await pool.query('SELECT id FROM users');
@@ -607,7 +616,7 @@ export const dbService = {
       if (stored.id === DEMO_CARETAKER_ID && ids.length === 0) ids = DEMO_PATIENT_IDS;
       return ids.filter(id => DEMO_PATIENT_IDS.includes(id));
     }
-    if (stored.role === 'caretaker' || stored.role === 'guardian') {
+    if (stored.role === 'caretaker' || (stored.role === 'guardian' && stored.profile?.accessVerification?.ownerManaged !== true)) {
       const verification = stored.profile?.accessVerification;
       if (stored.role === 'caretaker' && !['nurse', 'assistant'].includes(verification?.staffKind)) return [];
       const doctor = await dbService.findUserById(verification.supervisingDoctorId);

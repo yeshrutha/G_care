@@ -1,10 +1,10 @@
 import {fetchRemoteProof} from './proofTransfer.js';
 import crypto from 'node:crypto';
 import { dbService, databasePool, readDb, writeDb } from './db.js';
-import { verifyPassword, signToken, verifyToken, sanitizeUser } from './auth.js';
+import { verifyPassword, signToken, verifyToken, sanitizeUser, hashPassword, validateEmail } from './auth.js';
 import { readJsonBody, sendJson, sendBinary, getBearerToken } from './http.js';
 import { reviewAccess } from './accessReview.js';
-import { readProofFile } from './verificationFiles.js';
+import { readProofFile, validateProofFile } from './verificationFiles.js';
 function credentials() {
  const email=(process.env.OWNER_EMAIL || '').trim().toLowerCase();
  const hash=process.env.OWNER_PASSWORD_HASH || '';
@@ -42,12 +42,29 @@ export async function handleOwner(req,res,pathName) {
   await dbService.addAuditLog(owner,'create_patient','elder',patient.id);
   return sendJson(res,201,patient,req);
  }
+ const guardianRoute=pathName.match(/^\/api\/owner\/patients\/([^/]+)\/guardian$/);
+ if(guardianRoute && req.method==='POST') {
+  const b=await readJsonBody(req,8*1024*1024);const patientId=decodeURIComponent(guardianRoute[1]);
+  const name=typeof b.name==='string'?b.name.trim():'';const email=typeof b.email==='string'?b.email.trim().toLowerCase():'';
+  const relationships=['son','daughter','spouse','relative','authorized_guardian'];
+  if(!name||name.length>120||validateEmail(email)||email.length>255||typeof b.phone!=='string'||b.phone.length>40||!relationships.includes(b.relationship)||typeof b.note!=='string'||!b.note.trim()||b.note.length>1000||b.evidenceReviewed!==true)return sendJson(res,400,{error:'Provide guardian details, relationship, a review note and confirm that you checked authorization.'},req);
+  const patient=await dbService.getElderById(patientId);
+  if(!patient)return sendJson(res,404,{error:'Patient not found.'},req);
+  if(await dbService.findUserByEmail(email))return sendJson(res,409,{error:'This email already has an account. Assign it through All accounts instead.'},req);
+  let proof;try{proof=validateProofFile(b.proofFile);}catch(e){return sendJson(res,400,{error:e.message},req);}
+  const temporaryPassword=crypto.randomBytes(18).toString('base64url');
+  const now=new Date().toISOString();
+  const user={id:'user-'+crypto.randomUUID(),name,email,phone:b.phone.trim(),role:'guardian',passwordHash:await hashPassword(temporaryPassword),assignedElderIds:[patientId],createdAt:now,profile:{elderName:patient.full_name,mustChangePassword:true,guardianProofData:proof.buffer.toString('base64'),accessVerification:{status:'approved',ownerManaged:true,proofId:'Owner-reviewed authorization',issuer:'Patient / authorized representative',proofReference:'',relationship:b.relationship,proofFile:{id:crypto.randomUUID(),fileName:proof.fileName,fileType:proof.fileType,fileSize:proof.fileSize,storage:'database'},reviewedBy:owner.id,reviewedAt:now,reviewNote:b.note.trim()}}};
+  try{await dbService.createUser(user);}catch(e){if(e.code==='23505')return sendJson(res,409,{error:'This email already has an account.'},req);throw e;}
+  await dbService.addAuditLog(owner,'create_guardian','user',user.id,{patientId});
+  return sendJson(res,201,{user:sanitizeUser(user),temporaryPassword},req);
+ }
  if(pathName==='/api/owner/accounts' && req.method==='GET') return sendJson(res,200,(await dbService.listUsers()).map(sanitizeUser),req);
  const proof=pathName.match(/^\/api\/owner\/accounts\/([^/]+)\/proof$/);
  if(proof && req.method==='GET') {
   const account=await dbService.findUserById(decodeURIComponent(proof[1])); const file=account?.profile?.accessVerification?.proofFile;
   if(!file) return sendJson(res,404,{error:'No uploaded proof found.'},req);
-  try { const bytes=process.env.OWNER_LIVE_CONNECTION === 'true' ? await fetchRemoteProof(account.id) : await readProofFile(file);await dbService.addAuditLog(owner,'view_proof','user',account.id);return sendBinary(res,bytes,file.fileType,file.fileName,req,true); }
+  try { const bytes=account.profile.guardianProofData ? Buffer.from(account.profile.guardianProofData,'base64') : process.env.OWNER_LIVE_CONNECTION === 'true' ? await fetchRemoteProof(account.id) : await readProofFile(file);await dbService.addAuditLog(owner,'view_proof','user',account.id);return sendBinary(res,bytes,file.fileType,file.fileName,req,true); }
   catch(error) { return sendJson(res,502,{error:process.env.OWNER_LIVE_CONNECTION==='true'?error.message:'The proof is not present on this server. Check upload storage.'},req); }
  }
  const review=pathName.match(/^\/api\/owner\/accounts\/([^/]+)$/);

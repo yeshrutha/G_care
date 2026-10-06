@@ -445,6 +445,12 @@ async function handleAuth(req, res, pathName) {
 
     if (!hasApprovedAccess(user)) return sendJson(res, 403, { error: 'Account access is pending, rejected or suspended. Contact your approving doctor or project owner.' }, req);
     if (body.role && body.role !== user.role) return sendJson(res, 403, { error: 'This account belongs to a different portal.' }, req);
+    if(user.profile?.mustChangePassword){
+      if(!body.newPassword)return sendJson(res,428,{error:'Set a new password before signing in with your temporary password.'},req);
+      if(typeof body.newPassword!=='string'||body.newPassword.length>128||validatePassword(body.newPassword)||body.newPassword===password)return sendJson(res,400,{error:'Choose a different password with 8 to 128 characters.'},req);
+      if(!await dbService.changeTemporaryPassword(user.id,user.passwordHash,await hashPassword(body.newPassword)))return sendJson(res,409,{error:'Temporary password already changed. Sign in again.'},req);
+      user.profile.mustChangePassword=false;
+    }
     const token = signToken(user);
     return sendJson(res, 200, { token, user: sanitizeUser(user) }, req);
   }

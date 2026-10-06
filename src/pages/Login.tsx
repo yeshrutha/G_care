@@ -38,6 +38,7 @@ const Login: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [newPassword,setNewPassword]=useState('');const [changeRequired,setChangeRequired]=useState(false);
   const [name, setName] = useState('');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -75,7 +76,7 @@ const Login: React.FC = () => {
             hospital: role === 'doctor' ? hospital : undefined,
             specialization: role === 'doctor' ? specialization : undefined,
           })
-        : await login(email, password, role);
+        : await login(email, password, role, changeRequired?newPassword:undefined);
 
       if (isSignup) {
         setSuccess('Request submitted. You can sign in after your evidence and patient assignments are approved.');
@@ -84,7 +85,7 @@ const Login: React.FC = () => {
       }
       navigate(getRedirect(user.role));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (err instanceof ApiError && err.status === 428) { setChangeRequired(true);setError(err.message); } else if (err instanceof ApiError && err.status === 409) {
         setError('An account already exists for this email. Sign in instead.');
         setEmailAlreadyRegistered(true);
       } else {
@@ -181,6 +182,7 @@ const Login: React.FC = () => {
             </div>
 
             <div>
+              {!isSignup&&changeRequired&&<div className="mb-4"><Label htmlFor="new-password">Choose your new password</Label><Input id="new-password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/><p className="text-sm text-muted-foreground">Keep the temporary password below for this first sign-in.</p></div>}
               <Label htmlFor="password">{t('login.password')}</Label>
               <div className="relative mt-1">
                 <Input id="password" type={showPassword ? 'text' : 'password'}

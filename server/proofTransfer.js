@@ -9,7 +9,7 @@ export async function handleProofTransfer(req,res,id){
  if(req.method!=='GET'||!validProofSignature(key,id,time,signature))return sendJson(res,404,{error:'Not found'},req);
  const a=await dbService.findUserById(id);const f=a?.profile?.accessVerification?.proofFile;
  if(!f)return sendJson(res,404,{error:'Proof unavailable'},req);
- try{const bytes=await readProofFile(f);await dbService.addAuditLog({id:'project-owner',role:'owner'},'remote_view_proof','user',id);return sendBinary(res,bytes,f.fileType,f.fileName,req,true);}catch{return sendJson(res,404,{error:'Proof unavailable. The upload may not have survived an earlier redeployment.'},req);}
+ try{const bytes=a.profile.guardianProofData?Buffer.from(a.profile.guardianProofData,'base64'):await readProofFile(f);await dbService.addAuditLog({id:'project-owner',role:'owner'},'remote_view_proof','user',id);return sendBinary(res,bytes,f.fileType,f.fileName,req,true);}catch{return sendJson(res,404,{error:'Proof unavailable. The upload may not have survived an earlier redeployment.'},req);}
 }
 export async function fetchRemoteProof(id){
  const origin=process.env.OWNER_PROOF_ORIGIN;const key=process.env.OWNER_PROOF_TRANSFER_KEY;

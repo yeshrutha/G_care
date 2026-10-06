@@ -57,6 +57,30 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(DATA_DIR, { recursive: true, force: true }); vi.unstubAllEnvs();
   });
+  it('creates an owner-approved guardian with persistent private proof, one patient and a one-use temporary password', async () => {
+    vi.stubEnv('OWNER_LOCAL_ENABLED','true');vi.stubEnv('OWNER_EMAIL','owner@example.invalid');vi.stubEnv('OWNER_PASSWORD_HASH',passwordHash);
+    const login=await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'});const token=login.data.token;
+    const bytes=Buffer.from('%PDF-1.4\nSynthetic guardian consent\n%%EOF');
+    const body={name:'Test Guardian',email:'owner-created@example.invalid',phone:'',relationship:'son',note:'Synthetic consent reviewed for the test patient.',evidenceReviewed:true,proofFile:{fileName:'consent.pdf',fileType:'application/pdf',fileSize:bytes.length,fileData:bytes.toString('base64')}};
+    const path='/api/owner/patients/elder-1/guardian';
+    expect((await request(path,'POST',body,signToken(doctor))).status).toBe(401);
+    expect((await request(path,'POST',{...body,evidenceReviewed:false},token)).status).toBe(400);
+    expect((await request('/api/owner/patients/missing/guardian','POST',body,token)).status).toBe(404);
+    const created=await request(path,'POST',body,token);expect(created.status).toBe(201);
+    expect(created.data.user.assignedElderIds).toEqual(['elder-1']);expect(created.data.user.accessStatus).toBe('approved');
+    expect(created.data.user.profile.guardianProofData).toBeUndefined();expect(created.data.user.passwordHash).toBeUndefined();
+    expect((await request(path,'POST',body,token)).status).toBe(409);
+    const stored=await dbService.findUserById(created.data.user.id);expect(Buffer.from(stored.profile.guardianProofData,'base64')).toEqual(bytes);
+    const file=await fetch(base+'/api/owner/accounts/'+stored.id+'/proof',{headers:{Authorization:'Bearer '+token}});expect(file.status).toBe(200);expect(Buffer.from(await file.arrayBuffer())).toEqual(bytes);
+    const creds={email:body.email,password:created.data.temporaryPassword,role:'guardian'};
+    expect((await request('/api/auth/login','POST',creds)).status).toBe(428);
+    expect((await request('/api/auth/login','POST',{...creds,newPassword:creds.password})).status).toBe(400);
+    const signed=await request('/api/auth/login','POST',{...creds,newPassword:'NewPrivateTestPassword123!'});expect(signed.status).toBe(200);
+    expect((await request('/api/dashboard-data','GET',undefined,signed.data.token)).data.elders.map((e:any)=>e.id)).toEqual(['elder-1']);
+    expect((await request('/api/vitals?elderId=elder-3','GET',undefined,signed.data.token)).status).toBe(403);
+    expect((await request('/api/auth/login','POST',creds)).status).toBe(401);
+    const accounts=await request('/api/owner/accounts','GET',undefined,token);expect(JSON.stringify(accounts.data)).not.toContain(bytes.toString('base64'));
+  });
   it('persists uploaded proof, permits only the assigned reviewer, and preserves manual approval', async () => {
     const bytes = Buffer.from('%PDF-1.4\nSynthetic ID proof fixture\n%%EOF');
     const result = await request('/api/auth/register', 'POST', { ...payload('caretaker'), proofReference: '', proofFile: { fileName: 'proof.pdf', fileType: 'application/pdf', fileSize: bytes.length, fileData: bytes.toString('base64') } });

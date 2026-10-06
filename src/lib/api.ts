@@ -118,10 +118,10 @@ export interface AuthResponse {
   user: AuthUser;
 }
 
-export async function loginRequest(email: string, password: string, role?: UserRole) {
+export async function loginRequest(email: string, password: string, role?: UserRole, newPassword?: string) {
   return apiFetch<AuthResponse>('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email, password, role }),
+    body: JSON.stringify({ email, password, role, newPassword }),
   });
 }
 

@@ -22,7 +22,7 @@ interface AuthStore {
   initialized: boolean;
   loading: boolean;
   hydrate: () => Promise<void>;
-  login: (email: string, password: string, role?: UserRole) => Promise<AuthUser>;
+  login: (email: string, password: string, role?: UserRole, newPassword?: string) => Promise<AuthUser>;
   register: (payload: RegistrationPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   syncLegacyStores: (user: AuthUser | null) => void;
@@ -116,10 +116,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     }
   },
 
-  login: async (email, password, role) => {
+  login: async (email, password, role, newPassword) => {
     set({ loading: true });
     try {
-      const result = await loginRequest(email, password, role);
+      const result = await (newPassword ? loginRequest(email, password, role, newPassword) : loginRequest(email, password, role));
       const token = result.token;
       storeSession(token, result.user);
       const user = await loadPatientState(result.user);

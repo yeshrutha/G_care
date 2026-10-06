@@ -20,7 +20,7 @@ export async function reviewAccess(reviewer, accountId, decision, elderIds, note
     if (account.role === 'caretaker' && !['nurse', 'assistant'].includes(verification.staffKind)) {
       throw Object.assign(new Error('Caretaker access is restricted to a nurse or doctor assistant.'), { statusCode: 400 });
     }
-    if (account.role !== 'doctor') {
+    if (account.role !== 'doctor' && !(ownerReview && account.role === 'guardian' && verification.ownerManaged === true)) {
       const doctor = await dbService.findUserById(verification.supervisingDoctorId);
       if (!canReviewAccounts(doctor)) throw Object.assign(new Error('A verified supervising doctor is required.'), { statusCode: 400 });
       if (assigned.some(id => !doctor.assignedElderIds?.includes(id))) {

@@ -21,6 +21,7 @@ const GuardianLogin: React.FC = () => {
   const [form, setForm] = useState({ email: '', password: '', name: '', phone: '', elderName: '' });
   const [isSignup, setIsSignup] = useState(false);
   const [error, setError] = useState('');
+  const [newPassword,setNewPassword]=useState('');const [changeRequired,setChangeRequired]=useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,7 +39,7 @@ const GuardianLogin: React.FC = () => {
             phone: form.phone,
             elderName: form.elderName,
           })
-        : await login(form.email, form.password, 'guardian');
+        : await login(form.email, form.password, 'guardian', changeRequired?newPassword:undefined);
 
       if (isSignup) { setSuccess('Request submitted. Your doctor must review your evidence and assign your patient before sign-in.'); setIsSignup(false); return; }
       if (user.role === 'doctor') {
@@ -51,6 +52,7 @@ const GuardianLogin: React.FC = () => {
       }
       navigate('/guardian/dashboard');
     } catch (err) {
+      if(err instanceof ApiError&&err.status===428)setChangeRequired(true);
       setError(err instanceof ApiError ? err.message : 'Authentication failed');
     }
   };
@@ -138,6 +140,7 @@ const GuardianLogin: React.FC = () => {
               </div>
 
               <div className="space-y-2">
+                {!isSignup&&changeRequired&&<div className="mb-4"><Label htmlFor="g-new-password">Choose your new password</Label><Input id="g-new-password" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)}/><p className="text-sm text-muted-foreground">Keep the temporary password below for this first sign-in.</p></div>}
                 <Label htmlFor="g-password">Password</Label>
                 <div className="relative">
                   <Input id="g-password" type={showPassword ? 'text' : 'password'} placeholder="••••••••"
