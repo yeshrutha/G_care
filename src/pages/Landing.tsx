@@ -40,9 +40,6 @@ const Landing: React.FC = () => {
           <div className="flex items-center gap-3">
             <WatchSimulator buttonClassName="hidden sm:inline-flex" />
             <Button variant="ghost" onClick={() => navigate('/login')}>{t('nav.login')}</Button>
-            <Button className="bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg" onClick={() => navigate('/login')}>
-              {t('nav.start_free')}
-            </Button>
           </div>
         </div>
       </header>
@@ -60,9 +57,6 @@ const Landing: React.FC = () => {
             <WatchSimulator buttonVariant="secondary" buttonClassName="w-full sm:hidden rounded-lg h-12 px-8 text-base bg-secondary text-navy hover:bg-secondary/80" />
             <Button size="lg" className="bg-teal hover:bg-teal/90 text-primary-foreground rounded-lg h-12 px-8 text-base" onClick={() => navigate('/login')}>
               {t('hero.cta_trial')}
-            </Button>
-            <Button size="lg" variant="outline" className="rounded-lg h-12 px-8 text-base border-border" onClick={() => navigate('/dashboard')}>
-              {t('hero.cta_demo')} <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </div>
         </div>
