@@ -61,6 +61,7 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const paired=await request('/api/watch-simulator/pair','POST',{},signToken(doctor));
     expect(paired.status).toBe(200);expect(paired.data.map((w:any)=>w.patient.id).sort()).toEqual(['elder-1','elder-2']);
     const key=paired.data[0].token;
+    expect((await request('/api/assistant/chat','POST',{message:'Vitals',elderId:'elder-3'},undefined,{'x-watch-token':key})).status).toBe(403);
     const sos=await request('/api/watch-simulator/sos','POST',{elderId:'elder-3'},undefined,{'x-watch-token':key});
     expect(sos.status).toBe(201);expect(sos.data.elder_id||sos.data.elderId).toBe(paired.data[0].patient.id);
     const alerts=await request('/api/alerts','GET',undefined,signToken(doctor));expect(alerts.data.some((a:any)=>a.id===sos.data.id)).toBe(true);

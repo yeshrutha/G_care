@@ -1974,13 +1974,14 @@ const WatchSimulator: React.FC<
               '/assistant/chat',
               {
                 method: 'POST',
+                headers: pairedWatches.find(w=>w.patient.id===activeElder?.id) ? {'x-watch-token':pairedWatches.find(w=>w.patient.id===activeElder?.id).token} : {},
 
                 body: JSON.stringify({
                   message:
                     cleanSpeechText,
 
                   elderId:
-                    activeElder?.id,
+                    getStoredToken() || pairedWatches.some(w=>w.patient.id===activeElder?.id) ? activeElder?.id : undefined,
 
                   conversationHistory,
                 }),

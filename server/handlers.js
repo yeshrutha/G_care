@@ -1,4 +1,4 @@
-import { handleWatchSimulator } from './watchSimulator.js';
+import { handleWatchSimulator, authenticatePairedWatch } from './watchSimulator.js';
 import { handleProofTransfer } from './proofTransfer.js';
 import { handleOwner } from './ownerPortal.js';
 import crypto from 'node:crypto';
@@ -184,7 +184,7 @@ export async function handleRequest(req, res, pathName) {
 
   if (req.method === 'POST' && pathName === '/api/assistant/chat') {
     const session = await authenticate(req);
-    return handleAssistantChat(req, res, session?.user || null);
+    return handleAssistantChat(req, res, session?.user || await authenticatePairedWatch(req));
   }
 
   if (req.method === 'GET' && pathName === '/api/tts') {
@@ -257,6 +257,7 @@ async function handleAssistantChat(req, res, user) {
   const body = parseBody(assistantChatSchema, await readJsonBody(req), res, req);
   if (!body) return;
 
+  if(user?.watchElderId && body.elderId && body.elderId!==user.watchElderId)return sendJson(res,403,{error:'Watch is paired to another patient.'},req);
   let healthContext = null;
   if (body.elderId) {
     let data = null;

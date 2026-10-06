@@ -23,3 +23,11 @@ export async function handleWatchSimulator(req,res,pathName){
  }
  return sendJson(res,404,{error:'Route not found'},req);
 }
+
+export async function authenticatePairedWatch(req){
+ const claim=verifyToken(req.headers['x-watch-token']);
+ if(claim?.purpose!=='watch-simulator')return null;
+ const user=await dbService.findUserById(claim.issuer);
+ if(!user||!hasApprovedAccess(user)||(user.profile?.credentialVersion||'legacy')!==claim.credentialVersion||!await dbService.userOwnsElder(user,claim.elderId))return null;
+ return {...user,watchElderId:claim.elderId};
+}
