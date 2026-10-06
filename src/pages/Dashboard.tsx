@@ -908,7 +908,6 @@ const Dashboard: React.FC = () => {
       <main className="flex-1 overflow-y-auto">
         {/* Top bar */}
         <div className="sticky top-0 z-40 bg-card border-b border-border px-6 py-3 flex items-center justify-between">
-          {Object.values(demoVitals).some(v=>v.source==='simulator')&&<p className="text-xs text-amber-700">SIMULATED VITALS - demo data, not sensor measurements</p>}
           <h1 className="font-display text-2xl text-foreground">{SECTION_TITLES[activeSection]}</h1>
           <div className="flex items-center gap-3">
 
