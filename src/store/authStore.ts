@@ -75,6 +75,12 @@ async function loadPatientState(user: AuthUser) {
   clearPatientState();
   const data = await apiFetch<any>('/dashboard-data');
   const elders = data.elders || [];
+  try {
+    const paired = await apiFetch<any[]>('/watch-simulator/pair',{method:'POST'});
+    const prior = JSON.parse(localStorage.getItem('gcare_paired_watches') || '[]');
+    localStorage.setItem('gcare_paired_watches',JSON.stringify([...prior.filter((p:any)=>!paired.some(w=>w.patient.id===p.patient.id)),...paired]));
+  } catch {}
+
   user = { ...user, assignedElderIds: elders.map((e: any) => e.id) };
   useAppStore.setState({ demoElders: elders, demoVitals: data.vitals || {}, activeAlerts: data.alerts || [], medications: data.medications || [], alarms: data.alarms || [] });
   const d=new Date(); const today=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

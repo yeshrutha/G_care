@@ -102,3 +102,8 @@ function parseExpiry(value) {
   if (unit === 'm') return amount * 60;
   return amount;
 }
+
+export function signWatchToken(user, elderId) {
+ const now=Math.floor(Date.now()/1000);
+ return encodeToken({sub:'watch:'+user.id,issuer:user.id,elderId,purpose:'watch-simulator',credentialVersion:user.profile?.credentialVersion||'legacy',iat:now,exp:now+86400*7});
+}

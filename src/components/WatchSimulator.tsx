@@ -36,6 +36,7 @@ import {
   broadcastGcareMessage,
   calculateMinutesBefore,
   generateAppointmentKannadaMessage,
+  generateAppointmentMultilingualMessage,
 } from '@/lib/syncChannel';
 
 import { Button } from '@/components/ui/button';
@@ -416,7 +417,10 @@ const WatchSimulator: React.FC<
     | 'error'
   >('idle');
 
-  const selectedElderId = activeElderId || 'elder-1';
+  const [pairedWatches, setPairedWatches] = useState<any[]>(() => {try{return JSON.parse(localStorage.getItem('gcare_paired_watches') || '[]');}catch{return [];}});
+  useEffect(()=>{const refresh=()=>{try{setPairedWatches(JSON.parse(localStorage.getItem('gcare_paired_watches')||'[]'));}catch{}};window.addEventListener('storage',refresh);refresh();return()=>window.removeEventListener('storage',refresh);},[open]);
+  const watchPatients = getStoredToken() ? demoElders : pairedWatches.length ? pairedWatches.map(w=>w.patient) : WATCH_EXAMPLE_PATIENTS;
+  const selectedElderId = watchPatients.some(p=>p.id===activeElderId) ? activeElderId : (watchPatients[0]?.id || 'elder-1');
   useEffect(() => {
     if (!open || !getStoredToken()) return;
     // Save only the displayed watch patient, at most once per 30 seconds.
@@ -489,13 +493,40 @@ const WatchSimulator: React.FC<
   );
 
   const activeElder = useMemo(() => {
-    const list = getStoredToken() ? demoElders : WATCH_EXAMPLE_PATIENTS;
+    const list = watchPatients;
     const found = list.find((e) => e.id === selectedElderId) || list[0];
     return found;
   }, [
-    demoElders,
+    demoElders, pairedWatches,
     selectedElderId,
   ]);
+
+  const observedAppointment = useRef('');
+  useEffect(()=>{
+    if (!open || !activeElder) return;
+    const connection = pairedWatches.find(w=>w.patient.id===activeElder.id);
+    if (!connection) return;
+    let cancelled=false, busy=false;
+    const poll=async()=>{
+      if(busy)return;busy=true;
+      try{
+        const data=await apiFetch<any>('/watch-simulator/state',{headers:{'x-watch-token':connection.token}});
+        if(cancelled)return;
+        if(data.vitals)useAppStore.getState().setDemoVitals(activeElder.id,data.vitals);
+        if(!getStoredToken())useAppStore.setState({medications:data.medications||[],alarms:data.alarms||[],activeAlerts:data.alerts||[]});
+        setGuardianReminders([...(data.medications||[]).flatMap((m:any)=>(m.times||[]).map((time:string,i:number)=>({id:'med-'+m.id+'-'+i,elderId:activeElder.id,title:m.brand_name,type:'medication',time,repeat:'daily',verified:false}))),...(data.alarms||[]).map((a:any)=>({...a,id:'alarm-'+a.id,verified:false}))]);
+        const booked=(data.alarms||[]).filter((a:any)=>a.appointmentId&&!a.isOneHourReminder).at(0);
+        if(booked && observedAppointment.current!==booked.appointmentId){
+          observedAppointment.current=booked.appointmentId;
+          const prep=(data.alarms||[]).find((a:any)=>a.appointmentId===booked.appointmentId&&a.isOneHourReminder);
+          const prepTime=prep?.time || calculateMinutesBefore(booked.appointmentTime||booked.time,60);
+          const text=generateAppointmentMultilingualMessage(activeElder.full_name,booked.appointmentDate,booked.appointmentTime||booked.time,booked.doctorName,prepTime,activeElder.language_pref||'en');
+          broadcastGcareMessage({type:'APPOINTMENT_SCHEDULED',appointmentId:booked.appointmentId,elderId:activeElder.id,elderName:activeElder.full_name,language:activeElder.language_pref||'en',date:booked.appointmentDate,time:booked.appointmentTime||booked.time,prepAlarmTime:prepTime,doctorName:booked.doctorName,patientMessage:text.displayText,spokenText:text.spokenText,englishMessage:text.displayText,timestamp:Date.now()});
+        }
+        if((data.alerts||[]).some((a:any)=>a.type==='sos'&&a.resolved) && !(data.alerts||[]).some((a:any)=>a.type==='sos'&&!a.resolved))stopAlertLoop('sos');
+      }catch{}finally{busy=false;}
+    };poll();const interval=window.setInterval(poll,3000);return()=>{cancelled=true;window.clearInterval(interval);};
+  },[open,activeElder?.id,pairedWatches]);
 
   const activeVitals = useMemo(() => {
     if (!activeElder) return demoVitals['elder-1'] || DEMO_VITALS['elder-1'];
@@ -546,8 +577,9 @@ const WatchSimulator: React.FC<
     const unsubscribeBroadcast = subscribeToGcareBroadcast((msg) => {
       if (msg.type === 'APPOINTMENT_SCHEDULED') {
         const targetElderId = msg.elderId;
-        if (!open || targetElderId !== selectedElderId) return;
+        if (!open || targetElderId !== activeElder?.id) return;
 
+        if (msg.appointmentId) observedAppointment.current = msg.appointmentId;
         // 1. Turn OFF the red anomaly / SOS alert on the watch
         setDismissedWatchAlerts((prev) => ({ ...prev, [targetElderId]: true }));
         const targetAlert = useAppStore.getState().activeAlerts.find(a => a.id === msg.alertId);
@@ -612,7 +644,8 @@ const WatchSimulator: React.FC<
 
   const handleTriggerWatchSos = useCallback(() => {
     if (!activeElder) return;
-    if (!getStoredToken()) {
+    const pairedWatch = pairedWatches.find(w=>w.patient.id===activeElder.id);
+    if (!getStoredToken() && !pairedWatch) {
       triggerAlert('sos');
       toast({ title: 'Emergency SOS preview', description: 'Sign in with an approved account to send an alert to the assigned doctor and guardian.', variant: 'destructive' });
       return;
@@ -646,7 +679,7 @@ const WatchSimulator: React.FC<
       resolved: false,
     };
 
-    apiFetch<any>('/alerts', { method: 'POST', body: JSON.stringify(sosAlert) }).then(saved=>{
+    apiFetch<any>(pairedWatch ? '/watch-simulator/sos' : '/alerts', { method: 'POST', headers: pairedWatch ? {'x-watch-token':pairedWatch.token} : {}, body: JSON.stringify(sosAlert) }).then(saved=>{
     addCaretakerAlert({...sosAlert,...saved});
     addGuardianAlert({
       id: `guardian-${saved.id}`,
@@ -671,7 +704,7 @@ const WatchSimulator: React.FC<
     triggerAlert('sos');
 
 
-  }, [activeElder, injectVitalsAnomaly, addCaretakerAlert, addGuardianAlert]);
+  }, [activeElder, pairedWatches, injectVitalsAnomaly, addCaretakerAlert, addGuardianAlert]);
 
   const activeWatchAnomalies = useMemo(() => {
     if (!activeElder || !activeVitals) return [];
@@ -2417,7 +2450,7 @@ const WatchSimulator: React.FC<
                     <SelectValue placeholder="Select patient" />
                   </SelectTrigger>
                   <SelectContent className="border-white/15 bg-slate-900 text-white">
-                    {(getStoredToken() ? demoElders : WATCH_EXAMPLE_PATIENTS).map(
+                    {watchPatients.map(
                       (elder) => (
                         <SelectItem key={elder.id} value={elder.id} className="text-xs focus:bg-teal/20 focus:text-teal">
                           {elder.full_name} ({elder.age}y)

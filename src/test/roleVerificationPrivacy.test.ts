@@ -57,6 +57,26 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(DATA_DIR, { recursive: true, force: true }); vi.unstubAllEnvs();
   });
+  it('pairs a patient-scoped watch, saves its SOS and prevents using its key for portal access', async () => {
+    const paired=await request('/api/watch-simulator/pair','POST',{},signToken(doctor));
+    expect(paired.status).toBe(200);expect(paired.data.map((w:any)=>w.patient.id).sort()).toEqual(['elder-1','elder-2']);
+    const key=paired.data[0].token;
+    const sos=await request('/api/watch-simulator/sos','POST',{elderId:'elder-3'},undefined,{'x-watch-token':key});
+    expect(sos.status).toBe(201);expect(sos.data.elder_id||sos.data.elderId).toBe(paired.data[0].patient.id);
+    const alerts=await request('/api/alerts','GET',undefined,signToken(doctor));expect(alerts.data.some((a:any)=>a.id===sos.data.id)).toBe(true);
+    expect((await request('/api/dashboard-data','GET',undefined,key)).status).toBe(401);
+    const state=await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key});expect(state.status).toBe(200);expect(state.data.alerts.every((a:any)=>(a.elder_id||a.elderId)===paired.data[0].patient.id)).toBe(true);
+    const patientId=paired.data[0].patient.id;
+    const appointment={id:'paired-appt',elderId:patientId,title:'Urgent appointment',time:'09:30',type:'appointment',appointmentId:'paired-appt',appointmentDate:'2026-10-08',appointmentTime:'09:30',doctorName:doctor.name};
+    expect((await request('/api/alarms','POST',appointment,signToken(doctor))).status).toBe(201);
+    expect((await request('/api/alarms','POST',{...appointment,id:'paired-prep',time:'08:30',isOneHourReminder:true},signToken(doctor))).status).toBe(201);
+    expect((await request('/api/alerts/'+sos.data.id,'PUT',{resolved:true},signToken(doctor))).status).toBe(200);
+    const reply=await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key});
+    expect(reply.data.alerts.find((a:any)=>a.id===sos.data.id).resolved).toBe(true);
+    expect(reply.data.alarms.find((a:any)=>a.isOneHourReminder).time).toBe('08:30');
+    const data=await readDb();data.users.find((u:any)=>u.id===doctor.id).assignedElderIds=[];await writeDb(data);
+    expect((await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key})).status).toBe(403);
+  });
   it('persists editable profile details when the account is fetched again', async () => {
     const token = signToken(doctor);
     const saved = await request('/api/auth/profile', 'PUT', {

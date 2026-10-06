@@ -936,7 +936,7 @@ export const dbService = {
         type: a.type,
         status: a.status,
         notes: a.notes,
-        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? String(a.appointment_date).slice(0,10) : undefined,
+        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? (a.appointment_date instanceof Date ? a.appointment_date.toISOString().slice(0,10) : String(a.appointment_date).slice(0,10)) : undefined,
         appointmentTime: a.appointment_time, doctorName: a.doctor_name, isOneHourReminder: a.is_one_hour_reminder, repeat: a.repeat,
       };
     } else {
@@ -1516,7 +1516,7 @@ export const dbService = {
         type: a.type,
         status: a.status,
         notes: a.notes,
-        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? String(a.appointment_date).slice(0,10) : undefined,
+        appointmentId: a.appointment_id, appointmentDate: a.appointment_date ? (a.appointment_date instanceof Date ? a.appointment_date.toISOString().slice(0,10) : String(a.appointment_date).slice(0,10)) : undefined,
         appointmentTime: a.appointment_time, doctorName: a.doctor_name, isOneHourReminder: a.is_one_hour_reminder, repeat: a.repeat,
       }));
 

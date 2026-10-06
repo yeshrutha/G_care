@@ -1,3 +1,4 @@
+import { handleWatchSimulator } from './watchSimulator.js';
 import { handleProofTransfer } from './proofTransfer.js';
 import { handleOwner } from './ownerPortal.js';
 import crypto from 'node:crypto';
@@ -190,6 +191,7 @@ export async function handleRequest(req, res, pathName) {
     return handleTts(req, res);
   }
 
+  if(pathName.startsWith('/api/watch-simulator/')) return handleWatchSimulator(req,res,pathName);
   const session = await authenticate(req);
   let user = session?.user;
   if (!user) {
