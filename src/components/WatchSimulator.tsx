@@ -641,9 +641,10 @@ const WatchSimulator: React.FC<
       resolved: false,
     };
 
-    addCaretakerAlert(sosAlert);
+    apiFetch<any>('/alerts', { method: 'POST', body: JSON.stringify(sosAlert) }).then(saved=>{
+    addCaretakerAlert({...sosAlert,...saved});
     addGuardianAlert({
-      id: `guardian-${sosAlert.id}`,
+      id: `guardian-${saved.id}`,
       elderId: activeElder.id,
       elderName: activeElder.full_name,
       type: 'sos_trigger' as any,
@@ -653,17 +654,8 @@ const WatchSimulator: React.FC<
       acknowledged: false,
     });
 
-    apiFetch('/alerts', { method: 'POST', body: JSON.stringify(sosAlert) }).catch(() => {});
-
-    // 5. Broadcast to Doctor Portal
-    broadcastGcareMessage({
-      type: 'SOS_TRIGGERED',
-      id: sosAlert.id,
-      elderId: activeElder.id,
-      elderName: activeElder.full_name,
-      alert: sosAlert,
-      timestamp: Date.now(),
-    });
+      broadcastGcareMessage({type:'SOS_TRIGGERED',id:saved.id,elderId:activeElder.id,elderName:activeElder.full_name,alert:{...sosAlert,...saved,elder_id:activeElder.id,elder_name:activeElder.full_name},timestamp:Date.now()});
+    }).catch(error=>{toast({title:'SOS could not be saved',description:error.message||'Please check your connection.',variant:'destructive'});});
 
     // 6. Sound alert
     triggerAlert('sos');

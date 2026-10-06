@@ -751,9 +751,7 @@ const DoctorPortal: React.FC = () => {
     event.preventDefault();
     if (!appointmentAlert) return;
 
-    const elder = elders.find((item) => item.id === appointmentAlert.elder_id)
-      || elders.find((item) => item.full_name === appointmentAlert.elder_name)
-      || elders[0];
+    const elder = elders.find((item) => item.id === (appointmentAlert.elder_id || (appointmentAlert as any).elderId));
     if (!elder) {
       toast({ title: 'Unable to schedule', description: 'Choose a patient before scheduling an appointment.', variant: 'destructive' });
       return;
@@ -792,6 +790,10 @@ const DoctorPortal: React.FC = () => {
     const notification = `Appointment booked by Dr. ${doctorName} for ${elder.full_name} on ${appointmentForm.date} at ${appointmentForm.time}.`;
 
     try {
+      const storedAlerts=await apiFetch<any[]>('/alerts');
+      const storedAlert=storedAlerts.find(a=>a.id===appointmentAlert.id) || storedAlerts.find(a=>(a.elder_id||a.elderId)===elder.id && a.type===appointmentAlert.type && a.message===appointmentAlert.message && !a.resolved);
+      if(!storedAlert)throw new Error('This alert is not saved or is no longer available. Refresh Alerts before scheduling.');
+      const savedAlertId=storedAlert.id;
       // 1. Save Main Appointment Alarm
       const savedAlarm = await apiFetch<DashboardAlarm>('/alarms', {
         method: 'POST',
@@ -825,7 +827,7 @@ const DoctorPortal: React.FC = () => {
           type: 'appointment',
           status: 'Scheduled',
           notes: `${prepNotes} Appointment at ${appointmentForm.time} on ${appointmentForm.date} with Dr. ${doctorName}. Leave early!`,
-          appointmentId: apptId,
+          appointmentId: savedAlarm.appointmentId || savedAlarm.id,
           appointmentDate: appointmentForm.date,
           appointmentTime: appointmentForm.time,
           doctorName,
@@ -849,7 +851,7 @@ const DoctorPortal: React.FC = () => {
       addAlarm({
         ...savedAlarm,
         type: 'appointment',
-        appointmentId: apptId,
+        appointmentId: savedAlarm.appointmentId || savedAlarm.id,
         appointmentDate: appointmentForm.date,
         appointmentTime: appointmentForm.time,
         doctorName,
@@ -858,7 +860,7 @@ const DoctorPortal: React.FC = () => {
         addAlarm({
           ...prepAlarm,
           type: 'appointment',
-          appointmentId: apptId,
+          appointmentId: savedAlarm.appointmentId || savedAlarm.id,
           appointmentDate: appointmentForm.date,
           appointmentTime: appointmentForm.time,
           doctorName,
@@ -879,7 +881,7 @@ const DoctorPortal: React.FC = () => {
         repeat: 'once',
         verified: false,
         doctorName,
-        appointmentId: apptId,
+        appointmentId: savedAlarm.appointmentId || savedAlarm.id,
         appointmentDate: appointmentForm.date,
         appointmentTime: appointmentForm.time,
         isOneHourReminder: true,
@@ -895,15 +897,15 @@ const DoctorPortal: React.FC = () => {
         elderName: elder.full_name,
       });
 
-      await apiFetch(`/alerts/${appointmentAlert.id}`,{method:'PUT',body:JSON.stringify({resolved:true,appointmentDetails:{appointmentId:apptId,date:appointmentForm.date,time:appointmentForm.time,doctorName}})});
-      resolveAlert(appointmentAlert.id);
+      await apiFetch(`/alerts/${savedAlertId}`,{method:'PUT',body:JSON.stringify({resolved:true,appointmentDetails:{appointmentId:apptId,date:appointmentForm.date,time:appointmentForm.time,doctorName}})});
+      resolveAlert(savedAlertId);
 
       stabilizeElderVitals(elder.id);
 
       if (typeof window !== 'undefined') {
         window.dispatchEvent(
           new CustomEvent('gcare:acknowledge-alert', {
-            detail: { id: appointmentAlert.id, elderId: elder.id, elderName: elder.full_name },
+            detail: { id: savedAlertId, elderId: elder.id, elderName: elder.full_name },
           })
         );
       }
@@ -911,7 +913,7 @@ const DoctorPortal: React.FC = () => {
       // Cross-window / Split-screen broadcast
       broadcastGcareMessage({
         type: 'APPOINTMENT_SCHEDULED',
-        appointmentId: apptId,
+        appointmentId: savedAlarm.appointmentId || savedAlarm.id,
         elderId: elder.id,
         elderName: elder.full_name,
         language: prefLang,
@@ -924,7 +926,7 @@ const DoctorPortal: React.FC = () => {
         speechLang,
         kannadaMessage: spokenText,
         englishMessage: `${notification}. Preparation alarm set for ${prepAlarmTime} (60 mins prior).`,
-        alertId: appointmentAlert.id,
+        alertId: savedAlertId,
         timestamp: Date.now(),
       });
 
