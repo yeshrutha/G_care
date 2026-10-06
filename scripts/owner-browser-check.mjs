@@ -3,7 +3,7 @@ import {mkdtemp,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';import path from 'node:path';import {createServer} from 'node:http';
 import {chromium} from '@playwright/test';
 const dir=await mkdtemp(path.join(tmpdir(),'gcare-owner-browser-'));
-process.env.DATA_DIR=dir;process.env.DATABASE_URL='';process.env.NODE_ENV='test';process.env.OWNER_EMAIL='owner@example.invalid';
+process.env.OWNER_LOCAL_ENABLED='true';process.env.DATA_DIR=dir;process.env.DATABASE_URL='';process.env.NODE_ENV='test';process.env.OWNER_EMAIL='owner@example.invalid';
 const {hashPassword}=await import('../server/auth.js');process.env.OWNER_PASSWORD_HASH=await hashPassword('SyntheticOwner123!');
 const {createSeedDb,writeDb,dbService}=await import('../server/db.js');await writeDb(await createSeedDb());
 await dbService.createUser({id:'synthetic-applicant',email:'applicant@example.invalid',name:'Synthetic Doctor',role:'doctor',passwordHash:await hashPassword('SyntheticDoctor123!'),assignedElderIds:[],profile:{accessVerification:{status:'pending',proofId:'TEST-ID',issuer:'Test council',proofReference:'Synthetic browser evidence'}},createdAt:new Date().toISOString()});

@@ -85,12 +85,15 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     }
   });
   it('isolates owner login, proof review, records, rejection and logout from public roles', async () => {
+    vi.stubEnv('OWNER_LOCAL_ENABLED','true');
     vi.stubEnv('OWNER_EMAIL', 'owner@example.invalid'); vi.stubEnv('OWNER_PASSWORD_HASH', passwordHash);
     expect((await request('/api/owner/accounts', 'GET', undefined, signToken(doctor))).status).toBe(401);
     expect((await request('/api/auth/register', 'POST', { ...payload(), role: 'owner' })).status).toBe(400);
     expect((await request('/api/owner/login', 'POST', {email:'owner@example.invalid',password:'wrong'})).status).toBe(401);
     const login = await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'});
     expect(login.status).toBe(200);const token=login.data.token;
+    vi.stubEnv('NODE_ENV','production');expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(404);vi.stubEnv('NODE_ENV','test');
+    expect((await request('/api/owner/accounts','GET',undefined,token,{Origin:'https://untrusted.example'})).status).toBe(404);
     const bytes=Buffer.from('%PDF-1.4\nSynthetic owner proof fixture\n%%EOF');
     const user=(await request('/api/auth/register','POST',{...payload(),proofReference:'',proofFile:{fileName:'proof.pdf',fileType:'application/pdf',fileSize:bytes.length,fileData:bytes.toString('base64')}})).data.user;
     const list=await request('/api/owner/accounts','GET',undefined,token);expect(list.status).toBe(200);expect(list.data.find((a:any)=>a.id===user.id).passwordHash).toBeUndefined();

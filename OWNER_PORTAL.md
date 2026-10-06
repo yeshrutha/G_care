@@ -1,23 +1,15 @@
-# G-Care Owner Portal
+# Local-only G-Care Owner Portal
 
-The owner portal is a separate HTML entry and can be deployed as a separate Vercel project. It uses the existing backend and PostgreSQL database through protected `/api/owner/*` endpoints. There is no owner signup and no owner role in the public user table.
+The owner website stays on the project owner's laptop. It is excluded from the normal public website build and has no Vercel owner route. Owner APIs reject production requests, non-loopback connections and non-local browser origins, even if owner credentials exist on Render. Do not deploy owner-dist.
 
-## Private setup
+## Setup
 
-Set `OWNER_EMAIL` to the owner's email in the backend environment. Run `node server/owner-password.js` locally: it prompts for a password without displaying it and outputs a PBKDF2 hash. Copy the hash into Render's `OWNER_PASSWORD_HASH`; do not put either a plaintext password or the hash in frontend variables, GitHub, or chat. Restart/redeploy the backend after configuration. No default owner password exists. Credentials absent means the portal is disabled. Changing the email or hash invalidates existing owner tokens.
+The owner's email is configured privately in local .env. Run `node server/owner-password.js` and choose a password of at least 12 characters. This hides password input and writes a PBKDF2 hash into ignored local .env automatically; no copying or identity-proof review is required for the owner. Start PostgreSQL using `npm run db:local`, start the backend with `npm run server`, then run `npm run owner:dev`. Open http://localhost:8081/owner.html. The owner preview binds only to 127.0.0.1. Password sign-in remains required. Owner credentials never belong in frontend variables or GitHub.
 
-## Separate website deployment
+## Data scope
 
-Create a second Vercel project from the same repository, on branch `dev`. Set Build Command to `npm run build:owner` and Output Directory to `owner-dist`. Use the existing install configuration. The repository's API rewrite forwards requests to `https://g-care.onrender.com`; leave `VITE_API_URL` unset when using this same-origin proxy. This gives the owner a separate website URL with its own login and bundle. The main site has an additional `/owner` entry for local verification and optional access; the backend authorization protects both entries. If using a different backend address, change the API rewrite. A separate domain does not replace permission checks.
+By default this manages local PostgreSQL, not Render accounts. A local private backend can be configured with a cloud database's external connection details, but it must remain local and use secure database connectivity. Proof metadata and files are separate: local access to cloud PostgreSQL does not copy uploaded proof files to your laptop. A private secure transfer/storage arrangement is needed for those documents. Do not disable backend authorization or expose database credentials in a browser to bridge this gap.
 
-Local `npm run dev` exposes the portal at http://localhost:8080/owner.html. The backend must be running and privately configured. Local and Render databases remain separate.
+## Features and limits
 
-## Capabilities and limits
-
-Applications show submitted IDs, issuer, private proof download, reviewer notes, status, and assigned patients. Owners can approve/reject/suspend submitted doctor, caretaker and guardian accounts; caretaker eligibility and supervising doctor's patient boundaries remain enforced. Approval needs at least one patient and a review note. Existing verified doctors retain their original review workflow. Legacy/demo accounts without submitted evidence cannot be silently promoted. Proof contents require human checking; upload acceptance does not verify identity.
-
-The records screen shows up to 500 records per collection: patients, medications, appointments, alerts, report metadata, latest vitals and audit events. It is read-only, not arbitrary SQL or a full database export. Password hashes, JWT secrets, database credentials, report bytes and storage paths are excluded. Owner tokens are stored separately in tab session storage, accepted for at most one hour, and revoked on logout. Ordinary portal tokens cannot access owner endpoints. Owner tokens cannot access the ordinary role endpoints. Login and proof views plus approval changes are audited. API rate limits still apply. No MFA is currently implemented.
-
-## Persistent uploaded evidence
-
-Render must use a persistent disk with `DATA_DIR` pointing to its mount path. PostgreSQL persists proof metadata, but proof files live under `DATA_DIR/verification-proofs`. A free ephemeral service can lose files after a deployment; metadata cannot reconstruct a lost proof. The portal reports unavailable proofs instead of inventing evidence. Back up files and database together. Existing files already lost need to be supplied again before review.
+Owners review submitted doctor/caretaker/guardian applications, download available proofs, approve/reject/suspend accounts and assign existing patients. Manual review and notes are required; caretaker and supervising-doctor patient restrictions stay in place. Read-only records show up to 500 patients, medications, appointments, alerts, report metadata, latest vitals and audit events. This is not arbitrary SQL or a full database export; password hashes, secrets and document storage paths are excluded. Sessions last at most one hour and logout revokes the token. Uploaded files need persistent storage/backups; lost evidence cannot be reconstructed from metadata. No MFA or public owner signup exists.

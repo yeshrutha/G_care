@@ -19,7 +19,8 @@
     "db:status": "node server/database-cli.js status",
     "test:postgres": "node --test server/test/postgres.integration.test.js",
     "db:local": "node server/local-postgres.js",
-    "build:owner": "vite build --mode owner && node scripts/owner-output.js"
+    "build:owner": "vite build --mode owner && node scripts/owner-output.js",
+    "owner:dev": "vite --mode owner --host 127.0.0.1 --port 8081 --strictPort --open /owner.html"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

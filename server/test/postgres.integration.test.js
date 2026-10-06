@@ -146,7 +146,7 @@ test('private identity-proof upload persists in PostgreSQL and stays reviewer re
 });
 
 test('owner PostgreSQL review and read-only records enforce separate authentication', async()=>{
- const {hashPassword}=await import('../auth.js');process.env.OWNER_EMAIL='owner@example.invalid';process.env.OWNER_PASSWORD_HASH=await hashPassword('SyntheticOwner123!');
+ const {hashPassword}=await import('../auth.js');process.env.OWNER_LOCAL_ENABLED='true';process.env.OWNER_EMAIL='owner@example.invalid';process.env.OWNER_PASSWORD_HASH=await hashPassword('SyntheticOwner123!');
  assert.equal((await api('/owner/accounts','GET',undefined,doctor)).status,401);
  const login=await api('/owner/login','POST',{email:'owner@example.invalid',password:'SyntheticOwner123!'},null);assert.equal(login.status,200);
  const token=login.data.token;

@@ -12,6 +12,10 @@ function credentials() {
 function fingerprint(c) { return crypto.createHash('sha256').update(c.email+'|'+c.hash).digest('hex'); }
 export async function handleOwner(req,res,pathName) {
  res.setHeader('Cache-Control','no-store');
+ const local=['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket?.remoteAddress);
+ let originAllowed=true;
+ if(req.headers.origin){try {const u=new URL(req.headers.origin);originAllowed=['localhost','127.0.0.1','[::1]'].includes(u.hostname);}catch{originAllowed=false;}}
+ if(process.env.NODE_ENV==='production' || process.env.OWNER_LOCAL_ENABLED!=='true' || !local || !originAllowed) return sendJson(res,404,{error:'Not found'},req);
  const c=credentials();
  if(req.method==='POST' && pathName==='/api/owner/login') {
   if(!c.configured) return sendJson(res,503,{error:'Owner access has not been privately configured.'},req);

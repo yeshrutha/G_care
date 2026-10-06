@@ -7,7 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "0.0.0.0",
+    host: "127.0.0.1",
     port: 8080,
     fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/verification-proofs/**"] },
     proxy: {
@@ -20,7 +20,7 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
-  build: { outDir: mode === "owner" ? "owner-dist" : "dist", rolldownOptions: { input: mode === "owner" ? { owner: path.resolve(__dirname, "owner.html") } : { app: path.resolve(__dirname, "index.html"), owner: path.resolve(__dirname, "owner.html") } } },
+  build: { outDir: mode === "owner" ? "owner-dist" : "dist", rolldownOptions: { input: mode === "owner" ? { owner: path.resolve(__dirname, "owner.html") } : { app: path.resolve(__dirname, "index.html") } } },
   plugins: [
     react(),
     mode === "development" && componentTagger(),

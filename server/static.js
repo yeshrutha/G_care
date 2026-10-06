@@ -24,8 +24,9 @@ const MIME_TYPES = {
 };
 
 export async function serveStatic(req, res, pathName) {
+  if (/^\/owner(?:\.html)?(?:\/|$)/.test(pathName)) { res.writeHead(404); return res.end('Not found'); }
   const distDir = path.join(__dirname, '..', 'dist');
-  let targetPath = path.join(distDir, pathName === '/owner' ? 'owner.html' : pathName);
+  let targetPath = path.join(distDir, pathName);
 
   if (!targetPath.startsWith(distDir)) {
     res.writeHead(403);
