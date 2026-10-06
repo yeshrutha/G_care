@@ -1,3 +1,4 @@
+import { useAuthStore } from '@/store/authStore';
 import { useTranslation } from 'react-i18next';
 import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useState } from 'react';
@@ -94,7 +95,8 @@ const GuardianDashboard: React.FC = () => {
   const unresolvedAlerts = visibleAlerts.filter(a => !a.acknowledged).length;
   const unresolvedVitalAlerts = visibleAlerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
 
-  const demoMode = useAppStore((s) => s.demoMode);
+  const isDemoAccount = useAuthStore(s => s.user?.accessStatus === 'demo');
+  const demoMode = useAppStore((s) => s.demoMode) && isDemoAccount;
   const setDemoMode = useAppStore((s) => s.setDemoMode);
   const [demoEmergency, setDemoEmergency] = useState<DemoEmergencyEvent | null>(getDemoEmergency());
 
@@ -142,10 +144,10 @@ const GuardianDashboard: React.FC = () => {
           <span className="hidden md:inline font-display text-lg text-foreground">{t('guardian.portal')}</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
+          {isDemoAccount && <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
             <span className="text-xs text-muted-foreground">Demo Mode</span>
             <Switch checked={demoMode} onCheckedChange={setDemoMode} />
-          </div>
+          </div>}
           <Badge variant="outline" className="text-xs border-teal/30 text-teal">
             Elder: {guardianUser?.elderName || 'Registered elder'}
           </Badge>
