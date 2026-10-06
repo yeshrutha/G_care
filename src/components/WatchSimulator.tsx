@@ -1,3 +1,5 @@
+import {answerWatchQuestion} from '@/lib/watchLocalAnswers.js';
+import {hasAppointmentReceipt,recordAppointmentReceipt} from '@/lib/watchAppointmentReceipts.js';
 import { getStoredToken } from '@/lib/api';
 import { isPhysiologicalEpisode } from '@/lib/alertEpisodeIdentity.js';
 import React, {
@@ -516,7 +518,7 @@ const WatchSimulator: React.FC<
         if(!getStoredToken())useAppStore.setState({medications:data.medications||[],alarms:data.alarms||[],activeAlerts:data.alerts||[]});
         setGuardianReminders([...(data.medications||[]).flatMap((m:any)=>(m.times||[]).map((time:string,i:number)=>({id:'med-'+m.id+'-'+i,elderId:activeElder.id,title:m.brand_name,type:'medication',time,repeat:'daily',verified:false}))),...(data.alarms||[]).map((a:any)=>({...a,id:'alarm-'+a.id,verified:false}))]);
         const booked=(data.alarms||[]).filter((a:any)=>a.appointmentId&&!a.isOneHourReminder).at(0);
-        if(booked && observedAppointment.current!==booked.appointmentId){
+        if(booked && observedAppointment.current!==booked.appointmentId && !hasAppointmentReceipt(localStorage,activeElder.id,booked.appointmentId)){
           observedAppointment.current=booked.appointmentId;
           const prep=(data.alarms||[]).find((a:any)=>a.appointmentId===booked.appointmentId&&a.isOneHourReminder);
           const prepTime=prep?.time || calculateMinutesBefore(booked.appointmentTime||booked.time,60);
@@ -579,7 +581,10 @@ const WatchSimulator: React.FC<
         const targetElderId = msg.elderId;
         if (!open || targetElderId !== activeElder?.id) return;
 
-        if (msg.appointmentId) observedAppointment.current = msg.appointmentId;
+        const receiptId = msg.appointmentId || [msg.date,msg.time,msg.doctorName].join('|');
+        if (hasAppointmentReceipt(localStorage,targetElderId,receiptId)) return;
+        recordAppointmentReceipt(localStorage,targetElderId,receiptId);
+        observedAppointment.current = receiptId;
         // 1. Turn OFF the red anomaly / SOS alert on the watch
         setDismissedWatchAlerts((prev) => ({ ...prev, [targetElderId]: true }));
         const targetAlert = useAppStore.getState().activeAlerts.find(a => a.id === msg.alertId);
@@ -1969,7 +1974,9 @@ const WatchSimulator: React.FC<
          */
 
         try {
-          const response =
+          const store = useAppStore.getState();
+          const localAnswer = answerWatchQuestion(cleanSpeechText, activeVitals, store.medications.filter(m=>m.elder_id===activeElder?.id && m.active!==false), store.alarms.filter(a=>a.elderId===activeElder?.id));
+          const response = localAnswer ? {response:localAnswer} :
             await apiFetch<AssistantChatResponse>(
               '/assistant/chat',
               {
@@ -2115,7 +2122,7 @@ const WatchSimulator: React.FC<
         }
       },
       [
-        pairedWatches,
+        pairedWatches, activeVitals,
         activeElder?.id,
         assistantLanguage,
         conversationHistory,
