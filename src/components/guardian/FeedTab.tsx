@@ -1,3 +1,4 @@
+import { demoBattery, demoReading } from '@/lib/patientSimulation.js';
 import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +33,7 @@ const FeedTab: React.FC = () => {
   const { t } = useTranslation();
   const guardianUser = useGuardianStore((state) => state.guardianUser);
   const activeElderId = useAppStore((state) => state.activeElderId);
+  const patient = useAppStore(s=>s.demoElders.find(e=>e.id===activeElderId));
   const storeVitals = useAppStore((state) => state.demoVitals[activeElderId]);
 
   const [vitalsData, setVitalsData] = useState<VitalsRow[]>([]);
@@ -194,9 +196,9 @@ const FeedTab: React.FC = () => {
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Language:</span><span className="font-medium text-foreground">{elderLanguage}</span></div>
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Phone:</span><span className="font-medium text-foreground">{elderPhone}</span></div>
             <div className="flex items-center gap-2"><span className="text-muted-foreground">Address:</span><span className="font-medium text-foreground truncate">{elderAddress}</span></div>
-            <div className="flex items-center gap-2"><span className="text-muted-foreground">Battery:</span><span className="font-medium text-gw-green">78%</span></div>
-            <div className="flex items-center gap-2"><span className="text-muted-foreground">Steps Today:</span><span className="font-medium text-foreground">2,340</span></div>
-            <div className="flex items-center gap-2"><span className="text-muted-foreground">Last Sync:</span><span className="font-medium text-foreground">Just now</span></div>
+            <div className="flex items-center gap-2"><span className="text-muted-foreground">Battery:</span><span className="font-medium text-gw-green">{v.source === 'simulator' && patient ? demoBattery(patient,new Date(v.timestamp || Date.now()).getTime())+'% (simulated)' : patient?.battery != null ? patient.battery+'%' : 'Not available'}</span></div>
+            <div className="flex items-center gap-2"><span className="text-muted-foreground">Steps Today:</span><span className="font-medium text-foreground">{v.source === 'simulator' && patient ? demoReading(patient,new Date(v.timestamp || Date.now()).getTime()).steps.toLocaleString()+' (simulated)' : 'Not available'}</span></div>
+            <div className="flex items-center gap-2"><span className="text-muted-foreground">Last Sync:</span><span className="font-medium text-foreground">{v.timestamp ? new Date(v.timestamp).toLocaleTimeString() : 'Not available'}</span></div>
           </div>
         </CardContent>
       </Card>

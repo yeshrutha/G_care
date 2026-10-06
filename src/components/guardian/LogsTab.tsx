@@ -1,22 +1,26 @@
+import { demoHistory } from '@/lib/patientSimulation.js';
+import { useAppStore } from '@/store';
+import { apiFetch } from '@/lib/api';
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { loadVitalsCSV, getWeeklyAverages, getMonthlyAverages, type VitalsRow } from '@/lib/csvLoader';
+import { getWeeklyAverages, getMonthlyAverages, type VitalsRow } from '@/lib/csvLoader';
 import { CalendarDays, TrendingUp, AlertTriangle, CheckCircle } from 'lucide-react';
 
 const LogsTab: React.FC = () => {
+  const id=useAppStore(s=>s.activeElderId);
+  const patient=useAppStore(s=>s.demoElders.find(e=>e.id===s.activeElderId));
+  const simulated=useAppStore(s=>s.demoVitals[s.activeElderId]?.source==='simulator');
   const [vitalsData, setVitalsData] = useState<VitalsRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadVitalsCSV().then(data => { setVitalsData(data); setLoading(false); });
-  }, []);
+  useEffect(()=>{let cancelled=false;setVitalsData([]);setLoading(true);const load=async()=>{try{const data=simulated&&patient?demoHistory(patient):id?await apiFetch<VitalsRow[]>('/vitals?elderId='+encodeURIComponent(id)+'&limit=10000'):[];if(!cancelled)setVitalsData(data.slice().sort((a,b)=>a.timestamp.localeCompare(b.timestamp)));}catch{if(!cancelled)setVitalsData([]);}finally{if(!cancelled)setLoading(false);}};void load();const timer=setInterval(load,30000);return()=>{cancelled=true;clearInterval(timer);};},[id,simulated,patient?.id]);
 
   const weeklyData = useMemo(() => {
     if (vitalsData.length === 0) return [];
-    const avgs = getWeeklyAverages(vitalsData);
+    const avgs = getWeeklyAverages(vitalsData.filter(r=>new Date(r.timestamp).getTime()>=Date.now()-7*86400000));
     return Object.entries(avgs).map(([date, vals]) => ({
       date: date.substring(5),
       ...vals,
@@ -28,22 +32,9 @@ const LogsTab: React.FC = () => {
     return getMonthlyAverages(vitalsData);
   }, [vitalsData]);
 
-  // False alert analysis
-  const falseAlertAnalysis = useMemo(() => {
-    if (vitalsData.length === 0) return [];
-    const days = getWeeklyAverages(vitalsData);
-    return Object.entries(days).map(([date, vals]) => {
-      const spikes = vals.avg_hr > 90 ? 1 : 0;
-      const bpSpikes = vals.avg_bp > 140 ? 1 : 0;
-      return {
-        date: date.substring(5),
-        hr_spikes: spikes,
-        bp_spikes: bpSpikes,
-        false_alerts: Math.max(0, spikes + bpSpikes - 1),
-        genuine: spikes + bpSpikes > 0 ? 1 : 0,
-      };
-    });
-  }, [vitalsData]);
+  const rangePercent=vitalsData.length?(100*vitalsData.filter(r=>r.heart_rate>=55&&r.heart_rate<=100).length/vitalsData.length).toFixed(1):'0';
+  const sortedDays=Object.entries(getWeeklyAverages(vitalsData));
+  const bpChange=sortedDays.length>1?Math.round((sortedDays.at(-1)?.[1].avg_bp || 0)-(sortedDays[0]?.[1].avg_bp || 0)):0;
 
   if (loading) {
     return <div className="flex items-center justify-center h-64">
@@ -53,11 +44,11 @@ const LogsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">{simulated ? 'SIMULATED HISTORY - 30 days generated for this patient; not recorded clinical history.' : 'Recorded readings for this patient only.'}</p>
       <Tabs defaultValue="weekly">
         <TabsList className="bg-muted rounded-xl">
           <TabsTrigger value="weekly" className="rounded-lg">Weekly Data</TabsTrigger>
           <TabsTrigger value="monthly" className="rounded-lg">Monthly Data</TabsTrigger>
-          <TabsTrigger value="false_alerts" className="rounded-lg">False Alert Analysis</TabsTrigger>
         </TabsList>
 
         <TabsContent value="weekly" className="space-y-4 mt-4">
@@ -135,15 +126,15 @@ const LogsTab: React.FC = () => {
                   <div className="space-y-3 text-sm">
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-4 w-4 text-gw-green" />
-                      <span className="text-foreground">Heart rate remained within baseline range (55-100 bpm) for 98.7% of readings</span>
+                      <span className="text-foreground">Heart rate between 55-100 bpm for {rangePercent}% of available readings</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4 text-gw-amber" />
-                      <span className="text-foreground">Blood pressure showed mild upward trend over final 3 days — recommend monitoring</span>
+                      <span className="text-foreground">Average systolic BP change from first to last available day: {bpChange > 0 ? '+' : ''}{bpChange} mmHg</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-4 w-4 text-gw-green" />
-                      <span className="text-foreground">SpO₂ stable at {monthlyStats.avg_spo2}% average — within normal range</span>
+                      <span className="text-foreground">Average SpO₂: {monthlyStats.avg_spo2}% across available readings</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {monthlyStats.fall_count > 0 ? (
@@ -158,32 +149,6 @@ const LogsTab: React.FC = () => {
               </Card>
             </>
           )}
-        </TabsContent>
-
-        <TabsContent value="false_alerts" className="space-y-4 mt-4">
-          <Card className="rounded-xl border-gw-amber/30 bg-gw-amber/5">
-            <CardContent className="p-4">
-              <h3 className="font-display text-lg text-foreground mb-2 flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 text-gw-amber" /> False Alert Reduction
-              </h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                GuardianWatch uses 7-day personal baselines + multi-signal correlation to reduce false alerts by up to 73%.
-                Weekly and monthly data helps calibrate alert thresholds.
-              </p>
-              <div className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={falseAlertAnalysis}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', background: 'hsl(var(--card))' }} />
-                    <Bar dataKey="genuine" fill="#38A169" radius={[4, 4, 0, 0]} name="Genuine Alerts" />
-                    <Bar dataKey="false_alerts" fill="#F6AD55" radius={[4, 4, 0, 0]} name="False Alerts (suppressed)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
       </Tabs>
     </div>

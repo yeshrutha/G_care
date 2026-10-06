@@ -1,4 +1,3 @@
-import { useAuthStore } from '@/store/authStore';
 import { useTranslation } from 'react-i18next';
 import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useState } from 'react';
@@ -11,7 +10,6 @@ import { GuardianLogo } from '@/components/GuardianLogo';
 import { useGuardianStore, isAlertForElder } from '@/store/guardianStore';
 import { Switch } from '@/components/ui/switch';
 import { useAppStore } from '@/store';
-import { type DemoEmergencyEvent, getDemoEmergency, subscribeToDemoEmergency } from './demoEmergency';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { apiFetch } from '@/lib/api';
 import { BarChart3, ScrollText, AlertTriangle, Bell, ShieldAlert, LogOut, User, Heart, FileText, Settings as SettingsIcon } from 'lucide-react';
@@ -95,46 +93,9 @@ const GuardianDashboard: React.FC = () => {
   const unresolvedAlerts = visibleAlerts.filter(a => !a.acknowledged).length;
   const unresolvedVitalAlerts = visibleAlerts.filter(a => !a.acknowledged && (a.type === 'vital_abnormal' || a.severity === 'critical'));
 
-  const isDemoAccount = useAuthStore(s => s.user?.accessStatus === 'demo');
-  const demoMode = useAppStore((s) => s.demoMode) && isDemoAccount;
-  const setDemoMode = useAppStore((s) => s.setDemoMode);
-  const [demoEmergency, setDemoEmergency] = useState<DemoEmergencyEvent | null>(getDemoEmergency());
-
-  useEffect(() => {
-    return subscribeToDemoEmergency((event) => {
-      if (!demoMode) {
-        setDemoEmergency(null);
-      } else {
-        setDemoEmergency(event);
-      }
-    });
-  }, [demoMode]);
-
-  useEffect(() => {
-    if (demoMode && demoEmergency) {
-      const exists = alerts.some((a) => a.id === 'demo-sos-usha');
-      if (!exists) {
-        addGuardianAlert({
-          id: 'demo-sos-usha',
-          type: 'sos',
-          severity: 'critical',
-          message: `🚨 EMERGENCY — SOS button pressed on watch for Usha. Fall detected. Location: ${demoEmergency.location}`,
-          time: demoEmergency.detectedAt,
-          acknowledged: false,
-          elderName: demoEmergency.elderName,
-        });
-        triggerAlert('sos');
-      }
-    } else {
-      const exists = alerts.some((a) => a.id === 'demo-sos-usha');
-      if (exists) {
-        useGuardianStore.setState((s) => ({
-          alerts: s.alerts.filter((a) => a.id !== 'demo-sos-usha'),
-        }));
-      }
-    }
-  }, [demoMode, demoEmergency, alerts, addGuardianAlert]);
-
+  const [demoMode,setDemoMode]=useState(false);
+  const [demoStep,setDemoStep]=useState(0);
+  const startEmergencyDemo=(enabled:boolean)=>{setDemoMode(enabled);setDemoStep(0);if(enabled){triggerAlert('sos');}};
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Top Bar */}
@@ -144,10 +105,10 @@ const GuardianDashboard: React.FC = () => {
           <span className="hidden md:inline font-display text-lg text-foreground">{t('guardian.portal')}</span>
         </div>
         <div className="flex items-center gap-3">
-          {isDemoAccount && <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
+          <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
             <span className="text-xs text-muted-foreground">Demo Mode</span>
-            <Switch checked={demoMode} onCheckedChange={setDemoMode} />
-          </div>}
+            <Switch checked={demoMode} onCheckedChange={startEmergencyDemo} />
+          </div>
           <Badge variant="outline" className="text-xs border-teal/30 text-teal">
             Elder: {guardianUser?.elderName || 'Registered elder'}
           </Badge>
@@ -166,42 +127,20 @@ const GuardianDashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 p-4 lg:p-6 max-w-6xl mx-auto w-full">
-        {demoMode && demoEmergency && (
-          <Card className="rounded-xl border-2 border-destructive bg-destructive/5 shadow-lg mb-6 animate-pulse-border p-4">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="h-8 w-8 text-destructive flex-shrink-0 mt-0.5 animate-bounce" />
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-destructive text-lg">🚨 CRITICAL EMERGENCY: Fall + SOS</h3>
-                  <Badge className="bg-destructive text-primary-foreground border-0">CRITICAL</Badge>
-                </div>
-                <p className="text-sm text-foreground mt-2">
-                  <strong>Elder:</strong> {demoEmergency.elderName}
-                </p>
-                <p className="text-sm text-foreground mt-1">
-                  <strong>Event:</strong> Fall Detected & SOS Activated
-                </p>
-                <p className="text-sm text-foreground mt-1">
-                  <strong>Simulated Vitals:</strong> Heart Rate: {demoEmergency.heartRate} BPM | SpO₂: {demoEmergency.spo2}%
-                </p>
-                <p className="text-sm text-foreground mt-1">
-                  <strong>Location:</strong> {demoEmergency.location}
-                </p>
-                <p className="text-sm text-foreground mt-1">
-                  <strong>Time:</strong> {new Date(demoEmergency.detectedAt).toLocaleTimeString()}
-                </p>
-                <div className="mt-3 p-3 bg-card rounded-lg border border-border">
-                  <p className="text-xs text-muted-foreground">Doctor Action Status</p>
-                  <p className="text-sm font-semibold text-foreground mt-0.5">
-                    {demoEmergency.appointmentStatus === 'confirmed'
-                      ? `Appointment Confirmed with ${demoEmergency.doctorName} at ${demoEmergency.hospitalName}`
-                      : `Appointment requested with ${demoEmergency.doctorName} (${demoEmergency.hospitalName}) - pending doctor confirmation`}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Card>
-        )}
+        {demoMode && <Card className="border-2 border-destructive mb-6 p-5 space-y-3" role="alert">
+          <Badge variant="outline">SIMULATED EMERGENCY - no real calls or messages sent</Badge>
+          <h2 className="font-semibold text-destructive text-lg">Fall detected + SOS: {guardianUser?.elderName}</h2>
+          <p>Demo notification: urgent fall alert received. Check whether the patient is responsive and safe.</p>
+          <ol className="list-decimal pl-5 space-y-2">
+            <li>{demoStep>=1?'Alert acknowledged.':'Acknowledge the notification.'}</li>
+            <li>{demoStep>=2?'Contact step demonstrated. No real call was placed.':'Call the patient or a guardian-added emergency contact. If unresponsive or seriously injured, call local emergency services.'}</li>
+            <li>{demoStep>=3?'Escalation step demonstrated.':'Escalate to emergency services when needed; contact an assigned clinician if available.'}</li>
+          </ol>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={()=>setDemoStep(Math.min(3,demoStep+1))} disabled={demoStep>=3}>{['Acknowledge demo alert','Demonstrate contact step','Demonstrate escalation','Scenario completed'][demoStep]}</Button>
+            <Button variant="outline" onClick={()=>startEmergencyDemo(false)}>End Demo</Button>
+          </div>
+        </Card>}
 
         {/* Critical Vital Anomaly Banner for Guardians */}
         {unresolvedVitalAlerts.length > 0 && (
