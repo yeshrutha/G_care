@@ -111,9 +111,7 @@ const GuardianDashboard: React.FC = () => {
           <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
             <span className="text-xs text-muted-foreground">Demo Mode</span>
             <Switch checked={demoMode} onCheckedChange={startEmergencyDemo} />
-          </div>
-          {useAppStore.getState().demoVitals[activePatientId]?.source==='simulator' && <Badge variant="outline">Demo data</Badge>}
-          <Badge variant="outline" className="text-xs border-teal/30 text-teal">
+          </div>          <Badge variant="outline" className="text-xs border-teal/30 text-teal">
             Elder: {guardianUser?.elderName || 'Registered elder'}
           </Badge>
           <div className="flex items-center gap-2 text-sm text-muted-foreground">

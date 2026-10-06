@@ -506,6 +506,7 @@ const Settings: React.FC = () => {
           <TabsContent value="language" className="mt-6 space-y-4">
             <Card className="rounded-xl">
               <CardContent className="p-6 space-y-4">
+                <p className="text-sm text-muted-foreground">Data source: demonstration readings. Device measurements are shown when available.</p>
                 <div>
                   <Label>{t('settings.app_language')}</Label>
                   <div className="mt-2"><LanguageToggle /></div>
