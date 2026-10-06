@@ -1142,7 +1142,6 @@ const DoctorPortal: React.FC = () => {
         <div className="max-w-7xl mx-auto space-y-6">
           <header className="flex items-center justify-between border-b border-border/60 pb-4">
             <div>
-              {Object.values(demoVitals).some(v=>v.source==='simulator')&&<p className="text-xs text-amber-700">SIMULATED VITALS - demo data, not sensor measurements</p>}
           <h1 className="font-display text-2xl font-bold text-foreground">
                 {t(SECTION_TITLES[activeSection])}
               </h1>
