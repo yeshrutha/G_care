@@ -11,3 +11,6 @@
 .op-loading{padding:65px;display:flex;gap:12px;align-items:center;justify-content:center;color:#6d8798;background:white;border:1px solid #e2e8ef;border-radius:12px}.op-loading svg{animation:op-spin 1.5s linear infinite}@keyframes op-spin{to{transform:rotate(360deg)}}.op-success{padding:13px 17px;background:#e9f6ef;border:1px solid #c4e5d2;border-radius:9px;color:#277b57;font-size:13px;margin-bottom:16px}.op-patient-create{margin-bottom:18px}.op-new-patient{margin-top:15px;padding:20px;border:1px solid #e2e8ed;background:white;border-radius:12px;display:grid;gap:12px;max-width:650px}.op-new-patient label{font-size:12px;font-weight:600}.op-new-patient input,.op-new-patient select{display:block;width:100%;padding:10px;border:1px solid #dce4ea;border-radius:8px;margin-top:7px}.op-new-patient p{font-size:11px;color:#7d8a97}
 
 .op-new-patient input[type="checkbox"]{width:auto;display:inline-block;margin-right:8px;}
+
+.op-new-patient textarea{display:block;width:100%;min-height:110px;resize:vertical;padding:12px;border:1px solid #dce4ea;border-radius:8px;margin-top:7px;font:inherit;line-height:1.6;box-sizing:border-box;}
+.op-new-patient .op-error{color:#b42318;font-size:12px;}
