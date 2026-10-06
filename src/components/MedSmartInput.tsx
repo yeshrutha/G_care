@@ -1,3 +1,4 @@
+import {apiFetch} from '@/lib/api';
 import React, { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -15,7 +16,6 @@ import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAppStore, type Medication } from '@/store';
 import { formatTime12Hour, from12HourParts, to12HourParts, type TimeParts12Hour } from '@/lib/timeFormat';
 
-const API_BASE = '/api';
 
 const MEDICATIONS_DB = [
   { brand_name: 'Glucophage', generic_name: 'Metformin HCl', category: 'Antidiabetic', typical_dose: 500, dose_unit: 'mg', pronunciation_en: 'Met-FOR-min', pronunciation_kn: 'ಮೆಟ್-ಫಾರ್-ಮಿನ್', pronunciation_hi: 'मेट-फॉर-मिन', pronunciation_ta: 'மெட்-ஃபார்-மின்', pill_description: 'Small white oval tablet' },
@@ -121,7 +121,7 @@ export const MedSmartInput: React.FC<Props> = ({ elderId, trigger, onSave }) => 
     speechSynthesis.speak(utterance);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const medicationName = brandName || searchQuery || genericName || 'Medication';
     const dosage = [doseAmount, doseUnit].filter(Boolean).join(' ');
     const createdAt = new Date().toISOString();
@@ -147,18 +147,17 @@ export const MedSmartInput: React.FC<Props> = ({ elderId, trigger, onSave }) => 
       active: true,
     };
 
-    setMedications((current) => [medication, ...current]);
-    void fetch(`${API_BASE}/medications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(medication),
-    }).catch(() => {
-      // Keep the in-app medication list updated even when the local API is off.
-    });
+    try {
+      const saved = await apiFetch<Medication>('/medications', {method:'POST',body:JSON.stringify(medication)});
+      setMedications(current => [{...medication,...saved}, ...current.filter(m=>m.id!==saved.id)]);
+    } catch(error:any) {
+      toast({title:'Medication was not saved',description:error.message || 'Please retry when connected.',variant:'destructive'});
+      return;
+    }
 
     times.forEach((time, index) => {
       const reminder: Reminder = {
-        id: `${medicationId}-${index}`,
+        id: `med-${medicationId}-${index}`,
         elderId,
         type: 'medication',
         title: dosage ? `${medicationName} ${dosage}` : medicationName,
