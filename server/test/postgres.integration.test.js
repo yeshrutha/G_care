@@ -144,3 +144,17 @@ test('private identity-proof upload persists in PostgreSQL and stays reviewer re
  assert.equal((await fetch(route,{headers:{Authorization:'Bearer '+signToken(doctor)}})).status,403);
  const child=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();const {readProofFile}=await import('./server/verificationFiles.js');const a=await dbService.findUserById('"+account.id+"');console.log((await readProofFile(a.profile.accessVerification.proofFile)).toString('base64'));await closeDb();"],{env:process.env,encoding:'utf8'});assert.equal(child.trim().split('\n').at(-1),bytes.toString('base64'));
 });
+
+test('owner PostgreSQL review and read-only records enforce separate authentication', async()=>{
+ const {hashPassword}=await import('../auth.js');process.env.OWNER_EMAIL='owner@example.invalid';process.env.OWNER_PASSWORD_HASH=await hashPassword('SyntheticOwner123!');
+ assert.equal((await api('/owner/accounts','GET',undefined,doctor)).status,401);
+ const login=await api('/owner/login','POST',{email:'owner@example.invalid',password:'SyntheticOwner123!'},null);assert.equal(login.status,200);
+ const token=login.data.token;
+ const request=async(route,method='GET',body)=>{const res=await fetch(base+'/api/owner/'+route,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:res.status,data:await res.json()};};
+ const records=await request('records');assert.equal(records.status,200);assert.equal(records.data.patients.length,3);assert.equal(records.data.reports.some(x=>x.file_path||x.file_data),false);
+ const applicant=await db.findUserByEmail('proof-caretaker@example.invalid');
+ assert.equal((await request('accounts/'+applicant.id,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Synthetic owner checked evidence.'})).status,200);
+ assert.equal((await db.findUserById(applicant.id)).profile.accessVerification.reviewedBy,'project-owner');
+ assert.equal((await request('logout','POST')).status,200);assert.equal((await request('records')).status,401);
+ delete process.env.OWNER_EMAIL;delete process.env.OWNER_PASSWORD_HASH;
+});

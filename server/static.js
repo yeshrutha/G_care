@@ -25,7 +25,7 @@ const MIME_TYPES = {
 
 export async function serveStatic(req, res, pathName) {
   const distDir = path.join(__dirname, '..', 'dist');
-  let targetPath = path.join(distDir, pathName);
+  let targetPath = path.join(distDir, pathName === '/owner' ? 'owner.html' : pathName);
 
   if (!targetPath.startsWith(distDir)) {
     res.writeHead(403);

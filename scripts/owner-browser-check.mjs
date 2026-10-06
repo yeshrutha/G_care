@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';import path from 'node:path';import {createServer} from 'node:http';
+import {chromium} from '@playwright/test';
+const dir=await mkdtemp(path.join(tmpdir(),'gcare-owner-browser-'));
+process.env.DATA_DIR=dir;process.env.DATABASE_URL='';process.env.NODE_ENV='test';process.env.OWNER_EMAIL='owner@example.invalid';
+const {hashPassword}=await import('../server/auth.js');process.env.OWNER_PASSWORD_HASH=await hashPassword('SyntheticOwner123!');
+const {createSeedDb,writeDb,dbService}=await import('../server/db.js');await writeDb(await createSeedDb());
+await dbService.createUser({id:'synthetic-applicant',email:'applicant@example.invalid',name:'Synthetic Doctor',role:'doctor',passwordHash:await hashPassword('SyntheticDoctor123!'),assignedElderIds:[],profile:{accessVerification:{status:'pending',proofId:'TEST-ID',issuer:'Test council',proofReference:'Synthetic browser evidence'}},createdAt:new Date().toISOString()});
+const {handleRequest}=await import('../server/handlers.js');
+const server=createServer(async(req,res)=>{try{const pathname=new URL(req.url,'http://localhost').pathname;if(pathname.startsWith('/api/'))return await handleRequest(req,res,pathname);const file=path.join(process.cwd(),'owner-dist',pathname==='/'?'index.html':pathname);const bytes=await readFile(file);res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html');res.end(bytes);}catch(e){res.statusCode=e.statusCode||500;res.end(JSON.stringify({error:'Test request failed'}));}});
+await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const url='http://127.0.0.1:'+server.address().port;
+const browser=await chromium.launch({headless:true});
+try{const page=await browser.newPage({viewport:{width:1400,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(url);await page.getByRole('heading',{name:'Owner sign-in'}).waitFor();
+ await page.getByLabel('Owner email').fill('owner@example.invalid');await page.getByLabel('Password',{exact:true}).fill('SyntheticOwner123!');await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.getByRole('heading',{name:'Synthetic Doctor · doctor · pending'}).waitFor();await page.screenshot({path:'tmp/postgres/owner-applications.png',fullPage:true});
+ await page.getByLabel('Usha',{exact:true}).check();await page.getByLabel('Review note (required)').fill('Synthetic test independently checked issuing council.');await page.getByRole('button',{name:'Approve selected patients'}).click();await page.getByText('No pending applications.').waitFor();
+ await page.getByRole('button',{name:'Patients',exact:true}).click();await page.getByRole('heading',{name:'patients records'}).waitFor();await page.screenshot({path:'tmp/postgres/owner-patients.png',fullPage:true});
+ await page.getByRole('button',{name:'Sign out'}).click();await page.getByRole('heading',{name:'Owner sign-in'}).waitFor();await page.reload();await page.getByRole('heading',{name:'Owner sign-in'}).waitFor();assert.equal(errors.length,0,errors.join(';'));console.log('Owner browser passed: separate login, pending application, patient assignment, approval, records, logout and reload.');
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));await rm(dir,{recursive:true,force:true});}

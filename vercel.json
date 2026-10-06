@@ -5,6 +5,10 @@
       "destination": "https://g-care.onrender.com/api/:path*"
     },
     {
+      "source": "/owner",
+      "destination": "/owner.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

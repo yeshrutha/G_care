@@ -84,6 +84,28 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
       expect((await request('/api/auth/register', 'POST', { ...payload(), proofReference: '', proofFile: { fileName: 'proof.pdf', fileType: 'application/pdf', ...file } })).status).toBe(400);
     }
   });
+  it('isolates owner login, proof review, records, rejection and logout from public roles', async () => {
+    vi.stubEnv('OWNER_EMAIL', 'owner@example.invalid'); vi.stubEnv('OWNER_PASSWORD_HASH', passwordHash);
+    expect((await request('/api/owner/accounts', 'GET', undefined, signToken(doctor))).status).toBe(401);
+    expect((await request('/api/auth/register', 'POST', { ...payload(), role: 'owner' })).status).toBe(400);
+    expect((await request('/api/owner/login', 'POST', {email:'owner@example.invalid',password:'wrong'})).status).toBe(401);
+    const login = await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'});
+    expect(login.status).toBe(200);const token=login.data.token;
+    const bytes=Buffer.from('%PDF-1.4\nSynthetic owner proof fixture\n%%EOF');
+    const user=(await request('/api/auth/register','POST',{...payload(),proofReference:'',proofFile:{fileName:'proof.pdf',fileType:'application/pdf',fileSize:bytes.length,fileData:bytes.toString('base64')}})).data.user;
+    const list=await request('/api/owner/accounts','GET',undefined,token);expect(list.status).toBe(200);expect(list.data.find((a:any)=>a.id===user.id).passwordHash).toBeUndefined();
+    const file=await fetch(base+`/api/owner/accounts/${user.id}/proof`,{headers:{Authorization:`Bearer ${token}`}});expect(file.status).toBe(200);expect(Buffer.from(await file.arrayBuffer())).toEqual(bytes);
+    const records=await request('/api/owner/records','GET',undefined,token);expect(records.status).toBe(200);expect(records.data.patients).toHaveLength(3);
+    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:[],note:'Checked'},token)).status).toBe(400);
+    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'rejected',elderIds:[],note:'Blood test is not professional identity proof.'},token)).status).toBe(200);
+    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(403);
+    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Valid evidence independently checked.'},token)).status).toBe(200);
+    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(200);
+    vi.stubEnv('OWNER_EMAIL','changed@example.invalid');expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);vi.stubEnv('OWNER_EMAIL','owner@example.invalid');
+    expect((await request('/api/owner/logout','POST',undefined,token)).status).toBe(200);expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);
+    vi.stubEnv('OWNER_EMAIL','');vi.stubEnv('OWNER_PASSWORD_HASH','');
+    expect((await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'})).status).toBe(503);
+  });
   it('requires evidence for every role, including direct API registration', async () => {
     for (const role of ['doctor', 'caretaker', 'guardian']) {
       const body = payload(role); delete (body as any).proofId;

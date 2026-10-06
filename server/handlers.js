@@ -1,3 +1,4 @@
+import { handleOwner } from './ownerPortal.js';
 import crypto from 'node:crypto';
 import { validateProofFile, saveProofFile, readProofFile, removeProofFile } from './verificationFiles.js';
 import { hasApprovedAccess, canReviewAccounts, isDemoAccount } from './accessPolicy.js';
@@ -159,6 +160,7 @@ function parseBody(schema, body, res, req) {
 }
 
 export async function handleRequest(req, res, pathName) {
+  if (pathName.startsWith('/api/owner/')) return handleOwner(req, res, pathName);
   if (req.method === 'GET' && pathName === '/api/health') {
     if (databasePool) await databasePool.query('SELECT 1');
     return sendJson(res, 200, { ok: true, service: 'GuardianCare API', version: '2.0.0', persistence: persistenceMode() }, req);

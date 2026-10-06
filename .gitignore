@@ -101,3 +101,5 @@ data/backups/
 # Private identity verification documents
 data/verification-proofs/
 **/verification-proofs/
+
+owner-dist/

@@ -20,10 +20,11 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
+  build: { outDir: mode === "owner" ? "owner-dist" : "dist", rolldownOptions: { input: mode === "owner" ? { owner: path.resolve(__dirname, "owner.html") } : { app: path.resolve(__dirname, "index.html"), owner: path.resolve(__dirname, "owner.html") } } },
   plugins: [
     react(),
     mode === "development" && componentTagger(),
-    VitePWA({
+    mode !== "owner" && VitePWA({
       registerType: 'autoUpdate',
       workbox: {
         clientsClaim: true,
