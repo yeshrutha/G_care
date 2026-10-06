@@ -612,6 +612,11 @@ const WatchSimulator: React.FC<
 
   const handleTriggerWatchSos = useCallback(() => {
     if (!activeElder) return;
+    if (!getStoredToken()) {
+      triggerAlert('sos');
+      toast({ title: 'Emergency SOS preview', description: 'Sign in with an approved account to send an alert to the assigned doctor and guardian.', variant: 'destructive' });
+      return;
+    }
 
     // 1. Inject abnormal vitals & panic
     injectVitalsAnomaly(activeElder.id, {
@@ -655,16 +660,17 @@ const WatchSimulator: React.FC<
     });
 
       broadcastGcareMessage({type:'SOS_TRIGGERED',id:saved.id,elderId:activeElder.id,elderName:activeElder.full_name,alert:{...sosAlert,...saved,elder_id:activeElder.id,elder_name:activeElder.full_name},timestamp:Date.now()});
-    }).catch(error=>{toast({title:'SOS could not be saved',description:error.message||'Please check your connection.',variant:'destructive'});});
-
-    // 6. Sound alert
-    triggerAlert('sos');
-
     toast({
       title: `🚨 ತುರ್ತು SOS / Emergency Alert Dispatched`,
       description: `Emergency alert sent from ${activeElder.full_name}'s watch to Doctor Portal and Guardian.`,
       variant: 'destructive',
     });
+    }).catch(error=>{toast({title:'SOS could not be saved',description:error.message||'Please check your connection.',variant:'destructive'});});
+
+    // 6. Sound alert
+    triggerAlert('sos');
+
+
   }, [activeElder, injectVitalsAnomaly, addCaretakerAlert, addGuardianAlert]);
 
   const activeWatchAnomalies = useMemo(() => {
