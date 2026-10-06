@@ -1,7 +1,7 @@
 import VerificationFields, { emptyVerification } from '@/components/VerificationFields';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -129,7 +129,7 @@ const Login: React.FC = () => {
       {/* Right panel */}
       <div className="flex-1 flex items-center justify-center p-8 bg-card">
         <div className="w-full max-w-md">
-          <a href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-teal mb-6">← Back to landing page</a>
+          <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-teal mb-6">← Back to landing page</Link>
           <div className="lg:hidden mb-8">
             <GuardianLogo />
           </div>

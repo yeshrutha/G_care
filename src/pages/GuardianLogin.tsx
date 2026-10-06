@@ -1,6 +1,6 @@
 import VerificationFields, { emptyVerification } from '@/components/VerificationFields';
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -97,7 +97,7 @@ const GuardianLogin: React.FC = () => {
       <div className="flex-1 flex items-center justify-center p-6 bg-background">
         <Card className="w-full max-w-md rounded-2xl shadow-lg border-border">
           <CardContent className="p-8 space-y-6">
-          <a href="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-teal mb-6">← Back to landing page</a>
+          <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-teal mb-6">← Back to landing page</Link>
             <div className="text-center space-y-2">
               <div className="lg:hidden flex justify-center mb-4"><GuardianLogo /></div>
               <h2 className="font-display text-2xl text-foreground">
