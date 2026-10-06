@@ -41,7 +41,7 @@ const GuardianLogin: React.FC = () => {
           })
         : await login(form.email, form.password, 'guardian', changeRequired?newPassword:undefined);
 
-      if (isSignup) { setSuccess('Request submitted. Your doctor must review your evidence and assign your patient before sign-in.'); setIsSignup(false); return; }
+      if (isSignup) { setSuccess('Request submitted. The owner reviews your proof and patient assignment, then provides a temporary password for your first sign-in.'); setIsSignup(false); return; }
       if (user.role === 'doctor') {
         navigate('/doctor');
         return;

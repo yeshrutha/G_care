@@ -56,7 +56,7 @@ describe('Verification form and account state isolation', () => {
     fireEvent.change(role, { target: { value: 'assistant' } });
     expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ staffKind: 'assistant' }));
     expect(screen.getByLabelText('Nursing registration or staff ID')).toBeRequired();
-    expect(screen.getByLabelText('Supervising doctor')).toBeRequired();
+    expect(screen.getByLabelText('Supervising doctor')).not.toBeRequired();
   });
   it('keeps family relationships in Guardian registration and requests authorization evidence', async () => {
     await render(<VerificationFields role="guardian" value={emptyVerification} onChange={() => {}} />);

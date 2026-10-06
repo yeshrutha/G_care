@@ -129,64 +129,21 @@ const DemoEmergencyManager = () => {
 };
 
 const LiveVitalsSimulatorRunner = () => {
-  const signedInUser = useAuthStore(s => s.user);
-  const simulationEnabled = useAppStore((s) => s.simulationEnabled);
-  const updateLiveVitalsTick = useAppStore((s) => s.updateLiveVitalsTick);
-  const setDemoVitals = useAppStore((s) => s.setDemoVitals);
-
-  React.useEffect(() => {
-    if (!signedInUser || !simulationEnabled) return;
-
-    let lastDeviceTimestamp: string | null = null;
-
-    const runCycle = async () => {
-      // Refresh authoritative alert state for separate browsers/devices too.
-      if (getStoredToken()) {
-        try { hydrateAlertRecords(await apiFetch<any[]>('/alerts')); } catch {}
-      }
-      // 1. Check for incoming hardware telemetry from Render
-      try {
-        const result = await apiFetch<{ ok: boolean; latest?: any }>('/device/vitals?elderId=elder-1');
-        if (result?.latest && result.latest.timestamp && result.latest.timestamp !== lastDeviceTimestamp) {
-          const recordedAt = new Date(result.latest.timestamp).getTime();
-          // If recorded recently from physical device
-          if (Date.now() - recordedAt < 60000 && result.latest.source === 'device') {
-            lastDeviceTimestamp = result.latest.timestamp;
-            const l = result.latest;
-            setDemoVitals(l.elderId || 'elder-1', {
-              heart_rate: Number(l.heart_rate),
-              systolic_bp: Number(l.systolic_bp || 120),
-              diastolic_bp: Number(l.diastolic_bp || 80),
-              spo2: Number(l.spo2),
-              stress: Number(l.stress || 20),
-              hydration: Number(l.hydration || 80),
-              breathing_rate: Number(l.breathing_rate || 16),
-              skin_temp: Number(l.skin_temp || 36.6),
-              shiver_detected: Boolean(l.shiver_detected),
-              panic_detected: Boolean(l.panic_detected),
-              fall_detected: Boolean(l.fall_detected),
-            });
-            return;
-          }
-        }
-      } catch {
-        // Backend offline or sleeping; fallback seamlessly
-      }
-
-      // 2. Synchronized cross-tab tick
-      updateLiveVitalsTick();
-    };
-
-    runCycle();
-
-    const interval = setInterval(() => {
-      runCycle();
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [signedInUser, simulationEnabled, updateLiveVitalsTick, setDemoVitals]);
-
-  return null;
+ const signedInUser=useAuthStore(s=>s.user);
+ React.useEffect(()=>{
+  if(!signedInUser)return;let cancelled=false;let active=false;
+  const cycle=async()=>{if(active)return;active=true;try{
+   const data=await apiFetch<any>('/dashboard-data');
+   if(cancelled||useAuthStore.getState().user?.id!==signedInUser.id)return;
+   const elders=Array.isArray(data.elders)?data.elders:[];const ids=elders.map((e:any)=>e.id);
+   const state=useAppStore.getState();
+   useAppStore.setState({demoElders:elders,demoVitals:Object.fromEntries(Object.entries(data.vitals||{}).filter(([id])=>ids.includes(id))),activeElderId:ids.includes(state.activeElderId)?state.activeElderId:(ids[0]||'')});
+   hydrateAlertRecords(data.alerts||[]);
+   if(signedInUser.accessStatus==='demo'&&state.simulationEnabled)state.updateLiveVitalsTick();
+  }catch{}finally{active=false;}};
+  void cycle();const timer=setInterval(cycle,3000);return()=>{cancelled=true;clearInterval(timer);};
+ },[signedInUser?.id]);
+ return null;
 };
 
 const App = () => (

@@ -79,7 +79,7 @@ const Login: React.FC = () => {
         : await login(email, password, role, changeRequired?newPassword:undefined);
 
       if (isSignup) {
-        setSuccess('Request submitted. You can sign in after your evidence and patient assignments are approved.');
+        setSuccess('Request submitted. The owner reviews your proof and patient assignments, then provides a temporary password. You must change it at first sign-in.');
         setIsSignup(false);
         return;
       }

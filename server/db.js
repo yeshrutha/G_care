@@ -536,12 +536,12 @@ export const dbService = {
 
   changeTemporaryPassword: async (id, oldHash, passwordHash) => {
     if (usePostgres) {
-      const r=await pool.query("UPDATE users SET password_hash=$1, profile=jsonb_set(profile,'{mustChangePassword}','false'::jsonb) WHERE id=$2 AND password_hash=$3 AND profile->>'mustChangePassword'='true'",[passwordHash,id,oldHash]);
+      const r=await pool.query("UPDATE users SET password_hash=$1, profile=jsonb_set(profile,'{mustChangePassword}','false'::jsonb) || jsonb_build_object('credentialVersion',$4::text) WHERE id=$2 AND password_hash=$3 AND profile->>'mustChangePassword'='true'",[passwordHash,id,oldHash,crypto.randomUUID()]);
       return r.rowCount===1;
     }
     const data=await readDb();const u=data.users.find(u=>u.id===id);
     if(!u||u.passwordHash!==oldHash||!u.profile?.mustChangePassword)return false;
-    u.passwordHash=passwordHash;u.profile.mustChangePassword=false;await writeDb(data);return true;
+    u.passwordHash=passwordHash;u.profile.mustChangePassword=false;u.profile.credentialVersion=crypto.randomUUID();await writeDb(data);return true;
   },
   listUsers: async () => {
     if (usePostgres) {
@@ -550,7 +550,7 @@ export const dbService = {
     }
     return (await readDb()).users;
   },
-  setUserAccess: async (id, verification, assignedElderIds) => {
+  setUserAccess: async (id, verification, assignedElderIds, credentialReset) => {
     if (usePostgres) {
       const client = await pool.connect();
       try {
@@ -558,7 +558,8 @@ export const dbService = {
         const { rows } = await client.query('SELECT profile FROM users WHERE id = $1 FOR UPDATE', [id]);
         if (!rows.length) throw new Error('Account not found');
         const profile = { ...(rows[0].profile || {}), accessVerification: verification };
-        await client.query('UPDATE users SET profile = $1 WHERE id = $2', [JSON.stringify(profile), id]);
+        if(credentialReset){profile.mustChangePassword=true;profile.credentialVersion=crypto.randomUUID();await client.query('UPDATE users SET profile=$1,password_hash=$2 WHERE id=$3',[JSON.stringify(profile),credentialReset.passwordHash,id]);}
+        else await client.query('UPDATE users SET profile = $1 WHERE id = $2', [JSON.stringify(profile), id]);
         await client.query('DELETE FROM user_elders WHERE user_id = $1', [id]);
         for (const elderId of assignedElderIds) await client.query('INSERT INTO user_elders (user_id, elder_id) VALUES ($1,$2)', [id, elderId]);
         await client.query('COMMIT');
@@ -570,6 +571,7 @@ export const dbService = {
       if (!account) throw new Error('Account not found');
       account.profile = { ...(account.profile || {}), accessVerification: verification };
       account.assignedElderIds = [...new Set(assignedElderIds)];
+      if(credentialReset){account.passwordHash=credentialReset.passwordHash;account.profile.mustChangePassword=true;account.profile.credentialVersion=crypto.randomUUID();}
       await writeDb(data);
     }
     return dbService.findUserById(id);
@@ -616,7 +618,7 @@ export const dbService = {
       if (stored.id === DEMO_CARETAKER_ID && ids.length === 0) ids = DEMO_PATIENT_IDS;
       return ids.filter(id => DEMO_PATIENT_IDS.includes(id));
     }
-    if (stored.role === 'caretaker' || (stored.role === 'guardian' && stored.profile?.accessVerification?.ownerManaged !== true)) {
+    if ((stored.role === 'caretaker' || stored.role === 'guardian') && stored.profile?.accessVerification?.ownerManaged !== true) {
       const verification = stored.profile?.accessVerification;
       if (stored.role === 'caretaker' && !['nurse', 'assistant'].includes(verification?.staffKind)) return [];
       const doctor = await dbService.findUserById(verification.supervisingDoctorId);

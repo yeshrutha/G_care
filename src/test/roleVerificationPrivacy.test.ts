@@ -126,14 +126,33 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const records=await request('/api/owner/records','GET',undefined,token);expect(records.status).toBe(200);expect(records.data.patients).toHaveLength(3);
     expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:[],note:'Checked'},token)).status).toBe(200);
     expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'rejected',elderIds:[],note:'Blood test is not professional identity proof.'},token)).status).toBe(200);
-    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(403);
-    expect((await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Valid evidence independently checked.'},token)).status).toBe(200);
-    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(200);
+    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(401);
+    const approval=await request(`/api/owner/accounts/${user.id}`,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Valid evidence independently checked.'},token);expect(approval.status).toBe(200);
+    expect((await request('/api/auth/login','POST',{email:payload().email,password:'TestOnly123!'})).status).toBe(401);
+    expect((await request('/api/auth/login','POST',{email:payload().email,password:approval.data.temporaryPassword,newPassword:'FreshPassword123!'})).status).toBe(200);
     const created=await request('/api/owner/patients','POST',{full_name:'Synthetic patient',age:72,language_pref:'kn',medical_conditions:[]},token);expect(created.status).toBe(201);expect((await dbService.getElderById(created.data.id)).full_name).toBe('Synthetic patient');
     vi.stubEnv('OWNER_EMAIL','changed@example.invalid');expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);vi.stubEnv('OWNER_EMAIL','owner@example.invalid');
     expect((await request('/api/owner/logout','POST',undefined,token)).status).toBe(200);expect((await request('/api/owner/accounts','GET',undefined,token)).status).toBe(401);
     vi.stubEnv('OWNER_EMAIL','');vi.stubEnv('OWNER_PASSWORD_HASH','');
     expect((await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'})).status).toBe(503);
+  });
+  it('owner approval generates one-use credentials for doctor, independent nurse and guardian requests',async()=>{
+    vi.stubEnv('OWNER_LOCAL_ENABLED','true');vi.stubEnv('OWNER_EMAIL','owner@example.invalid');vi.stubEnv('OWNER_PASSWORD_HASH',passwordHash);
+    const ownerToken=(await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'})).data.token;
+    for(const role of ['doctor','caretaker','guardian']){
+      const bytes=Buffer.from('%PDF-1.4\nSynthetic role evidence\n%%EOF');
+      const body={...payload(role),supervisingDoctorId:undefined,proofReference:'',proofFile:{fileName:'proof.pdf',fileType:'application/pdf',fileSize:bytes.length,fileData:bytes.toString('base64')}};
+      const registration=await request('/api/auth/register','POST',body);expect(registration.status).toBe(201);expect(registration.data.token).toBeUndefined();
+      const user=registration.data.user;const oldToken=signToken(user);
+      const approval=await request('/api/owner/accounts/'+user.id,'PUT',{decision:'approved',elderIds:['elder-2'],note:'Synthetic evidence reviewed by owner.'},ownerToken);expect(approval.status).toBe(200);expect(approval.data.temporaryPassword.length).toBeGreaterThan(20);
+      expect((await request('/api/dashboard-data','GET',undefined,oldToken)).status).toBe(401);
+      const creds={email:user.email,password:approval.data.temporaryPassword,role};expect((await request('/api/auth/login','POST',creds)).status).toBe(428);
+      const login=await request('/api/auth/login','POST',{...creds,newPassword:'NewPrivatePassword123!'});expect(login.status).toBe(200);
+      expect((await request('/api/dashboard-data','GET',undefined,login.data.token)).data.elders.map((e:any)=>e.id)).toEqual(['elder-2']);
+      expect((await request('/api/dashboard-data','GET',undefined,oldToken)).status).toBe(401);
+      const again=await request('/api/owner/accounts/'+user.id,'PUT',{decision:'approved',elderIds:['elder-2'],note:'Assignments reviewed without resetting password.'},ownerToken);expect(again.data.temporaryPassword).toBeUndefined();
+      expect((await request('/api/auth/login','POST',creds)).status).toBe(401);
+    }
   });
   it('requires evidence for every role, including direct API registration', async () => {
     for (const role of ['doctor', 'caretaker', 'guardian']) {

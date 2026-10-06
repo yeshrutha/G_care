@@ -356,7 +356,7 @@ async function handleAuth(req, res, pathName) {
       if (!applicant || applicant.role === 'doctor' || applicant.profile?.accessVerification?.supervisingDoctorId !== reviewer.id) return sendJson(res, 403, { error: 'This proof is not assigned to you.' }, req);
       const file = applicant.profile.accessVerification.proofFile;
       if (!file) return sendJson(res, 404, { error: 'No uploaded proof.' }, req);
-      try { return sendBinary(res, await readProofFile(file), file.fileType, file.fileName, req, true); }
+      try { return sendBinary(res, applicant.profile.guardianProofData?Buffer.from(applicant.profile.guardianProofData,'base64'):await readProofFile(file), file.fileType, file.fileName, req, true); }
       catch { return sendJson(res, 404, { error: 'Proof file is unavailable.' }, req); }
     }
     const match = pathName.match(/^\/api\/auth\/access-requests\/([^/]+)$/);
@@ -373,6 +373,7 @@ async function handleAuth(req, res, pathName) {
   if (req.method === 'POST' && pathName === '/api/auth/register') {
     const parsed = parseBody(registerSchema, await readJsonBody(req, MAX_UPLOAD_BODY_BYTES), res, req);
     if (!parsed) return;
+    if(process.env.NODE_ENV==='production'&&!parsed.proofFile)return sendJson(res,400,{error:'Upload proof of identity or authorization for owner review.'},req);
     const email = parsed.email.trim().toLowerCase();
     const password = parsed.password;
     const name = parsed.name.trim();
@@ -392,7 +393,7 @@ async function handleAuth(req, res, pathName) {
 
     if (role === 'caretaker' && !parsed.staffKind) return sendJson(res, 400, { error: 'Choose Nurse or Doctor’s assistant.' }, req);
     if (role === 'guardian' && (!parsed.relationship || !parsed.elderName.trim())) return sendJson(res, 400, { error: 'Provide your relationship and the patient name for review.' }, req);
-    if (role !== 'doctor') {
+    if (role !== 'doctor' && parsed.supervisingDoctorId) {
       const doctor = await dbService.findUserById(parsed.supervisingDoctorId);
       if (doctor?.role !== 'doctor' || !hasApprovedAccess(doctor)) return sendJson(res, 400, { error: 'Select a listed supervising doctor.' }, req);
     }
@@ -424,10 +425,11 @@ async function handleAuth(req, res, pathName) {
       createdAt: new Date().toISOString(),
     };
 
-    const proofFile = validatedProof ? await saveProofFile(validatedProof) : undefined;
-    if (proofFile) user.profile.accessVerification.proofFile = proofFile;
-    try { await dbService.createUser(user); }
-    catch (error) { if (proofFile) await removeProofFile(proofFile); throw error; }
+    if (validatedProof) {
+      user.profile.guardianProofData=validatedProof.buffer.toString('base64');
+      user.profile.accessVerification.proofFile={id:crypto.randomUUID(),fileName:validatedProof.fileName,fileType:validatedProof.fileType,fileSize:validatedProof.fileSize,storage:'database'};
+    }
+    await dbService.createUser(user);
     await dbService.addAuditLog(user, 'register', 'user', user.id);
 
     return sendJson(res, 201, { pending: true, message: 'Account request submitted. Your evidence and patient assignments must be approved before you can sign in.', user: sanitizeUser(user) }, req);
@@ -438,7 +440,7 @@ async function handleAuth(req, res, pathName) {
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
 
-    const user = await dbService.findUserByEmail(email);
+    let user = await dbService.findUserByEmail(email);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
       return sendJson(res, 401, { error: 'Invalid email or password' }, req);
     }
@@ -449,7 +451,7 @@ async function handleAuth(req, res, pathName) {
       if(!body.newPassword)return sendJson(res,428,{error:'Set a new password before signing in with your temporary password.'},req);
       if(typeof body.newPassword!=='string'||body.newPassword.length>128||validatePassword(body.newPassword)||body.newPassword===password)return sendJson(res,400,{error:'Choose a different password with 8 to 128 characters.'},req);
       if(!await dbService.changeTemporaryPassword(user.id,user.passwordHash,await hashPassword(body.newPassword)))return sendJson(res,409,{error:'Temporary password already changed. Sign in again.'},req);
-      user.profile.mustChangePassword=false;
+      user=await dbService.findUserById(user.id);
     }
     const token = signToken(user);
     return sendJson(res, 200, { token, user: sanitizeUser(user) }, req);

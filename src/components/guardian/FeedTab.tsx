@@ -6,7 +6,7 @@ import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
 import { loadVitalsCSV, getHourlyData, getLatestVitals, type VitalsRow } from '@/lib/csvLoader';
 import { useGuardianStore } from '@/store/guardianStore';
 import { useAppStore, type MotionState } from '@/store';
-import { getElderBaseline } from '@/lib/vitalsSimulator';
+import { apiFetch } from '@/lib/api';
 
 const statusColor = (val: number, low: number, high: number) => {
   if (val < low || val > high) return 'text-destructive';
@@ -29,18 +29,13 @@ const MOTION_LABELS: Record<MotionState, { label: string; color: string }> = {
 
 const FeedTab: React.FC = () => {
   const guardianUser = useGuardianStore((state) => state.guardianUser);
-  const activeElderId = useAppStore((state) => state.activeElderId) || 'elder-1';
-  const storeVitals = useAppStore((state) => state.demoVitals[activeElderId] || state.demoVitals['elder-1']);
+  const activeElderId = useAppStore((state) => state.activeElderId);
+  const storeVitals = useAppStore((state) => state.demoVitals[activeElderId]);
 
   const [vitalsData, setVitalsData] = useState<VitalsRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadVitalsCSV().then(data => {
-      setVitalsData(data);
-      setLoading(false);
-    });
-  }, []);
+  useEffect(()=>{let cancelled=false;const load=async()=>{if(!activeElderId){setVitalsData([]);setLoading(false);return;}try{const rows=await apiFetch<any[]>('/vitals?elderId='+encodeURIComponent(activeElderId)+'&limit=100');if(!cancelled)setVitalsData(rows.slice().reverse());}catch{if(!cancelled)setVitalsData([]);}finally{if(!cancelled)setLoading(false);}};void load();const t=setInterval(load,5000);return()=>{cancelled=true;clearInterval(t);};},[activeElderId]);
 
   const chartData = useMemo(() => {
     if (vitalsData.length === 0) return [];
@@ -61,7 +56,8 @@ const FeedTab: React.FC = () => {
     );
   }
 
-  const v = storeVitals || getElderBaseline({ id: activeElderId });
+  if(!storeVitals)return <div className="p-6 text-muted-foreground">No readings yet for this patient.</div>;
+  const v = storeVitals;
   const motionState = (v?.motion_state as MotionState) || 'sitting';
   const motionInfo = MOTION_LABELS[motionState] || MOTION_LABELS['sitting'];
   const isShivering = Boolean(v?.shiver_detected);
@@ -87,7 +83,7 @@ const FeedTab: React.FC = () => {
       {/* Connection Status */}
       <div className="flex items-center gap-3">
         <div className="w-3 h-3 rounded-full bg-gw-green animate-pulse-dot" />
-        <span className="text-sm font-medium text-foreground">Watch Connected — Live</span>
+        <span className="text-sm font-medium text-foreground">{v.source==='simulator'?'SIMULATED VITALS - demo data, not sensor measurements':v.source==='device'?'Device telemetry':'Recorded vitals'}</span>
       </div>
 
       {/* Fall Detection Alert */}

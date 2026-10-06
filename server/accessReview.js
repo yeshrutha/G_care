@@ -1,7 +1,7 @@
 import { dbService } from './db.js';
 import { canReviewAccounts } from './accessPolicy.js';
 
-export async function reviewAccess(reviewer, accountId, decision, elderIds, note, ownerReview = false) {
+export async function reviewAccess(reviewer, accountId, decision, elderIds, note, ownerReview = false, credentialReset) {
   const account = await dbService.findUserById(accountId);
   if (!account) throw Object.assign(new Error('Account not found'), { statusCode: 404 });
   const verification = account.profile?.accessVerification;
@@ -20,7 +20,7 @@ export async function reviewAccess(reviewer, accountId, decision, elderIds, note
     if (account.role === 'caretaker' && !['nurse', 'assistant'].includes(verification.staffKind)) {
       throw Object.assign(new Error('Caretaker access is restricted to a nurse or doctor assistant.'), { statusCode: 400 });
     }
-    if (account.role !== 'doctor' && !(ownerReview && account.role === 'guardian' && verification.ownerManaged === true)) {
+    if (account.role !== 'doctor' && !ownerReview) {
       const doctor = await dbService.findUserById(verification.supervisingDoctorId);
       if (!canReviewAccounts(doctor)) throw Object.assign(new Error('A verified supervising doctor is required.'), { statusCode: 400 });
       if (assigned.some(id => !doctor.assignedElderIds?.includes(id))) {
@@ -32,9 +32,9 @@ export async function reviewAccess(reviewer, accountId, decision, elderIds, note
     }
   }
   const updated = await dbService.setUserAccess(account.id, {
-    ...verification, status: decision, reviewedBy: reviewer.id,
+    ...verification, ...(ownerReview?{ownerManaged:true}:{}), status: decision, reviewedBy: reviewer.id,
     reviewedAt: new Date().toISOString(), reviewNote: note.trim().slice(0, 1000),
-  }, assigned);
+  }, assigned, credentialReset);
   await dbService.addAuditLog(reviewer, 'review_access', 'user', account.id, { decision, assignedElderIds: assigned });
   return updated;
 }

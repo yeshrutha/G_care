@@ -71,7 +71,13 @@ export async function handleOwner(req,res,pathName) {
  if(review && req.method==='PUT') {
   const b=await readJsonBody(req);
   if(!Array.isArray(b.elderIds) || b.elderIds.some(x=>typeof x!=='string') || typeof b.note!=='string')return sendJson(res,400,{error:'Select patients and provide a review note.'},req);
-  try {return sendJson(res,200,{user:sanitizeUser(await reviewAccess(owner,decodeURIComponent(review[1]),b.decision,b.elderIds,b.note,true))},req);}
+  try {
+   const account=await dbService.findUserById(decodeURIComponent(review[1]));
+   const temporaryPassword=b.decision==='approved'&&account?.profile?.accessVerification?.status!=='approved'?crypto.randomBytes(18).toString('base64url'):undefined;
+   const reset=temporaryPassword?{passwordHash:await hashPassword(temporaryPassword)}:undefined;
+   const updated=await reviewAccess(owner,decodeURIComponent(review[1]),b.decision,b.elderIds,b.note,true,reset);
+   return sendJson(res,200,{user:sanitizeUser(updated),...(temporaryPassword?{temporaryPassword}:{})},req);
+  }
   catch(e){return sendJson(res,e.statusCode || 500,{error:e.statusCode?e.message:'Review could not be saved.'},req);}
  }
  if(pathName==='/api/owner/records' && req.method==='GET') {

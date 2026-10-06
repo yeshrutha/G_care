@@ -142,7 +142,7 @@ test('private identity-proof upload persists in PostgreSQL and stays reviewer re
  const route=base+'/api/auth/access-requests/'+account.id+'/proof';
  const response=await fetch(route,{headers:{Authorization:'Bearer '+signToken(reviewer)}});assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');assert.deepEqual(Buffer.from(await response.arrayBuffer()),bytes);
  assert.equal((await fetch(route,{headers:{Authorization:'Bearer '+signToken(doctor)}})).status,403);
- const child=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();const {readProofFile}=await import('./server/verificationFiles.js');const a=await dbService.findUserById('"+account.id+"');console.log((await readProofFile(a.profile.accessVerification.proofFile)).toString('base64'));await closeDb();"],{env:process.env,encoding:'utf8'});assert.equal(child.trim().split('\n').at(-1),bytes.toString('base64'));
+ const child=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();const a=await dbService.findUserById('"+account.id+"');console.log(a.profile.guardianProofData);await closeDb();"],{env:process.env,encoding:'utf8'});assert.equal(child.trim().split('\n').at(-1),bytes.toString('base64'));
 });
 
 test('owner PostgreSQL review and read-only records enforce separate authentication', async()=>{

@@ -261,9 +261,7 @@ const DoctorPortal: React.FC = () => {
       })
       .catch(() => {
         if (ignore) return;
-        setNotesList([
-          { id: 'note-1', note: 'Patient showing good response to current antihypertensive regimen. BP trend improving.', doctorName: 'Dr. Ramesh Kumar', createdAt: new Date(Date.now() - 36000000).toISOString() }
-        ]);
+        setNotesList([]);
       });
 
     // Fetch reports
@@ -274,9 +272,7 @@ const DoctorPortal: React.FC = () => {
       })
       .catch(() => {
         if (ignore) return;
-        setReportsList([
-          { id: 'rep-1', elderId: clinicalElderId, doctorId: 'dr-1', doctorName: 'Dr. Ramesh Kumar', title: 'Complete Blood Count (CBC)', description: 'Hemoglobin levels normal. WBC and Platelets inside limits. Blood glucose marginally elevated.', category: 'Lab Report', fileUrl: 'cbc_report.pdf', createdAt: new Date(Date.now() - 172800000).toISOString() }
-        ]);
+        setReportsList([]);
       });
 
     // Fetch Care Team
@@ -287,9 +283,7 @@ const DoctorPortal: React.FC = () => {
       })
       .catch(() => {
         if (ignore) return;
-        setCareTeam([
-          { id: 'dr-1', name: 'Dr. Ramesh Kumar', email: 'dr.ramesh@apollo.in', phone: '+91 98765 43211', specialization: 'Cardiologist', hospital: 'Apollo Hospitals' }
-        ]);
+        setCareTeam([]);
       });
 
     return () => { ignore = true; };
@@ -537,7 +531,7 @@ const DoctorPortal: React.FC = () => {
 
   // Demo mode scripted timeline
   useEffect(() => {
-    if (!demoMode) { setDemoStep(0); return; }
+    if (!demoMode || authUser?.accessStatus !== 'demo') { setDemoStep(0); return; }
     const timers: NodeJS.Timeout[] = [];
     timers.push(setTimeout(() => setDemoStep(1), 20000));
     timers.push(setTimeout(() => setDemoStep(2), 40000));
@@ -1148,7 +1142,8 @@ const DoctorPortal: React.FC = () => {
         <div className="max-w-7xl mx-auto space-y-6">
           <header className="flex items-center justify-between border-b border-border/60 pb-4">
             <div>
-              <h1 className="font-display text-2xl font-bold text-foreground">
+              {Object.values(demoVitals).some(v=>v.source==='simulator')&&<p className="text-xs text-amber-700">SIMULATED VITALS - demo data, not sensor measurements</p>}
+          <h1 className="font-display text-2xl font-bold text-foreground">
                 {t(SECTION_TITLES[activeSection])}
               </h1>
               <p className="text-sm text-muted-foreground">

@@ -24,6 +24,8 @@ export interface DemoElder {
 export type MotionState = 'walking' | 'sitting' | 'standing' | 'lying_down';
 
 export interface DemoVitals {
+  source?: 'manual'|'simulator'|'device';
+  timestamp?: string;
   heart_rate: number;
   systolic_bp: number;
   diastolic_bp: number;
@@ -403,7 +405,7 @@ export const useAppStore = create<AppStore>((set) => ({
     storeActiveAlerts(activeAlerts);
     return { activeAlerts };
   }),
-  demoElders: DEMO_ELDERS,
+  demoElders: import.meta.env.PROD ? [] : DEMO_ELDERS,
   setDemoElders: (e) => set({ demoElders: e }),
   activeElderId: getStoredActiveElderId(),
   setActiveElderId: (id) => {
@@ -412,7 +414,7 @@ export const useAppStore = create<AppStore>((set) => ({
   },
   activeWatchElderId: null,
   setActiveWatchElderId: (id) => set({ activeWatchElderId: id }),
-  demoVitals: getStoredLiveVitals() || initializePatientVitals(DEMO_ELDERS),
+  demoVitals: import.meta.env.PROD ? {} : getStoredLiveVitals() || initializePatientVitals(DEMO_ELDERS),
   setDemoVitals: (id, v) => set((s) => {
     if (getStoredToken() && !s.demoElders.some(e => e.id === id)) return {};
     const next = { ...s.demoVitals, [id]: v };

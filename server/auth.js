@@ -30,6 +30,7 @@ export function signToken(user) {
   const payload = {
     sub: user.id,
     role: user.role,
+    credentialVersion: user.profile?.credentialVersion || 'legacy',
     email: user.email,
     jti: crypto.randomUUID(),
     iat: now,

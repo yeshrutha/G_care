@@ -57,12 +57,12 @@ export default function VerificationFields({ role, value, onChange }: {
     </div>}
     {role !== 'doctor' && <div>
       <Label htmlFor="supervising-doctor">{role === 'caretaker' ? 'Supervising doctor' : 'Patient’s doctor'}</Label>
-      <select required id="supervising-doctor" value={value.supervisingDoctorId} onChange={e => update('supervisingDoctorId', e.target.value)} className="mt-1 w-full rounded-md border bg-background p-2">
-        <option value="">Select a listed doctor</option>
+      <select id="supervising-doctor" value={value.supervisingDoctorId} onChange={e => update('supervisingDoctorId', e.target.value)} className="mt-1 w-full rounded-md border bg-background p-2">
+        <option value="">Owner review / no doctor assigned yet</option>
         {doctors.map(d => <option key={d.id} value={d.id}>{d.name}{d.hospital ? ` — ${d.hospital}` : ''}{d.demo ? ' (demo only)' : ''}</option>)}
       </select>
       {directoryError && <p className="text-sm text-destructive">{directoryError}</p>}
-      {!directoryError && !doctors.length && <p className="text-sm text-muted-foreground">The owner must approve a doctor before access requests can be assigned.</p>}
+      {!directoryError && !doctors.length && <p className="text-sm text-muted-foreground">You can submit proof now. The owner will review and assign patient access.</p>}
     </div>}
     <div><Label htmlFor="proof-id">{role === 'doctor' ? 'Medical registration number' : role === 'caretaker' ? 'Nursing registration or staff ID' : 'Patient consent / authorization reference'}</Label>
       <Input required minLength={3} maxLength={120} id="proof-id" value={value.proofId} onChange={e => update('proofId', e.target.value)} />
@@ -72,7 +72,7 @@ export default function VerificationFields({ role, value, onChange }: {
     </div>
     <div><Label htmlFor="proof-upload">Upload proof of identity or authorization</Label>
       <Input required id="proof-upload" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx" onChange={e => void selectProof(e.target.files?.[0])} />
-      <p className="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG, WebP or Word document, up to 5 MB. Only your assigned reviewer can download it; doctors’ proof is reviewed by the project owner.</p>
+      <p className="mt-1 text-xs text-muted-foreground">PDF, JPG, PNG, WebP or Word document, up to 5 MB. Proof is stored privately for owner review. A listed supervising doctor may also review requests assigned to them.</p>
       {reading && <p role="status">Reading document…</p>}
       {value.proofFile && <p className="text-sm">Selected: {value.proofFile.fileName}</p>}
       {fileError && <p role="alert" className="text-sm text-destructive">{fileError}</p>}

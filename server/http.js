@@ -99,7 +99,7 @@ export async function authenticate(req) {
   if (isRevoked) return null;
 
   const user = await dbService.findUserById(payload.sub);
-  if (!user || !hasApprovedAccess(user)) return null;
+  if (!user || !hasApprovedAccess(user) || user.profile?.mustChangePassword || (payload.credentialVersion||'legacy')!==(user.profile?.credentialVersion||'legacy')) return null;
 
   return { user, payload };
 }
