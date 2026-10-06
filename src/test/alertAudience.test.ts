@@ -1,0 +1,3 @@
+import {it,expect} from 'vitest';import {alertVisibleToRole} from '@/lib/alertAudience.js';
+it('routes medical warnings and emergencies to doctors',()=>{for(const type of ['sos','fall','vital_abnormal','high_bp','low_spo2','panic'])expect(alertVisibleToRole({type},'doctor')).toBe(true);});
+it('keeps missed routine care alerts for caretaker and guardian only even if marked critical',()=>{for(const type of ['missed_med','medicine_missed','missed_medication','food_missed','missed_food','activity_missed','missed_activity','med_taken','reminder']){const a={type,severity:'critical'};expect(alertVisibleToRole(a,'doctor')).toBe(false);expect(alertVisibleToRole(a,'guardian')).toBe(true);expect(alertVisibleToRole(a,'caretaker')).toBe(true);}});

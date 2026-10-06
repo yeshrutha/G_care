@@ -1,3 +1,4 @@
+import { alertVisibleToRole } from '../src/lib/alertAudience.js';
 import { saveReportFile, loadReportFile } from './reportFiles.js';
 import { hasApprovedAccess, isDemoAccount, DEMO_PATIENT_IDS, safeEditableProfile } from './accessPolicy.js';
 import { mkdir, readFile, writeFile, rename, unlink, copyFile } from 'node:fs/promises';
@@ -996,7 +997,7 @@ export const dbService = {
          ORDER BY a.time DESC LIMIT 200`,
         [elderIds]
       );
-      return rows.map((a) => ({
+      return rows.filter(a=>alertVisibleToRole(a,user.role)).map((a) => ({
         id: a.id,
         elderId: a.elder_id,
         elder_id: a.elder_id,
@@ -1016,7 +1017,7 @@ export const dbService = {
     } else {
       const fileDb = await readDb();
       return (fileDb.alerts || []).filter((alert) => {
-        if (elderIds.length === 0) return false;
+        if (elderIds.length === 0 || !alertVisibleToRole(alert,user.role)) return false;
         if (alert.elder_id && elderIds.includes(alert.elder_id)) return true;
         if (alert.elderId && elderIds.includes(alert.elderId)) return true;
         return false;

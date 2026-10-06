@@ -1,3 +1,4 @@
+import { isDoctorAlert } from '@/lib/alertAudience.js';
 import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -118,11 +119,12 @@ const DoctorPortal: React.FC = () => {
   const navigate = useNavigate();
   const {
     demoMode, setDemoMode, demoElders, setDemoElders, demoVitals, setDemoVitals,
-    activeAlerts, setActiveAlerts, addAlert, resolveAlert, clearAlerts, removeAlert, stabilizeElderVitals,
+    activeAlerts: allActiveAlerts, setActiveAlerts, addAlert, resolveAlert, clearAlerts, removeAlert, stabilizeElderVitals,
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
     setDemoStep, demoStep,
   } = useAppStore();
+  const activeAlerts = allActiveAlerts.filter(isDoctorAlert);
   const { user: authUser, logout } = useAuthStore();
   const setReminders = useGuardianStore((state) => state.setReminders);
   const addGuardianAlert = useGuardianStore((state) => state.addGuardianAlert);
