@@ -14,7 +14,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
 import { useAppStore, type StoreAlarm } from '@/store';
 import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { triggerAlert } from '@/lib/audioAlerts';
@@ -439,7 +438,6 @@ const ElderDetail: React.FC = () => {
 
           {/* TAB 1: LIVE VITALS */}
           <TabsContent value="vitals" className="space-y-6 mt-6">
-            <VitalsAnomalyTrigger elderId={elder.id} />
 
             <Card className="rounded-xl">
               <CardHeader><CardTitle className="font-display">Real-Time Vitals (Last 60 Minutes)</CardTitle></CardHeader>

@@ -94,7 +94,6 @@ import {
 } from '@/components/VoiceAssistant';
 
 import { useAppStore } from '@/store';
-import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
 import { getActiveWatchAnomalies } from '@/lib/anomalyDetector';
 
 import {
@@ -3217,11 +3216,6 @@ const WatchSimulator: React.FC<
             {/* VITALS ANOMALY DEMO CONTROLS              */}
             {/* ------------------------------------------ */}
             <div className="mt-5 w-full max-w-2xl mx-auto">
-              <VitalsAnomalyTrigger
-                elderId={selectedElderId}
-                className="bg-slate-900/90 border-white/10"
-                compact
-              />
             </div>
 
             {/* ------------------------------------------ */}

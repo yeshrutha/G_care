@@ -18,7 +18,6 @@ import { AlertBanner } from '@/components/AlertBanner';
 import { DemoModeBanner } from '@/components/DemoModeBanner';
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
-import { VitalsAnomalyTrigger } from '@/components/VitalsAnomalyTrigger';
 
 import { useAppStore, type DemoElder, type DemoVitals, type Medication, type DemoAlert, type StoreAlarm } from '@/store';
 import { useGuardianStore, type Reminder } from '@/store/guardianStore';
@@ -926,7 +925,6 @@ const Dashboard: React.FC = () => {
 
         <div className="p-6 space-y-6 max-w-7xl mx-auto">
           {demoMode && (
-            <VitalsAnomalyTrigger compact className="mb-2" />
           )}
 
           {/* Emergency Banner */}
