@@ -944,7 +944,7 @@ const DoctorPortal: React.FC = () => {
   const careIntelligence = useMemo(() => {
     if (elders.length === 0) return { topPriority: null, profiles: [] };
     const profiles = elders.map((elder) => {
-      const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
+      const vitals = demoVitals[elder.id];
       
       let score = 0;
       if (elder.connection_status === 'disconnected') score += 10;
@@ -1555,7 +1555,7 @@ const DoctorPortal: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {elders.map((elder) => {
-                  const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
+                  const vitals = demoVitals[elder.id];
                   return (
                     <Card key={elder.id} className="rounded-xl shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`/elder/${elder.id}`)}>
                       <CardContent className="p-5">

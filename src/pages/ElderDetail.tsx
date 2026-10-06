@@ -115,7 +115,7 @@ const ElderDetail: React.FC = () => {
   } = useAppStore();
   const [moodRecorded, setMoodRecorded] = useState(false);
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
-  const [elderAlerts, setElderAlerts] = useState<ElderAlert[]>(INITIAL_ALERTS);
+  const [elderAlerts, setElderAlerts] = useState<ElderAlert[]>([]);
   const [alarmDialogOpen, setAlarmDialogOpen] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [alarmForm, setAlarmForm] = useState({
@@ -128,9 +128,9 @@ const ElderDetail: React.FC = () => {
 
   const [medicalReports, setMedicalReports] = useState<any[]>([]);
 
-  const elder = (demoElders && demoElders.length > 0 ? demoElders : DEMO_ELDERS).find(e => e.id === id) || (demoElders[0] || DEMO_ELDERS[0]);
-  const vitals = demoVitals[elder.id] || DEMO_VITALS[elder.id];
-  const medications = (sharedMedications.length ? sharedMedications : getSeedMedications())
+  const elder = demoElders.find(e => e.id === id) || { id: id || '', full_name: 'Patient unavailable', age: 0, medical_conditions: [], language_pref: '', connection_status: 'disconnected', battery: null };
+  const vitals = demoVitals[elder.id];
+  const medications = sharedMedications
     .filter(m => m.elder_id === elder.id);
 
   // Synchronize active elder context across the application
@@ -203,36 +203,12 @@ const ElderDetail: React.FC = () => {
     };
   }, [elder.id, setMedications, setStoreAlarms]);
 
-  // Dynamic real-time rolling vitals history
-  const [liveHistory, setLiveHistory] = useState<Array<{ time: string; hr: number; spo2: number; stress: number; breathing: number }>>(() => {
-    return DEMO_HR_HISTORY.slice(-30).map((d) => ({
-      time: new Date(d.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      hr: Math.round(d.hr),
-      spo2: Math.round(d.spo2 * 10) / 10,
-      stress: Math.round(d.stress),
-      breathing: Math.round(d.breathing),
-    }));
-  });
-
-  useEffect(() => {
-    if (!vitals) return;
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setLiveHistory((prev) => {
-      const nextPoint = {
-        time: nowTime,
-        hr: Math.round(vitals.heart_rate),
-        spo2: Math.round(vitals.spo2 * 10) / 10,
-        stress: Math.round(vitals.stress),
-        breathing: Math.round(vitals.breathing_rate),
-      };
-      const updated = [...prev, nextPoint];
-      return updated.length > 30 ? updated.slice(-30) : updated;
-    });
-  }, [vitals?.heart_rate, vitals?.spo2, vitals?.stress, vitals?.breathing_rate]);
+  const [liveHistory,setLiveHistory]=useState<Array<{time:string;hr:number;spo2:number;stress:number;breathing:number}>>([]);
+  useEffect(()=>{let cancelled=false;setLiveHistory([]);const load=async()=>{try{const rows=await apiFetch<any[]>('/vitals?elderId='+encodeURIComponent(elder.id)+'&limit=1000');if(!cancelled)setLiveHistory(rows.filter(r=>Date.now()-new Date(r.timestamp).getTime()<=3600000).reverse().map(r=>({time:new Date(r.timestamp).toLocaleTimeString(),hr:r.heart_rate,spo2:r.spo2,stress:r.stress,breathing:r.breathing_rate})));}catch{if(!cancelled)setLiveHistory([]);}};void load();const timer=setInterval(load,5000);return()=>{cancelled=true;clearInterval(timer);};},[elder.id]);
 
   const chartData = liveHistory;
 
-  const moodData = DEMO_MOOD_HISTORY;
+  const moodData: typeof DEMO_MOOD_HISTORY = [];
   const moods = [
     { emoji: '😄', label: t('mood.great'), score: 5 },
     { emoji: '🙂', label: t('mood.good'), score: 4 },
@@ -242,11 +218,11 @@ const ElderDetail: React.FC = () => {
   ];
 
   const baselineData = [
-    { vital: t('vitals.hr'), range: '60–80 bpm', current: vitals?.heart_rate || 71, status: 'normal' },
-    { vital: t('vitals.bp'), range: '110–130 mmHg', current: vitals?.systolic_bp || 128, status: vitals && vitals.systolic_bp > 135 ? 'elevated' : 'normal' },
-    { vital: t('vitals.spo2'), range: '95–99%', current: vitals?.spo2 || 97.4, status: 'normal' },
-    { vital: t('vitals.stress'), range: '10–45', current: vitals?.stress || 34, status: vitals && vitals.stress > 50 ? 'elevated' : 'normal' },
-    { vital: t('vitals.hydration'), range: '60–85%', current: vitals?.hydration || 72, status: 'normal' },
+    { vital: t('vitals.hr'), range: '60–80 bpm', current: vitals?.heart_rate ?? 'Not available', status: 'normal' },
+    { vital: t('vitals.bp'), range: '110–130 mmHg', current: vitals?.systolic_bp ?? 'Not available', status: vitals && vitals.systolic_bp > 135 ? 'elevated' : 'normal' },
+    { vital: t('vitals.spo2'), range: '95–99%', current: vitals?.spo2 ?? 'Not available', status: 'normal' },
+    { vital: t('vitals.stress'), range: '10–45', current: vitals?.stress ?? 'Not available', status: vitals && vitals.stress > 50 ? 'elevated' : 'normal' },
+    { vital: t('vitals.hydration'), range: '60–85%', current: vitals?.hydration ?? 'Not available', status: 'normal' },
   ];
 
   const acknowledgeElderAlert = (alertId: string) => {
@@ -382,7 +358,7 @@ const ElderDetail: React.FC = () => {
       const met = medications.find(m => m.brand_name.toLowerCase().includes('metformin'));
       response = met ? `${met.brand_name} ${met.dose_amount}${met.dose_unit}. ${met.instructions}. Take it ${met.frequency}.` : 'Metformin is not in your current prescriptions.';
     } else if (command.includes('doing') || command.includes('how am')) {
-      response = `${elder.full_name} is doing well. Heart rate is ${vitals?.heart_rate || 71} bpm. Blood pressure is ${vitals?.systolic_bp || 128} over ${vitals?.diastolic_bp || 82}. Oxygen saturation is ${vitals?.spo2 || 97.4} percent. All vitals are within normal range.`;
+      response = `${elder.full_name} is doing well. Heart rate is ${vitals?.heart_rate ?? 'Not available'} bpm. Blood pressure is ${vitals?.systolic_bp ?? 'Not available'} over ${vitals?.diastolic_bp || 82}. Oxygen saturation is ${vitals?.spo2 ?? 'Not available'} percent. All vitals are within normal range.`;
     } else if (command.includes('call')) {
       response = 'Calling your emergency contact Priya Sharma now. Please wait.';
     } else if (command.includes('help') || command.includes('SOS')) {
@@ -1040,12 +1016,10 @@ const ElderDetail: React.FC = () => {
               <CardHeader><CardTitle className="font-display text-lg">Today's AI Health Summary</CardTitle></CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  {elder.full_name}'s vitals have been largely stable over the past 24 hours. Heart rate averaged 71 bpm,
-                  well within personal baseline of 60-80 bpm. Blood pressure readings showed a mild trend,
-                  averaging 128/84 mmHg.
+                  {vitals ? `Latest reading: heart rate ${vitals.heart_rate} bpm; blood pressure ${vitals.systolic_bp}/${vitals.diastolic_bp} mmHg.` : 'No readings available for this patient.'}
                 </p>
                 <p className="text-sm text-muted-foreground leading-relaxed mt-3">
-                  SpO₂ remained stable at 97.4%. Stress levels were normal during daytime hours. Medication adherence is on track.
+                  {vitals ? `SpO₂ ${vitals.spo2}%; stress ${vitals.stress}/100. These are the latest values, not a clinical assessment.` : ''}
                 </p>
               </CardContent>
             </Card>

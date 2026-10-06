@@ -67,10 +67,10 @@ const FeedTab: React.FC = () => {
   const isShivering = Boolean(v?.shiver_detected);
   const isFalling = Boolean(v?.fall_detected);
 
-  const elderName = guardianUser?.elderName || 'Registered elder';
-  const elderAge = guardianUser?.elderAge ? `${guardianUser.elderAge} years` : 'Not added';
-  const elderConditions = guardianUser?.elderConditions || 'Not added';
-  const elderLanguage = guardianUser?.elderLanguage || 'Not added';
+  const elderName = patient?.full_name || guardianUser?.elderName || 'Registered elder';
+  const elderAge = patient ? `${patient.age} years` : 'Not added';
+  const elderConditions = patient?.medical_conditions?.join(', ') || 'Not added';
+  const elderLanguage = patient?.language_pref || 'Not added';
   const elderPhone = guardianUser?.elderPhone || 'Not added';
   const elderAddress = guardianUser?.elderAddress || 'Not added';
   const vitalsCards = [
