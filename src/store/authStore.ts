@@ -81,7 +81,7 @@ async function loadPatientState(user: AuthUser) {
   useGuardianStore.setState({reminders:reminders.map((r:any)=>{const ack=(data.reminderAcknowledgements || []).find((a:any)=>a.elderId===r.elderId && a.reminderId===r.id && a.occurrenceDate===today);return ack?{...r,verified:true,acknowledgementDate:today}:r;})});
   if (user.role === 'guardian' && elders[0]) {
     const e = elders[0];
-    user = { ...user, profile: { ...user.profile, elderName: e.full_name, elderAge: String(e.age), elderLanguage: e.language_pref, elderConditions: (e.medical_conditions || []).join(', ') } };
+    user = { ...user, profile: { ...user.profile, elderName: user.profile?.elderName ?? e.full_name, elderAge: user.profile?.elderAge ?? String(e.age), elderLanguage: user.profile?.elderLanguage ?? e.language_pref, elderConditions: user.profile?.elderConditions ?? (e.medical_conditions || []).join(', ') } };
   }
   syncLegacyStores(user);
   return user;

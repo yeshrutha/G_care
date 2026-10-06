@@ -14,7 +14,7 @@ import { useAppStore } from '@/store';
 import { useGuardianStore, type GuardianUser } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from '@/hooks/use-toast';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, storeSession, type AuthUser } from '@/lib/api';
 import { broadcastGcareMessage } from '@/lib/syncChannel';
 import {
   AlertDialog,
@@ -201,62 +201,30 @@ const Settings: React.FC = () => {
     });
   };
 
-  const saveProfile = () => {
-    if (isDoctor || isCaretaker) {
-      if (user) {
-        useAuthStore.setState({
-          user: {
-            ...user,
-            name: profileForm.name.trim(),
-            email: profileForm.email.trim(),
-            phone: profileForm.phone.trim(),
-          }
-        });
-      }
-      toast({
-        title: 'Profile updated',
-        description: 'Your profile changes have been saved.',
+  const [savingProfile, setSavingProfile] = useState(false);
+  const saveProfile = async () => {
+    if (!user || savingProfile) return;
+    setSavingProfile(true);
+    try {
+      const { user: saved } = await apiFetch<{ user: AuthUser }>('/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: profileForm.name.trim(), phone: profileForm.phone.trim(),
+          profile: isGuardian ? {
+            elderName: profileForm.elderName.trim(), elderAge: profileForm.elderAge || '',
+            elderLanguage: profileForm.elderLanguage || '', elderConditions: profileForm.elderConditions || '',
+            elderPhone: profileForm.elderPhone || '', elderAddress: profileForm.elderAddress || '',
+          } : {},
+        }),
       });
-    } else {
-      const nextGuardianUser: GuardianUser = {
-        ...guardianUser,
-        name: profileForm.name.trim() || 'Guardian User',
-        email: profileForm.email.trim() || 'guardian@example.com',
-        phone: profileForm.phone.trim() || '+91 98765 43210',
-        elderName: profileForm.elderName.trim() || 'Registered elder',
-        elderAge: profileForm.elderAge,
-        elderLanguage: profileForm.elderLanguage,
-        elderConditions: profileForm.elderConditions,
-        elderPhone: profileForm.elderPhone,
-        elderAddress: profileForm.elderAddress,
-      };
-
-      setGuardianUser(nextGuardianUser);
-      if (user) {
-        useAuthStore.setState({
-          user: {
-            ...user,
-            name: nextGuardianUser.name,
-            email: nextGuardianUser.email,
-            phone: nextGuardianUser.phone,
-            profile: {
-              ...user.profile,
-              elderName: nextGuardianUser.elderName,
-              elderAge: nextGuardianUser.elderAge,
-              elderLanguage: nextGuardianUser.elderLanguage,
-              elderConditions: nextGuardianUser.elderConditions,
-              elderPhone: nextGuardianUser.elderPhone,
-              elderAddress: nextGuardianUser.elderAddress,
-            }
-          }
-        });
-      }
-
-      toast({
-        title: 'Profile updated',
-        description: 'Your guardian profile changes have been saved.',
-      });
-    }
+      const token = useAuthStore.getState().token;
+      if (token) storeSession(token, saved);
+      useAuthStore.setState({ user: saved });
+      useAuthStore.getState().syncLegacyStores(saved);
+      toast({ title: 'Profile updated', description: 'Your changes have been saved to your account.' });
+    } catch (error) {
+      toast({ title: 'Could not save profile', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+    } finally { setSavingProfile(false); }
   };
 
   const handleBackNavigation = () => {
@@ -283,10 +251,10 @@ const Settings: React.FC = () => {
 
       <div className="max-w-3xl mx-auto p-6">
         <Tabs defaultValue="profile">
-          <TabsList className="w-full flex flex-wrap h-auto gap-1 p-1 bg-muted/60">
-            <TabsTrigger value="profile" className="gap-1.5 flex-1 min-w-[110px]"><User className="h-3.5 w-3.5" /> {t('settings.profile')}</TabsTrigger>
-            <TabsTrigger value="notifications" className="gap-1.5 flex-1 min-w-[110px]"><Bell className="h-3.5 w-3.5" /> {t('settings.notifications')}</TabsTrigger>
-            <TabsTrigger value="alerts" className="gap-1.5 flex-1 min-w-[130px] font-medium text-rose-600 dark:text-rose-400 data-[state=active]:text-rose-600">
+          <TabsList className="w-full flex flex-wrap justify-start h-auto gap-2 p-1 bg-muted/60">
+            <TabsTrigger value="profile" className="gap-1.5 flex-none shrink-0 px-3"><User className="h-3.5 w-3.5" /> {t('settings.profile')}</TabsTrigger>
+            <TabsTrigger value="notifications" className="gap-1.5 flex-none shrink-0 px-3"><Bell className="h-3.5 w-3.5" /> {t('settings.notifications')}</TabsTrigger>
+            <TabsTrigger value="alerts" className="gap-1.5 flex-none shrink-0 px-3 font-medium text-rose-600 dark:text-rose-400 data-[state=active]:text-rose-600">
               <Trash2 className="h-3.5 w-3.5" />
               <span>{t('settings.alert_history', 'Alert History')}</span>
               {totalCount > 0 && (
@@ -296,10 +264,10 @@ const Settings: React.FC = () => {
               )}
             </TabsTrigger>
             {isGuardian && (
-              <TabsTrigger value="contacts" className="gap-1.5 flex-1 min-w-[110px]"><Phone className="h-3.5 w-3.5" /> {t('settings.emergency_contacts')}</TabsTrigger>
+              <TabsTrigger value="contacts" className="gap-1.5 flex-none shrink-0 px-3"><Phone className="h-3.5 w-3.5" /> {t('settings.emergency_contacts')}</TabsTrigger>
             )}
-            <TabsTrigger value="language" className="gap-1.5 flex-1 min-w-[110px]"><Globe className="h-3.5 w-3.5" /> {t('settings.language_accessibility')}</TabsTrigger>
-            <TabsTrigger value="security" className="gap-1.5 flex-1 min-w-[110px]"><Shield className="h-3.5 w-3.5" /> {t('settings.security')}</TabsTrigger>
+            <TabsTrigger value="language" className="gap-1.5 flex-none shrink-0 px-3"><Globe className="h-3.5 w-3.5" /> {t('settings.language_accessibility')}</TabsTrigger>
+            <TabsTrigger value="security" className="gap-1.5 flex-none shrink-0 px-3"><Shield className="h-3.5 w-3.5" /> {t('settings.security')}</TabsTrigger>
           </TabsList>
 
           {/* Profile Tab */}
@@ -319,7 +287,7 @@ const Settings: React.FC = () => {
                   </div>
                   <div>
                     <Label>Email</Label>
-                    <Input type="email" value={profileForm.email} className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} />
+                    <Input type="email" value={profileForm.email} readOnly className="mt-1" onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })} />
                   </div>
                   <div>
                     <Label>Phone</Label>
@@ -355,7 +323,7 @@ const Settings: React.FC = () => {
                     </>
                   )}
                 </div>
-                <Button className="bg-teal hover:bg-teal/90 text-primary-foreground" onClick={saveProfile}>Save Changes</Button>
+                <Button className="bg-teal hover:bg-teal/90 text-primary-foreground" onClick={saveProfile} disabled={savingProfile}>{savingProfile ? 'Saving...' : 'Save Changes'}</Button>
               </CardContent>
             </Card>
           </TabsContent>

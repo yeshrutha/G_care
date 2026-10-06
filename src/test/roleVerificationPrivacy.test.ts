@@ -57,6 +57,20 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(DATA_DIR, { recursive: true, force: true }); vi.unstubAllEnvs();
   });
+  it('persists editable profile details when the account is fetched again', async () => {
+    const token = signToken(doctor);
+    const saved = await request('/api/auth/profile', 'PUT', {
+      name: 'Updated Test Name', phone: '+91 9000000000',
+      profile: { elderPhone: '+91 9111111111', elderAddress: 'Test address', elderLanguage: 'kn' },
+    }, token);
+    expect(saved.status).toBe(200);
+    const refreshed = await request('/api/auth/me', 'GET', undefined, token);
+    expect(refreshed.data.user.name).toBe('Updated Test Name');
+    expect(refreshed.data.user.phone).toBe('+91 9000000000');
+    expect(refreshed.data.user.profile.elderAddress).toBe('Test address');
+    expect(refreshed.data.user.profile.elderLanguage).toBe('kn');
+    expect(refreshed.data.user.accessStatus).toBe('approved');
+  });
   it('creates an owner-approved guardian with persistent private proof, one patient and a one-use temporary password', async () => {
     vi.stubEnv('OWNER_LOCAL_ENABLED','true');vi.stubEnv('OWNER_EMAIL','owner@example.invalid');vi.stubEnv('OWNER_PASSWORD_HASH',passwordHash);
     const login=await request('/api/owner/login','POST',{email:'owner@example.invalid',password:'TestOnly123!'});const token=login.data.token;
