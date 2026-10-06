@@ -17,7 +17,7 @@ export function sendJson(res, status, body, req) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Key, X-Watch-Token',
     'Vary': 'Origin',
   });
   res.end(status === 204 ? undefined : JSON.stringify(body));
@@ -39,7 +39,7 @@ export function sendBinary(res, buffer, contentType = 'application/pdf', filenam
     'Content-Disposition': `${privateProof ? 'attachment' : 'inline'}; filename="${safeFilename}"`,
     'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Key',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Device-Key, X-Watch-Token',
     'Cache-Control': privateProof ? 'no-store' : 'private, max-age=3600',
     'X-Content-Type-Options': 'nosniff',
     'Vary': 'Origin',
