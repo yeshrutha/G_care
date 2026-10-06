@@ -49,11 +49,11 @@ test('medication schedules and Taken state survive retries and a separate backen
  assert.equal((await api('/medications','POST',med,nurse)).status,201);assert.equal((await api('/medications','POST',med,nurse)).status,201);assert.equal((await pool.query("SELECT count(*) FROM medication_schedules WHERE medication_id='pg-med'")).rows[0].count,'2');
  const ack={elderId:'elder-1',reminderId:'med-pg-med-0',occurrenceDate:'2026-10-06'};assert.equal((await api('/reminder-acknowledgements','POST',ack,guardian)).status,200);assert.equal((await api('/reminder-acknowledgements','POST',ack,guardian)).status,200);
  const text=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();const u=await dbService.findUserById('user-demo-guardian');console.log(JSON.stringify(await dbService.filterDashboardForUser(u)));await closeDb();"],{env:process.env,encoding:'utf8'});
- const dashboard=JSON.parse(text.trim().split('\n').at(-1));assert.ok(dashboard.medications.some(m=>m.id==='pg-med'));assert.equal(dashboard.reminderAcknowledgements.length,1);
+ const dashboard=JSON.parse(text.trim().split('\n').at(-1));assert.ok(dashboard.medications.some(m=>m.id==='pg-med'));assert.equal(dashboard.reminderAcknowledgements.length,1);assert.equal(dashboard.reminderAcknowledgements[0].occurrenceDate,'2026-10-06');
 });
 test('appointment dates, doctor, prep alarm and stable retry identities persist',async()=>{
  const a={id:'pg-appointment',elderId:'elder-1',title:'Appointment',time:'10:00',type:'appointment',appointmentId:'pg-appointment',appointmentDate:'2026-12-01',appointmentTime:'10:00',doctorName:'Ramesh'};
- assert.equal((await api('/alarms','POST',a)).status,201);assert.equal((await api('/alarms','POST',a)).status,201);assert.equal((await api('/alarms','POST',{...a,id:'pg-prep',time:'09:00',isOneHourReminder:true})).status,201);
+ assert.equal((await api('/alarms','POST',a)).status,201);assert.equal((await api('/alarms/'+a.id,'PUT',{...a,repeat:'once'})).status,200);assert.equal((await api('/dashboard-data','GET',undefined,guardian)).data.alarms.find(x=>x.id===a.id).repeat,'once');assert.equal((await api('/alarms','POST',a)).status,201);assert.equal((await api('/alarms','POST',{...a,id:'pg-prep',time:'09:00',isOneHourReminder:true})).status,201);
  assert.equal((await api('/dashboard-data','GET',undefined,guardian)).data.alarms.find(a=>a.id==='pg-prep').appointmentDate,'2026-12-01');assert.equal((await pool.query("SELECT count(*) FROM appointments WHERE id='pg-appointment'")).rows[0].count,'1');
 });
 test('cross-patient privacy, SQL foreign keys and malformed query recovery',async()=>{

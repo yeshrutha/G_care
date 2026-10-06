@@ -411,7 +411,8 @@ async function createAlertRecord(user, alert) {
     const sameId = records.find(a => a.id === saved.id);
     const latest = matching[0];
     const acknowledged = managed && latest?.resolved && latest.anomaly_type && !latest.episode_recovered;
-    const existing = sameId || (!resolved && (acknowledged ? latest : matching.find(a => !a.resolved && !a.episode_recovered)));
+    const isReminderResponse = ['medication_taken', 'reminder_completed'].includes(saved.type);
+    const existing = sameId || (!isReminderResponse && !resolved && (acknowledged ? latest : matching.find(a => !a.resolved && !a.episode_recovered)));
     let result;
     if (existing) {
       result = { ...existing };
@@ -459,7 +460,7 @@ export const dbService = {
   },
   getReminderAcknowledgements: async (user) => {
     const ids=await dbService.getAccessibleElderIds(user);
-    if (usePostgres) { const {rows}=await pool.query('SELECT * FROM reminder_acknowledgements WHERE elder_id=ANY($1) ORDER BY acknowledged_at DESC',[ids]); return rows.map(r=>({elderId:r.elder_id,reminderId:r.reminder_id,occurrenceDate:String(r.occurrence_date).slice(0,10),acknowledgedAt:r.acknowledged_at})); }
+    if (usePostgres) { const {rows}=await pool.query('SELECT *, occurrence_date::text AS occurrence_day FROM reminder_acknowledgements WHERE elder_id=ANY($1) ORDER BY acknowledged_at DESC',[ids]); return rows.map(r=>({elderId:r.elder_id,reminderId:r.reminder_id,occurrenceDate:r.occurrence_day,acknowledgedAt:r.acknowledged_at})); }
     return ((await readDb()).reminderAcknowledgements || []).filter(r=>ids.includes(r.elderId));
   },
   // --- USERS ---
@@ -951,8 +952,8 @@ export const dbService = {
       try {
         await client.query('BEGIN');
       await client.query(
-        'UPDATE alarms SET title = $1, time = $2, type = $3, status = $4, notes = $5 WHERE id = $6',
-        [alarm.title, alarm.time, alarm.type, alarm.status, alarm.notes, id]
+        'UPDATE alarms SET title = $1, time = $2, type = $3, status = $4, notes = $5, repeat = COALESCE($7, repeat), appointment_date = COALESCE($8, appointment_date) WHERE id = $6',
+        [alarm.title, alarm.time, alarm.type, alarm.status, alarm.notes, id, alarm.repeat ?? null, alarm.appointmentDate ?? null]
       );
         await client.query('COMMIT');
       } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }

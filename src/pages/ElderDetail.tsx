@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { VitalsGrid } from '@/components/VitalsGrid';
 import { MedSmartInput } from '@/components/MedSmartInput';
 import { useAppStore, type StoreAlarm } from '@/store';
+import { from12HourParts, to12HourParts } from '@/lib/timeFormat';
 import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { triggerAlert } from '@/lib/audioAlerts';
 import { DEMO_VITALS, DEMO_MEDICATIONS, DEMO_HR_HISTORY, DEMO_MOOD_HISTORY, DEMO_ELDERS } from '@/lib/demoData';
@@ -101,6 +102,7 @@ const ElderDetail: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const {
+    activeAlerts, setActiveAlerts, resolveAlert, removeAlert,
     demoElders,
     activeElderId,
     setActiveElderId,
@@ -115,7 +117,7 @@ const ElderDetail: React.FC = () => {
   } = useAppStore();
   const [moodRecorded, setMoodRecorded] = useState(false);
   const [selectedMood, setSelectedMood] = useState<number | null>(null);
-  const [elderAlerts, setElderAlerts] = useState<ElderAlert[]>([]);
+  const elderAlerts = activeAlerts.filter(a => a.elder_id === id).map(a => ({ ...a, acknowledged: a.resolved })) as ElderAlert[];
   const [alarmDialogOpen, setAlarmDialogOpen] = useState(false);
   const [editingAlarmId, setEditingAlarmId] = useState<string | null>(null);
   const [alarmForm, setAlarmForm] = useState({
@@ -225,25 +227,32 @@ const ElderDetail: React.FC = () => {
     { vital: t('vitals.hydration'), range: '60–85%', current: vitals?.hydration ?? 'Not available', status: 'normal' },
   ];
 
-  const acknowledgeElderAlert = (alertId: string) => {
-    setElderAlerts(prev => prev.map(a => a.id === alertId ? { ...a, acknowledged: true } : a));
+  const acknowledgeElderAlert = async (alertId: string) => {
+    try {
+      await apiFetch('/alerts/' + encodeURIComponent(alertId), { method: 'PUT', body: JSON.stringify({ resolved: true }) });
+      resolveAlert(alertId);
+    } catch (error) { toast({ title: 'Unable to acknowledge alert', description: String(error), variant: 'destructive' }); }
   };
 
-  const clearElderAlertHistory = (mode: 'all' | 'resolved' = 'all') => {
-    setElderAlerts(prev => mode === 'resolved' ? prev.filter(a => !a.acknowledged) : []);
-    toast({
-      title: mode === 'resolved' ? 'Resolved Alerts Cleared' : 'Alert History Cleared',
-      description: `Alert history cleared for ${elder.full_name}.`,
-    });
+  const removeSingleElderAlert = async (alertId: string) => {
+    try {
+      await apiFetch('/alerts/' + encodeURIComponent(alertId), { method: 'DELETE' });
+      removeAlert(alertId);
+    } catch (error) { toast({ title: 'Unable to remove alert', description: String(error), variant: 'destructive' }); }
   };
 
-  const removeSingleElderAlert = (id: string) => {
-    setElderAlerts(prev => prev.filter(a => a.id !== id));
-    toast({
-      title: 'Alert Removed',
-      description: 'Alert removed from history.',
-    });
+  const clearElderAlertHistory = async (mode: 'all' | 'resolved' = 'all') => {
+    for (const alert of elderAlerts.filter(a => mode === 'all' || a.acknowledged)) await removeSingleElderAlert(alert.id);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try { const alerts = await apiFetch<any[]>('/alerts'); if (!cancelled) setActiveAlerts(alerts); } catch {}
+    };
+    void load(); const timer = setInterval(load, 3000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [elder.id, setActiveAlerts]);
 
   const handlePlayAlert = (type: string) => {
     triggerAlert(type === 'medicine_missed' ? 'medicine' : type === 'vital_abnormal' ? 'vital' : type);
@@ -264,12 +273,14 @@ const ElderDetail: React.FC = () => {
   };
 
   const openEditAlarmDialog = (alarm: ElderAlarm) => {
-    const [timePart = '08:00', periodPart = 'AM'] = alarm.time.split(' ');
+    const parts = to12HourParts(alarm.time);
+    const timePart = parts.hour + ':' + parts.minute;
+    const periodPart = parts.period;
     setAlarmForm({
       label: alarm.label,
       time: timePart,
       period: periodPart,
-      repeat: alarm.repeat,
+      repeat: ['Daily','Weekdays','Weekends','Mon-Sat','Once'].find(r => r.toLowerCase() === alarm.repeat.toLowerCase()) || 'Daily',
       enabled: alarm.enabled,
     });
     setEditingAlarmId(alarm.id);
@@ -277,17 +288,20 @@ const ElderDetail: React.FC = () => {
   };
 
   const saveAlarm = async () => {
-    const formattedTime = alarmForm.period === 'PM' && !alarmForm.time.startsWith('12')
-      ? `${String(Number(alarmForm.time.split(':')[0]) + 12).padStart(2, '0')}:${alarmForm.time.split(':')[1] || '00'}`
-      : alarmForm.time;
+    if (!/^(0?[1-9]|1[0-2]):[0-5]\d$/.test(alarmForm.time)) {
+      toast({ title: 'Enter a time from 01:00 to 12:59', variant: 'destructive' }); return;
+    }
+    const [hour, minute] = alarmForm.time.split(':');
+    const formattedTime = from12HourParts({ hour, minute, period: alarmForm.period as 'AM' | 'PM' });
 
     const storeAlarmPayload: StoreAlarm = {
       id: editingAlarmId || `alarm-${Date.now()}`,
       elderId: elder.id,
       title: alarmForm.label.trim() || 'New Alarm',
       time: formattedTime,
-      repeat: alarmForm.repeat,
-      type: 'medication',
+      repeat: alarmForm.repeat.toLowerCase(),
+      type: storeAlarms.find(a => a.id === editingAlarmId)?.type || 'medication',
+      appointmentDate: storeAlarms.find(a => a.id === editingAlarmId)?.appointmentDate || (alarmForm.repeat === 'Once' ? new Date().toLocaleDateString('en-CA') : undefined),
       status: alarmForm.enabled ? 'Scheduled' : 'Paused',
       notes: `${alarmForm.label.trim()} (${alarmForm.repeat})`,
       enabled: alarmForm.enabled,
@@ -301,13 +315,15 @@ const ElderDetail: React.FC = () => {
           elderId: elder.id,
           title: storeAlarmPayload.title,
           time: formattedTime,
-          type: 'medication',
+          type: storeAlarmPayload.type,
           status: storeAlarmPayload.status,
           notes: storeAlarmPayload.notes,
+          repeat: storeAlarmPayload.repeat.toLowerCase(),
+          appointmentDate: storeAlarmPayload.appointmentDate,
         }),
       });
-    } catch {
-      // Local fallback
+    } catch (error) {
+      toast({ title: 'Unable to save alarm', description: String(error), variant: 'destructive' }); return;
     }
 
     if (editingAlarmId) {
@@ -323,8 +339,8 @@ const ElderDetail: React.FC = () => {
   const deleteAlarm = async (alarmId: string) => {
     try {
       await apiFetch(`/alarms/${alarmId}`, { method: 'DELETE' });
-    } catch {
-      // Local fallback
+    } catch (error) {
+      toast({ title: 'Unable to save alarm', description: String(error), variant: 'destructive' }); return;
     }
     deleteStoreAlarm(alarmId);
   };
@@ -341,8 +357,8 @@ const ElderDetail: React.FC = () => {
             enabled,
           }),
         });
-      } catch {
-        // Local fallback
+      } catch (error) {
+        toast({ title: 'Unable to update alarm', description: String(error), variant: 'destructive' }); return;
       }
       updateStoreAlarm(alarmId, { enabled, status: enabled ? 'Scheduled' : 'Paused' });
     }
@@ -497,18 +513,18 @@ const ElderDetail: React.FC = () => {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 rounded-lg bg-secondary flex items-center justify-center">
-                      <Pill className="h-6 w-6 text-teal" />
+                      {med.photo || med.photo_url ? <img src={med.photo || med.photo_url} alt={med.brand_name} className="w-14 h-14 rounded-lg object-contain" /> : <Pill className="h-6 w-6 text-teal" />}
                     </div>
                     <div className="flex-1">
                       <h3 className="font-semibold text-foreground">{med.brand_name}</h3>
                       <p className="text-xs text-muted-foreground">{med.generic_name} · {med.pronunciation_en}</p>
-                      <p className="text-xs text-muted-foreground">{med.dose_amount}{med.dose_unit} · {med.frequency}</p>
+                      <p className="text-xs text-muted-foreground">{med.dose_amount > 0 ? `${med.dose_amount}${med.dose_unit}` : 'Dose not entered'} · {med.frequency}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <Badge className="bg-gw-green/15 text-gw-green border-0 text-[10px]">Next: {med.times[0]}</Badge>
+                      <Badge className="bg-gw-green/15 text-gw-green border-0 text-[10px]">{med.times?.length ? `Next: ${med.times[0]}` : 'Schedule not entered'}</Badge>
                       <Button size="sm" variant="ghost" className="text-xs text-teal" onClick={() => {
                         if ('speechSynthesis' in window) {
-                          const u = new SpeechSynthesisUtterance(`Time to take your ${med.pronunciation_en}. ${med.dose_amount} ${med.dose_unit}. ${med.instructions}`);
+                          const u = new SpeechSynthesisUtterance(`${med.pronunciation_en || med.brand_name}. ${med.dose_amount > 0 ? `${med.dose_amount} ${med.dose_unit}. ${med.instructions || ''}` : 'Dose not entered.'}`);
                           u.lang = 'en-IN';
                           speechSynthesis.speak(u);
                         }
@@ -578,7 +594,7 @@ const ElderDetail: React.FC = () => {
                       <Label htmlFor="alarm-time">Time</Label>
                       <Input
                         id="alarm-time"
-                        type="time"
+                        type="text" placeholder="08:00"
                         value={alarmForm.time}
                         onChange={(e) => setAlarmForm((current) => ({ ...current, time: e.target.value }))}
                       />

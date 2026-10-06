@@ -303,7 +303,11 @@ export const useGuardianStore = create<GuardianStore>((set) => ({
     const commit=()=>set(s=>({reminders:s.reminders.map(r=>r.id===id?{...r,verified:true,acknowledgementDate:occurrenceDate}:r)}));
     if (getStoredToken() && target?.elderId) {
       return apiFetch('/reminder-acknowledgements',{method:'POST',body:JSON.stringify({elderId:target.elderId,reminderId:id,occurrenceDate})}).then(()=>{commit();return true;}).catch(()=>false);
-    } else {commit();return true;}
+    } else {
+      let paired;try{paired=JSON.parse(localStorage.getItem('gcare_paired_watches')||'[]').find((w:any)=>w.patient.id===target?.elderId);}catch{}
+      if(paired)return apiFetch('/watch-simulator/reminder-response',{method:'POST',headers:{'x-watch-token':paired.token},body:JSON.stringify({elderId:target.elderId,reminderId:id,occurrenceDate})}).then(()=>{commit();return true;}).catch(()=>false);
+      commit();return true;
+    }
   },
   setReminders: (reminders) => set(s=>({reminders:reminders.map(r=>{const previous=s.reminders.find(p=>p.id===r.id);return previous?.verified && previous.acknowledgementDate===localDay()?{...r,verified:true,acknowledgementDate:previous.acknowledgementDate}:r;})})),
   alerts: getStoredGuardianAlerts(),

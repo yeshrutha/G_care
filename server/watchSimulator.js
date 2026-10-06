@@ -1,4 +1,5 @@
-import {authenticate,sendJson} from './http.js';
+import {saveReminderResponse} from './reminderResponse.js';
+import {authenticate,sendJson,readJsonBody} from './http.js';
 import {signWatchToken,verifyToken} from './auth.js';
 import {dbService} from './db.js';
 import {hasApprovedAccess} from './accessPolicy.js';
@@ -12,6 +13,10 @@ export async function handleWatchSimulator(req,res,pathName){
  const claim=verifyToken(req.headers['x-watch-token']);
  const user=claim?.purpose==='watch-simulator'?await dbService.findUserById(claim.issuer):null;
  if(!user||!hasApprovedAccess(user)||(user.profile?.credentialVersion||'legacy')!==claim.credentialVersion||!await dbService.userOwnsElder(user,claim.elderId))return sendJson(res,403,{error:'This watch connection has expired. Open the assigned care portal to reconnect it.'},req);
+ if(pathName==='/api/watch-simulator/reminder-response'&&req.method==='POST'){
+ const body=await readJsonBody(req);if(body.elderId!==claim.elderId||typeof body.reminderId!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(body.occurrenceDate||''))return sendJson(res,400,{error:'Invalid reminder response.'},req);
+ return sendJson(res,200,await saveReminderResponse(user,body),req);
+ }
  if(pathName==='/api/watch-simulator/sos'&&req.method==='POST'){
   const patients=await dbService.getElders(user);const p=patients.find(p=>p.id===claim.elderId);
   const alert=await dbService.createAlert(user,{elder_id:p.id,type:'sos',severity:'critical',message:'🚨 EMERGENCY SOS — '+p.full_name+' pressed SOS button! Immediate attention required.',resolved:false,time:new Date().toISOString()});
@@ -19,7 +24,7 @@ export async function handleWatchSimulator(req,res,pathName){
  }
  if(pathName==='/api/watch-simulator/state'&&req.method==='GET'){
   const data=await dbService.filterDashboardForUser(user);const id=claim.elderId;
-  return sendJson(res,200,{vitals:data.vitals?.[id],alerts:(data.alerts||[]).filter(a=>(a.elder_id||a.elderId)===id),medications:(data.medications||[]).filter(m=>m.elder_id===id),alarms:(data.alarms||[]).filter(a=>a.elderId===id)},req);
+  return sendJson(res,200,{reminderAcknowledgements:(data.reminderAcknowledgements||[]).filter(a=>a.elderId===id),vitals:data.vitals?.[id],alerts:(data.alerts||[]).filter(a=>(a.elder_id||a.elderId)===id),medications:(data.medications||[]).filter(m=>m.elder_id===id),alarms:(data.alarms||[]).filter(a=>a.elderId===id)},req);
  }
  return sendJson(res,404,{error:'Route not found'},req);
 }

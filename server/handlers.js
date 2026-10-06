@@ -1,3 +1,4 @@
+import {saveReminderResponse} from './reminderResponse.js';
 import { handleWatchSimulator, authenticatePairedWatch } from './watchSimulator.js';
 import { handleProofTransfer } from './proofTransfer.js';
 import { handleOwner } from './ownerPortal.js';
@@ -212,7 +213,7 @@ export async function handleRequest(req, res, pathName) {
     const body=parseBody(z.object({elderId:z.string().min(1),reminderId:z.string().min(1).max(200),occurrenceDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}),await readJsonBody(req),res,req);
     if (!body) return;
     if (!(await dbService.userOwnsElder(user,body.elderId))) return sendJson(res,403,{error:'Patient assignment required.'},req);
-    return sendJson(res,200,await dbService.acknowledgeReminder(user,body),req);
+    return sendJson(res,200,await saveReminderResponse(user,body),req);
   }
   if (pathName.startsWith('/api/elders')) {
     return handleElders(req, res, pathName, user);

@@ -78,6 +78,29 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const data=await readDb();data.users.find((u:any)=>u.id===doctor.id).assignedElderIds=[];await writeDb(data);
     expect((await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key})).status).toBe(403);
   });
+  it('persists paired watch Taken responses, deduplicates retries and routes them only to carers', async () => {
+    const token=signToken(doctor);
+    const med={id:'taken-med',elder_id:'elder-1',brand_name:'Test medicine',generic_name:'Test',dose_amount:1,dose_unit:'unit',frequency:'daily',times:['13:40','20:00']};
+    expect((await request('/api/medications','POST',med,token)).status).toBe(201);
+    const pairs=await request('/api/watch-simulator/pair','POST',{},token);
+    const key=pairs.data.find((p:any)=>p.patient.id==='elder-1').token;
+    const headers={'x-watch-token':key};
+    const body={elderId:'elder-1',reminderId:'med-taken-med-0',occurrenceDate:'2026-10-07'};
+    for(let i=0;i<2;i++)expect((await request('/api/watch-simulator/reminder-response','POST',body,undefined,headers)).status).toBe(200);
+    expect((await request('/api/watch-simulator/reminder-response','POST',{...body,elderId:'elder-2'},undefined,headers)).status).toBe(400);
+    expect((await request('/api/watch-simulator/reminder-response','POST',{...body,reminderId:'unknown'},undefined,headers)).status).toBe(404);
+    const state=await request('/api/watch-simulator/state','GET',undefined,undefined,headers);
+    expect(state.data.reminderAcknowledgements).toHaveLength(1);
+    expect(state.data.alerts.filter((a:any)=>a.type==='medication_taken')).toHaveLength(1);
+    expect((await request('/api/alerts','GET',undefined,token)).data.some((a:any)=>a.type==='medication_taken')).toBe(false);
+    const data=await readDb();
+    for(const role of ['caretaker','guardian']){
+      const carer={...doctor,id:'taken-'+role,role,assignedElderIds:['elder-1'],profile:{accessVerification:{...proof,status:'approved',ownerManaged:true}}};data.users.push(carer);await writeDb(data);
+      expect((await request('/api/alerts','GET',undefined,signToken(carer))).data.some((a:any)=>a.type==='medication_taken')).toBe(true);
+    }
+    expect((await request('/api/watch-simulator/reminder-response','POST',{...body,reminderId:'med-taken-med-1'},undefined,headers)).status).toBe(200);
+    expect((await request('/api/watch-simulator/state','GET',undefined,undefined,headers)).data.alerts.filter((a:any)=>a.type==='medication_taken')).toHaveLength(2);
+  });
   it('persists editable profile details when the account is fetched again', async () => {
     const token = signToken(doctor);
     const saved = await request('/api/auth/profile', 'PUT', {
