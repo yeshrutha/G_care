@@ -67,6 +67,15 @@ export async function handleOwner(req,res,pathName) {
   try { const bytes=account.profile.guardianProofData ? Buffer.from(account.profile.guardianProofData,'base64') : process.env.OWNER_LIVE_CONNECTION === 'true' ? await fetchRemoteProof(account.id) : await readProofFile(file);await dbService.addAuditLog(owner,'view_proof','user',account.id);return sendBinary(res,bytes,file.fileType,file.fileName,req,true); }
   catch(error) { return sendJson(res,502,{error:process.env.OWNER_LIVE_CONNECTION==='true'?error.message:'The proof is not present on this server. Check upload storage.'},req); }
  }
+ const reissue=pathName.match(/^\/api\/owner\/accounts\/([^/]+)\/temporary-password$/);
+ if(reissue && req.method==='POST') {
+  const id=decodeURIComponent(reissue[1]);const b=await readJsonBody(req);
+  if(typeof b.note!=='string'||!b.note.trim()||b.note.length>1000)return sendJson(res,400,{error:'Provide a review note explaining why the temporary password is being reissued.'},req);
+  const password=crypto.randomBytes(18).toString('base64url');
+  if(!await dbService.reissuePendingPassword(id,await hashPassword(password)))return sendJson(res,409,{error:'Only approved accounts awaiting their first password change can receive a replacement temporary password.'},req);
+  const user=await dbService.findUserById(id);await dbService.addAuditLog(owner,'reissue_temporary_password','user',id,{note:b.note.trim()});
+  return sendJson(res,200,{user:sanitizeUser(user),temporaryPassword:password},req);
+ }
  const review=pathName.match(/^\/api\/owner\/accounts\/([^/]+)$/);
  if(review && req.method==='PUT') {
   const b=await readJsonBody(req);

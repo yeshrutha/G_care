@@ -72,13 +72,18 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     expect((await request(path,'POST',body,token)).status).toBe(409);
     const stored=await dbService.findUserById(created.data.user.id);expect(Buffer.from(stored.profile.guardianProofData,'base64')).toEqual(bytes);
     const file=await fetch(base+'/api/owner/accounts/'+stored.id+'/proof',{headers:{Authorization:'Bearer '+token}});expect(file.status).toBe(200);expect(Buffer.from(await file.arrayBuffer())).toEqual(bytes);
-    const creds={email:body.email,password:created.data.temporaryPassword,role:'guardian'};
+    const reissuePath='/api/owner/accounts/'+stored.id+'/temporary-password';
+    expect((await request(reissuePath,'POST',{note:'Lost temporary password'},signToken(doctor))).status).toBe(401);
+    const replacement=await request(reissuePath,'POST',{note:'Owner did not save the initial password.'},token);expect(replacement.status).toBe(200);
+    expect((await request('/api/auth/login','POST',{email:body.email,password:created.data.temporaryPassword,role:'guardian'})).status).toBe(401);
+    const creds={email:body.email,password:replacement.data.temporaryPassword,role:'guardian'};
     expect((await request('/api/auth/login','POST',creds)).status).toBe(428);
     expect((await request('/api/auth/login','POST',{...creds,newPassword:creds.password})).status).toBe(400);
     const signed=await request('/api/auth/login','POST',{...creds,newPassword:'NewPrivateTestPassword123!'});expect(signed.status).toBe(200);
     expect((await request('/api/dashboard-data','GET',undefined,signed.data.token)).data.elders.map((e:any)=>e.id)).toEqual(['elder-1']);
     expect((await request('/api/vitals?elderId=elder-3','GET',undefined,signed.data.token)).status).toBe(403);
     expect((await request('/api/auth/login','POST',creds)).status).toBe(401);
+    expect((await request(reissuePath,'POST',{note:'Cannot reset an established password.'},token)).status).toBe(409);
     const accounts=await request('/api/owner/accounts','GET',undefined,token);expect(JSON.stringify(accounts.data)).not.toContain(bytes.toString('base64'));
   });
   it('persists uploaded proof, permits only the assigned reviewer, and preserves manual approval', async () => {

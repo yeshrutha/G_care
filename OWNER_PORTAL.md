@@ -41,3 +41,7 @@ Doctors, caretakers (nurse or assistant) and guardians submit proof through publ
 ## Three-patient demonstration telemetry
 
 The private owner backend can run an explicit patient-ID list via OWNER_SIMULATION_ENABLED and OWNER_SIMULATION_PATIENT_IDS in the ignored local .env. It updates synthetic inputs every five seconds while that local process is running, writing source=simulator into the shared database. Stop the owner backend or disable the flag to stop generation. Hardware readings take precedence while recent. Condition-dependent baseline changes are demonstration assumptions, not patient-specific predictions; no glucose or cancer diagnostic measurements are generated. Public portals poll their assigned database data every three seconds and label simulated readings.
+
+## Temporary password popup and recovery
+
+An approval or guardian creation shows a modal with a Copy temporary password button. Clicking outside or pressing Escape does not dismiss it. Approved accounts appear in All accounts, not the pending Applications list. If the temporary password was not saved, use Reissue temporary password in All accounts. This owner-only action is allowed only before the user completes their first password change; it replaces the old hash, invalidates older sessions and records an audit entry. No password recovery or reset of an established user password is provided by this action.

@@ -534,6 +534,12 @@ export const dbService = {
     }
   },
 
+  reissuePendingPassword: async (id, passwordHash) => {
+    const version=crypto.randomUUID();
+    if(usePostgres){const r=await pool.query("UPDATE users SET password_hash=$1,profile=profile || jsonb_build_object('credentialVersion',$2::text) WHERE id=$3 AND profile->>'mustChangePassword'='true' AND profile->'accessVerification'->>'status'='approved'",[passwordHash,version,id]);return r.rowCount===1;}
+    const data=await readDb();const u=data.users.find(u=>u.id===id);if(!u||!u.profile?.mustChangePassword||u.profile.accessVerification?.status!=='approved')return false;
+    u.passwordHash=passwordHash;u.profile.credentialVersion=version;await writeDb(data);return true;
+  },
   changeTemporaryPassword: async (id, oldHash, passwordHash) => {
     if (usePostgres) {
       const r=await pool.query("UPDATE users SET password_hash=$1, profile=jsonb_set(profile,'{mustChangePassword}','false'::jsonb) || jsonb_build_object('credentialVersion',$4::text) WHERE id=$2 AND password_hash=$3 AND profile->>'mustChangePassword'='true'",[passwordHash,id,oldHash,crypto.randomUUID()]);

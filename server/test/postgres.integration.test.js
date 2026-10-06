@@ -155,6 +155,10 @@ test('owner PostgreSQL review and read-only records enforce separate authenticat
  const applicant=await db.findUserByEmail('proof-caretaker@example.invalid');
  assert.equal((await request('accounts/'+applicant.id,'PUT',{decision:'approved',elderIds:['elder-1'],note:'Synthetic owner checked evidence.'})).status,200);
  assert.equal((await db.findUserById(applicant.id)).profile.accessVerification.reviewedBy,'project-owner');
+ const replaced=await request('accounts/'+applicant.id+'/temporary-password','POST',{note:'Synthetic owner lost the initial password.'});assert.equal(replaced.status,200);
+ const initialSignIn={email:applicant.email,password:replaced.data.temporaryPassword,role:'caretaker'};assert.equal((await api('/auth/login','POST',initialSignIn,null)).status,428);assert.equal((await api('/auth/login','POST',{...initialSignIn,newPassword:'ChangedSyntheticPassword123!'},null)).status,200);
+ assert.equal((await request('accounts/'+applicant.id+'/temporary-password','POST',{note:'Established password must not be reset here.'})).status,409);
+
  const patient=await request('patients','POST',{full_name:'Synthetic owner patient',age:76,language_pref:'kn',medical_conditions:[]});assert.equal(patient.status,201);assert.equal((await db.getElderById(patient.data.id)).full_name,'Synthetic owner patient');
  const proofBytes=Buffer.from('%PDF-1.4\nSynthetic PostgreSQL consent\n%%EOF');
  const enrolled=await request('patients/'+patient.data.id+'/guardian','POST',{name:'Synthetic Guardian',email:'owner-guardian@example.invalid',phone:'',relationship:'daughter',note:'Synthetic authorization checked.',evidenceReviewed:true,proofFile:{fileName:'consent.pdf',fileType:'application/pdf',fileSize:proofBytes.length,fileData:proofBytes.toString('base64')}});assert.equal(enrolled.status,201);
