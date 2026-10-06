@@ -1,10 +1,11 @@
+import { readOwnerResponse } from '@/lib/ownerResponse';
 import React, {useState,useEffect} from 'react';
 const KEY='gcare_owner_token';
 const origin=(import.meta.env.VITE_API_URL || '').replace(/\/$/,'');
 export default function OwnerPortal(){
  const [token,setToken]=useState(()=>sessionStorage.getItem(KEY)||'');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);
  const [accounts,setAccounts]=useState<any[]>([]);const [records,setRecords]=useState<Record<string,any[]>>({});const [section,setSection]=useState('applications');const [notes,setNotes]=useState<Record<string,string>>({});const [ids,setIds]=useState<Record<string,string[]>>({});
- async function api(route:string,method='GET',body?:any){const res=await fetch(origin+'/api/owner/'+route,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});const data=await res.json();if(!res.ok){if(res.status===401 && route!=='login'){sessionStorage.removeItem(KEY);setToken('');setAccounts([]);setRecords({});}throw Error(data.error||'Request failed');}return data;}
+ async function api(route:string,method='GET',body?:any){const res=await fetch(origin+'/api/owner/'+route,{method,headers:{'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})},body:body?JSON.stringify(body):undefined});const data=await readOwnerResponse(res);if(!res.ok){if(res.status===401 && route!=='login'){sessionStorage.removeItem(KEY);setToken('');setAccounts([]);setRecords({});}throw Error(data.error||'Request failed');}return data;}
  async function load(){const [a,r]=await Promise.all([api('accounts'),api('records')]);setAccounts(a);setRecords(r);setIds(Object.fromEntries(a.map((u:any)=>[u.id,u.assignedElderIds||[]])));}
  useEffect(()=>{if(token)load().catch(e=>setError(e.message));},[token]);
  async function login(e:React.FormEvent){e.preventDefault();setBusy(true);setError('');try{const data=await api('login','POST',{email,password});sessionStorage.setItem(KEY,data.token);setToken(data.token);setPassword('');}catch(e:any){setError(e.message);}finally{setBusy(false);}}

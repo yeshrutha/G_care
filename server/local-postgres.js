@@ -8,4 +8,4 @@ const executable=path.resolve('tmp/postgres/pgsql/bin/pg_ctl.exe');const cluster
 if (!existsSync(executable) || !existsSync(path.join(cluster,'PG_VERSION'))) throw new Error('Local PostgreSQL files are missing. See POSTGRESQL_INTEGRATION.md.');
 const status=spawnSync(executable,['-D',cluster,'status'],{windowsHide:true,stdio:'ignore'});
 if (status.status===0) console.log('Local PostgreSQL is already running.');
-else {const result=spawnSync(executable,['-D',cluster,'-l',path.join(cluster,'server.log'),'-o','-p 55433 -h 127.0.0.1','-w','start'],{windowsHide:true,stdio:'inherit'});if(result.status!==0)process.exit(result.status ||1);}
+else {const result=spawnSync(executable,['-D',cluster,'-l',path.resolve('tmp/postgres/local-server.log'),'-o','-p 55433 -h 127.0.0.1','-w','start'],{windowsHide:true,stdio:'inherit'});if(result.status!==0)process.exit(result.status ||1);}
