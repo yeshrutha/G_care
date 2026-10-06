@@ -2451,23 +2451,9 @@ const WatchSimulator: React.FC<
                 <span className="text-xs font-medium text-slate-300">
                   Patient Watch:
                 </span>
-                <Select
-                  value={selectedElderId}
-                  onValueChange={(val) => setSelectedElderId(val)}
-                >
-                  <SelectTrigger className="h-8 w-[190px] border-white/15 bg-slate-800 text-xs font-semibold text-white focus:ring-teal">
-                    <SelectValue placeholder="Select patient" />
-                  </SelectTrigger>
-                  <SelectContent className="border-white/15 bg-slate-900 text-white">
-                    {watchPatients.map(
-                      (elder) => (
-                        <SelectItem key={elder.id} value={elder.id} className="text-xs focus:bg-teal/20 focus:text-teal">
-                          {elder.full_name} ({elder.age}y)
-                        </SelectItem>
-                      ),
-                    )}
-                  </SelectContent>
-                </Select>
+                <span className="text-xs font-semibold text-white">
+                  {activeElder?.full_name} {activeElder?.age != null && ('(' + activeElder.age + 'y)')}
+                </span>
               </div>
             </div>
 
