@@ -1545,11 +1545,12 @@ const DoctorPortal: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {medications.map((med) => (
                   <Card key={med.id} className="rounded-xl border-border shadow-sm">
-                    <CardContent className="p-4 flex items-center justify-between">
+                    <CardContent className="p-4 flex flex-wrap items-center justify-between gap-3">
                       <div>
+                        {med.photo && <img src={med.photo} alt={med.brand_name + ' reference illustration'} className="mb-3 h-32 w-full max-w-[240px] rounded-lg object-contain bg-slate-50" />}
                         <h3 className="font-semibold text-foreground">{med.brand_name}</h3>
                         <p className="text-sm text-muted-foreground">{med.generic_name} · {med.category}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Dosage: {med.dose_amount} {med.dose_unit} · {med.frequency}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{med.dose_amount > 0 ? `Dosage: ${med.dose_amount} ${med.dose_unit}` : 'Dose pending prescription confirmation'} · {med.frequency}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button size="sm" variant="ghost" onClick={() => { setEditingMedicationId(med.id); setNewMedication({ elderId: med.elder_id, tabletName: med.brand_name, genericName: med.generic_name, category: med.category || 'General', doseAmount: String(med.dose_amount), doseUnit: med.dose_unit, frequency: med.frequency, time: med.times[0] || '08:00', instructions: med.instructions || '' }); setAddMedicationOpen(true); }}>
