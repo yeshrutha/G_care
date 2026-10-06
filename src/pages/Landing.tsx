@@ -30,14 +30,14 @@ const Landing: React.FC = () => {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-card shadow-sm border-b border-border">
-        <div className="container mx-auto flex items-center justify-between h-16 px-4">
+        <div className="container mx-auto flex items-center justify-between md:grid md:grid-cols-[1fr_auto_1fr] h-16 px-4">
           <GuardianLogo />
-          <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-muted-foreground">
+          <nav className="hidden md:flex items-center justify-center gap-6 whitespace-nowrap text-sm font-medium text-muted-foreground">
             <a href="#features" className="hover:text-foreground transition-colors">{t('nav.features')}</a>
             <a href="#how" className="hover:text-foreground transition-colors">{t('nav.how_it_works')}</a>
             <a href="#doctors" className="hover:text-foreground transition-colors">{t('nav.for_doctors')}</a>
           </nav>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-end gap-3 md:justify-self-end">
             <WatchSimulator buttonClassName="hidden sm:inline-flex" />
             <Button variant="ghost" onClick={() => navigate('/login')}>{t('nav.login')}</Button>
           </div>
