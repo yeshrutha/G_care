@@ -2115,6 +2115,7 @@ const WatchSimulator: React.FC<
         }
       },
       [
+        pairedWatches,
         activeElder?.id,
         assistantLanguage,
         conversationHistory,
