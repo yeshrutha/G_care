@@ -406,10 +406,7 @@ const ElderDetail: React.FC = () => {
               {unresolvedAlerts.length > 0 && (
                 <Badge className="bg-destructive text-primary-foreground text-[9px] h-4 min-w-[16px] flex items-center justify-center ml-1 p-0">{unresolvedAlerts.length}</Badge>
               )}
-            </TabsTrigger>
-            <TabsTrigger value="geofence" className="gap-1.5"><MapPin className="h-3.5 w-3.5" /> Geofence</TabsTrigger>
-            <TabsTrigger value="device" className="gap-1.5"><Watch className="h-3.5 w-3.5" /> Device</TabsTrigger>
-            <TabsTrigger value="reports" className="gap-1.5"><FileText className="h-3.5 w-3.5" /> Reports</TabsTrigger>
+            </TabsTrigger>            <TabsTrigger value="reports" className="gap-1.5"><FileText className="h-3.5 w-3.5" /> Reports</TabsTrigger>
           </TabsList>
 
           {/* TAB 1: LIVE VITALS */}
@@ -870,83 +867,8 @@ const ElderDetail: React.FC = () => {
           </TabsContent>
 
           {/* TAB 6: GEOFENCE */}
-          <TabsContent value="geofence" className="space-y-6 mt-6">
-            <Card className="rounded-xl">
-              <CardContent className="p-4">
-                <div className="h-72 bg-muted rounded-xl flex items-center justify-center text-muted-foreground">
-                  <div className="text-center">
-                    <MapPin className="h-10 w-10 mx-auto mb-2 text-teal" />
-                    <p className="text-sm">Map loads with Leaflet when GPS data is available</p>
-                    <p className="text-xs mt-1">Sadashivanagar, Bangalore — Safe Zone: 500m radius</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="rounded-xl">
-              <CardHeader><CardTitle className="font-display text-lg">Zone Configuration</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label>Center Address</Label>
-                  <Input defaultValue="123 Sadashivanagar, Bangalore 560080" className="mt-1" />
-                </div>
-                <div>
-                  <Label>Safe Zone Radius</Label>
-                  <div className="flex items-center gap-3 mt-2">
-                    <Slider defaultValue={[500]} min={100} max={5000} step={50} className="flex-1" />
-                    <span className="text-sm font-medium text-foreground w-16 text-right">500m</span>
-                  </div>
-                </div>
-                <Button className="w-full bg-teal hover:bg-teal/90 text-primary-foreground">Save Geofence</Button>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           {/* TAB 7: DEVICE */}
-          <TabsContent value="device" className="space-y-6 mt-6">
-            <Card className="rounded-xl">
-              <CardHeader><CardTitle className="font-display text-lg">Watch Status</CardTitle></CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {[
-                    { label: 'Device ID', value: 'GW-2024-0847' },
-                    { label: 'BLE Status', value: 'Connected', dot: 'bg-gw-green' },
-                    { label: 'Battery', value: `${elder.battery}%` },
-                    { label: 'Firmware', value: 'v2.4.1' },
-                  ].map((d, i) => (
-                    <div key={i} className="p-3 bg-muted/50 rounded-lg">
-                      <p className="text-xs text-muted-foreground">{d.label}</p>
-                      <p className="font-medium text-foreground flex items-center gap-1.5 mt-0.5">
-                        {d.dot && <span className={`w-2 h-2 rounded-full ${d.dot}`} />}
-                        {d.value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="rounded-xl">
-              <CardHeader><CardTitle className="font-display text-lg">Voice Commands</CardTitle></CardHeader>
-              <CardContent className="space-y-2">
-                {[
-                  { cmd: '"Hey Guardian, what are my medications?"', key: 'medication' },
-                  { cmd: '"Hey Guardian, show me my Metformin"', key: 'Metformin' },
-                  { cmd: '"Hey Guardian, how am I doing?"', key: 'how am' },
-                  { cmd: '"Hey Guardian, call my daughter"', key: 'call' },
-                  { cmd: '"Hey Guardian, I need help" — triggers SOS', key: 'help' },
-                  { cmd: '"Hey Guardian, remind me to drink water"', key: 'water' },
-                  { cmd: '"Hey Guardian, what day is it?"', key: 'day' },
-                ].map((item, i) => (
-                  <button key={i} onClick={() => handleVoiceCommand(item.key)}
-                    className="w-full flex items-center gap-2 p-3 rounded-lg bg-muted/50 text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors text-left">
-                    <Volume2 className="h-4 w-4 text-teal flex-shrink-0" />
-                    <span className="flex-1">{item.cmd}</span>
-                    <span className="text-[10px] text-teal font-medium">▶ Play</span>
-                  </button>
-                ))}
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           {/* TAB 8: REPORTS */}
           <TabsContent value="reports" className="space-y-6 mt-6">
