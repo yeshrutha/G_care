@@ -285,7 +285,6 @@ const Settings: React.FC = () => {
                   <div className="w-16 h-16 rounded-full bg-teal/15 flex items-center justify-center text-teal text-xl font-semibold">
                     {(profileForm.name || 'D')[0]}
                   </div>
-                  <Button variant="outline" size="sm">Change Photo</Button>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
                   <div>
