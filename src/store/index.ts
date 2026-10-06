@@ -314,7 +314,6 @@ function storeLiveVitals(vitals: Record<string, DemoVitals>) {
 export const useAppStore = create<AppStore>((set) => ({
   demoMode: getStoredDemoMode(),
   setDemoMode: (v) => {
-    if (v && getStoredToken() && getStoredUser()?.accessStatus !== 'demo') return;
     storeDemoMode(v);
     set({ demoMode: v });
     if (!v) {

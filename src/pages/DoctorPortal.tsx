@@ -1,3 +1,5 @@
+import { samplePatientCare } from '@/lib/samplePatientCare.js';
+import { startAlertLoop, stopAlertLoop } from '@/lib/audioAlerts';
 import { isDoctorAlert } from '@/lib/alertAudience.js';
 import { hydrateAlertRecords } from '@/lib/anomalyDetector';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,7 +25,6 @@ import { useGuardianStore, type Reminder } from '@/store/guardianStore';
 import { useAuthStore } from '@/store/authStore';
 import { apiFetch, getReportFileUrl } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
-import { DEMO_ELDERS, DEMO_MEDICATIONS, DEMO_VITALS, generateVitalsUpdate } from '@/lib/demoData';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import {
   broadcastGcareMessage,
@@ -74,21 +75,6 @@ interface DoctorCareTeam {
 
 type DemoAppointmentStatus = 'requested' | 'confirmed';
 
-const getSeedMedications = (): DashboardMedication[] => DEMO_MEDICATIONS.map((med) => ({
-  id: med.id,
-  elder_id: med.elder_id,
-  brand_name: med.brand_name,
-  generic_name: med.generic_name,
-  category: med.category,
-  dose_amount: med.dose_amount,
-  dose_unit: med.dose_unit,
-  frequency: med.frequency,
-  times: med.times,
-  instructions: med.instructions,
-  photo: med.photo_url,
-  active: med.active,
-}));
-
 const NAV = [
   { icon: LayoutDashboard, label: 'nav.dashboard', section: 'dashboard' },
   { icon: Users, label: 'nav.elders', section: 'elders' },
@@ -122,7 +108,6 @@ const DoctorPortal: React.FC = () => {
     activeAlerts: allActiveAlerts, setActiveAlerts, addAlert, resolveAlert, clearAlerts, removeAlert, stabilizeElderVitals,
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
-    setDemoStep, demoStep,
   } = useAppStore();
   const activeAlerts = allActiveAlerts.filter(isDoctorAlert);
   const { user: authUser, logout } = useAuthStore();
@@ -476,14 +461,6 @@ const DoctorPortal: React.FC = () => {
     setReminders([...medReminders, ...alarmReminders]);
   }, [medications, alarms, elders, setReminders]);
 
-  // Initialize demo data if demoMode is enabled
-  useEffect(() => {
-    if (demoMode && authUser?.accessStatus === 'demo') {
-      if (demoElders.length === 0) setDemoElders(DEMO_ELDERS);
-      if (medications.length === 0) setMedications(getSeedMedications());
-      Object.entries(DEMO_VITALS).forEach(([id, v]) => setDemoVitals(id, v));
-    }
-  }, [demoMode, demoElders.length, medications.length, setDemoElders, setDemoVitals, setMedications]);
 
   useEffect(() => {
     let ignore = false;
@@ -531,55 +508,44 @@ const DoctorPortal: React.FC = () => {
     return () => { ignore = true; };
   }, [setActiveAlerts, setDemoElders, setDemoVitals, setMedications, setAlarms]);
 
-  // Demo mode scripted timeline
+  const demoPatient = elders[0];
+  const demoEmergency = demoPatient ? samplePatientCare(demoPatient).emergency : '';
+  const [demoAcknowledged, setDemoAcknowledged] = useState(false);
+  const demoAppointmentVisible = demoMode && !!demoPatient;
   useEffect(() => {
-    if (!demoMode || authUser?.accessStatus !== 'demo') { setDemoStep(0); return; }
-    const timers: NodeJS.Timeout[] = [];
-    timers.push(setTimeout(() => setDemoStep(1), 20000));
-    timers.push(setTimeout(() => setDemoStep(2), 40000));
-    timers.push(setTimeout(() => setDemoStep(3), 55000));
-    timers.push(setTimeout(() => {
-      setDemoStep(4);
-      addAlert({
-        id: 'demo-geo', elder_name: 'Usha', type: 'geofence', severity: 'warning',
-        message: 'Usha left safe zone (Sadashivanagar, Bangalore) at 9:14 AM. Currently 340m away.',
-        location: 'Sadashivanagar, Bangalore', time: new Date().toISOString(), resolved: false,
-      });
-    }, 70000));
-    timers.push(setTimeout(() => {
-      setDemoStep(5);
-      addAlert({
-        id: 'demo-sos', elder_name: 'Usha', type: 'sos', severity: 'critical',
-        message: '🚨 EMERGENCY — Usha pressed SOS at 9:15 AM',
-        location: 'Sadashivanagar, Bangalore', time: new Date().toISOString(), resolved: false,
-      });
-    }, 85000));
-    timers.push(setTimeout(() => setDemoStep(6), 100000));
-    timers.push(setTimeout(() => setDemoStep(7), 120000));
-    return () => timers.forEach(clearTimeout);
-  }, [demoMode, setDemoStep, addAlert]);
+    setDemoAcknowledged(false);
+    setDemoAppointmentStatus('requested');
+    if (demoMode && demoPatient) startAlertLoop('sos');
+    return () => stopAlertLoop('sos');
+  }, [demoMode, demoPatient?.id]);
 
-  // Doctor-only emergency appointment request.
-  // It appears shortly after Demo Mode is enabled and resets when Demo Mode is turned off.
   useEffect(() => {
-    if (!demoMode) {
-      setDemoAppointmentStatus('requested');
-      return;
+    if (!demoMode) return;
+    let cancelled = false;
+    async function seedSamples() {
+      try {
+        const data = await apiFetch<any>('/dashboard-data');
+        for (const patient of data.elders || []) {
+          const sample = samplePatientCare(patient);
+          if (!(data.medications || []).some((m:any) => m.elder_id === patient.id))
+            await apiFetch('/medications', { method: 'POST', body: JSON.stringify(sample.medication) });
+          if (!(data.alarms || []).some((a:any) => a.elderId === patient.id))
+            for (const alarm of sample.alarms) await apiFetch('/alarms', { method: 'POST', body: JSON.stringify(alarm) });
+        }
+        const refreshed = await apiFetch<any>('/dashboard-data');
+        if (!cancelled) { setMedications(refreshed.medications || []); setAlarms(refreshed.alarms || []); }
+      } catch(error:any) {
+        if (!cancelled) toast({title:'Sample schedule could not be loaded',description:error.message,variant:'destructive'});
+      }
     }
-
-    const timer = window.setTimeout(() => {
-      setDemoAppointmentStatus('requested');
-    }, 1500);
-
-    return () => window.clearTimeout(timer);
-  }, [demoMode]);
-
-  const demoAppointmentVisible = demoMode;
+    seedSamples();
+    return () => { cancelled = true; };
+  }, [demoMode, authUser?.id]);
 
   // Real-time cross-window listener for SOS alerts from Watch Simulator
   useEffect(() => {
     const unsubscribe = subscribeToGcareBroadcast((msg) => {
-      if (msg.type === 'SOS_TRIGGERED') {
+      if (msg.type === 'SOS_TRIGGERED' && elders.some(e => e.id === msg.elderId)) {
         if (msg.alert) {
           useAppStore.getState().addAlert(msg.alert);
         }
@@ -592,44 +558,45 @@ const DoctorPortal: React.FC = () => {
     });
 
     return unsubscribe;
-  }, [setActiveAlerts, resolveAlert]);
+  }, [setActiveAlerts, resolveAlert, elders]);
 
   const confirmDemoAppointment = async () => {
-    setDemoAppointmentStatus('confirmed');
     const doctorName = authUser?.name || 'Dr. Ramesh Kumar';
-    const elder = elders.find((e) => e.full_name.toLowerCase().includes('usha')) || elders[0];
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const now = new Date();
-    const apptHour = (now.getHours() + 2) % 24;
-    const apptTime = `${String(apptHour).padStart(2, '0')}:00`;
+    const elder = demoPatient;
+    if (!elder) return;
+    stopAlertLoop('sos');
+    setDemoAcknowledged(true);
+    const appointmentDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const todayStr = `${appointmentDate.getFullYear()}-${String(appointmentDate.getMonth()+1).padStart(2,'0')}-${String(appointmentDate.getDate()).padStart(2,'0')}`;
+    const apptTime = `${String(appointmentDate.getHours()).padStart(2,'0')}:${String(appointmentDate.getMinutes()).padStart(2,'0')}`;
     const prepAlarmTime = calculateMinutesBefore(apptTime, 60);
 
-    const { spokenText, displayText, prepNotes } = generateAppointmentKannadaMessage(
-      elder?.full_name || 'Usha',
-      todayStr,
-      apptTime,
-      doctorName,
-      prepAlarmTime
+    const { spokenText, displayText, prepNotes, speechLang } = generateAppointmentMultilingualMessage(
+      elder.full_name, todayStr, apptTime, doctorName, prepAlarmTime, elder.language_pref || 'en'
     );
+
+    try {
+      const appointmentId = 'demo-appt-' + Date.now();
+      const base = {elderId:elder.id, type:'appointment', status:'Scheduled', appointmentId, appointmentDate:todayStr, appointmentTime:apptTime, doctorName, repeat:'once'};
+      await apiFetch<any>('/alarms',{method:'POST',body:JSON.stringify({...base,id:appointmentId,title:'Urgent appointment with ' + doctorName,time:apptTime,notes:'Appointment created during the emergency demonstration.'})});
+      await apiFetch('/alarms',{method:'POST',body:JSON.stringify({...base,id:'prep-'+appointmentId,title:'Hospital checkup preparation',time:prepAlarmTime,isOneHourReminder:true,notes:prepNotes})});
+      const updated = await apiFetch<any>('/dashboard-data');
+      setAlarms(updated.alarms || []);
+      setDemoAppointmentStatus('confirmed');
+    } catch(error:any) {
+      toast({title:'Unable to confirm appointment',description:error.message,variant:'destructive'});
+      return;
+    }
 
     if (elder) {
       stabilizeElderVitals(elder.id);
-      addAlarm({
-        id: `demo-prep-alarm-${Date.now()}`,
-        elderId: elder.id,
-        title: `ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Checkup Preparation)`,
-        time: prepAlarmTime,
-        type: 'appointment',
-        status: 'Scheduled',
-        notes: `${prepNotes} (60 min prior alarm)`,
-      });
 
       addGuardianReminder({
         id: `demo-guardian-prep-${Date.now()}`,
         elderId: elder.id,
         elderName: elder.full_name,
         type: 'appointment',
-        title: `ಆಸ್ಪತ್ರೆ ತಪಾಸಣೆ ತಯಾರಿ (Hospital Prep)`,
+        title: 'Hospital checkup preparation',
         time: prepAlarmTime,
         repeat: 'once',
         verified: false,
@@ -646,6 +613,7 @@ const DoctorPortal: React.FC = () => {
         time: apptTime,
         prepAlarmTime,
         doctorName,
+        spokenText, speechLang, patientMessage: displayText,
         kannadaMessage: spokenText,
         englishMessage: `Emergency appointment confirmed for ${elder.full_name} at ${apptTime}. Preparation alarm set for ${prepAlarmTime} (60 min prior).`,
         timestamp: Date.now(),
@@ -654,7 +622,7 @@ const DoctorPortal: React.FC = () => {
 
     toast({
       title: 'Emergency Appointment Confirmed',
-      description: `Immediate appointment confirmed for Usha at ${apptTime}. Watch alerted in Kannada with voice output. Prep alarm: ${prepAlarmTime}.`,
+      description: `Immediate appointment confirmed for ${elder.full_name} at ${apptTime}. Watch notified in the patient’s preferred language. Prep alarm: ${prepAlarmTime}.`,
     });
   };
 
@@ -1308,78 +1276,27 @@ const DoctorPortal: React.FC = () => {
             </DialogContent>
           </Dialog>
 
+          {demoAppointmentVisible && (
+            <Card className="mb-6 border-2 border-red-500">
+              <CardHeader><CardTitle>Emergency alert: {demoPatient.full_name}</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <p>{demoEmergency}</p>
+                <p>Check the patient and arrange urgent clinical assessment.</p>
+                <p className="text-sm text-muted-foreground">Doctor: {authUser?.name}</p>
+                <div className="flex flex-wrap gap-3">
+                  <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" disabled={demoAcknowledged} onClick={() => {setDemoAcknowledged(true);stopAlertLoop('sos');}}>{demoAcknowledged ? 'Acknowledged' : 'Acknowledge'}</Button>
+                  <Button disabled={demoAppointmentStatus === 'confirmed'} onClick={confirmDemoAppointment}>{demoAppointmentStatus === 'confirmed' ? 'Appointment confirmed' : 'Confirm urgent appointment'}</Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Active section rendering */}
 
           {/* DASHBOARD SECTION */}
           {activeSection === 'dashboard' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                {demoAppointmentVisible && (
-                  <Card className="rounded-xl border-2 border-red-500/30 bg-red-500/5 shadow-lg">
-                    <CardHeader className="flex flex-row items-start justify-between space-y-0 gap-4">
-                      <div>
-                        <CardTitle className="font-display text-base font-bold text-red-600 flex items-center gap-2">
-                          🚨 Urgent Appointment Request
-                        </CardTitle>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Emergency consultation requested for Usha.
-                        </p>
-                      </div>
-                      <Badge className={demoAppointmentStatus === 'confirmed' ? 'bg-emerald-600 text-white border-0' : 'bg-red-600 text-white border-0'}>
-                        {demoAppointmentStatus === 'confirmed' ? 'CONFIRMED' : 'URGENT'}
-                      </Badge>
-                    </CardHeader>
-
-                    <CardContent className="space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Patient</p>
-                          <p className="mt-1 font-semibold text-foreground">Usha</p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Emergency</p>
-                          <p className="mt-1 font-semibold text-red-600">Fall + SOS</p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Heart Rate</p>
-                          <p className="mt-1 font-semibold text-foreground">118 BPM</p>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">SpO₂</p>
-                          <p className="mt-1 font-semibold text-red-600">91%</p>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-                        <p className="text-sm font-semibold text-red-600">Emergency reason</p>
-                        <p className="mt-1 text-sm text-foreground">Fall detected and SOS activated for Usha.</p>
-                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Sadashivanagar, Bangalore</span>
-                          <span>Doctor: Dr. Ramesh Kumar</span>
-                          <span>Hospital: Apollo Hospitals</span>
-                        </div>
-                      </div>
-
-                      {demoAppointmentStatus === 'requested' ? (
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                          <div>
-                            <p className="font-semibold text-amber-700">Emergency appointment requested</p>
-                            <p className="text-xs text-muted-foreground">Immediate consultation is required for this demo emergency.</p>
-                          </div>
-                          <Button className="bg-teal hover:bg-teal/90 text-primary-foreground" onClick={confirmDemoAppointment}>
-                            Confirm Emergency Appointment
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3">
-                          <p className="font-semibold text-emerald-700 flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> Emergency appointment confirmed</p>
-                          <p className="mt-1 text-xs text-muted-foreground">Usha's immediate consultation has been confirmed.</p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-
                 {!demoAppointmentVisible && !careIntelligence.topPriority && (
                   <Card className="rounded-xl border border-teal/20 bg-teal/5">
                     <CardHeader className="pb-2">
