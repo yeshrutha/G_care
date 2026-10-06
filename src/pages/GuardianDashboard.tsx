@@ -24,7 +24,6 @@ import AlertsTab from '@/components/guardian/AlertsTab';
 import RemindersTab from '@/components/guardian/RemindersTab';
 import SOSTab from '@/components/guardian/SOSTab';
 import ReportsTab from '@/components/guardian/ReportsTab';
-import WatchSimulator from '@/components/WatchSimulator';
 
 const TAB_CONFIG = [
   { id: 'feed', label: 'Feed', icon: BarChart3 },
@@ -218,7 +217,6 @@ const GuardianDashboard: React.FC = () => {
           <span className="hidden md:inline font-display text-lg text-foreground">Guardian Portal</span>
         </div>
         <div className="flex items-center gap-3">
-          <WatchSimulator buttonVariant="outline" buttonClassName="border-teal/30 text-teal hover:bg-teal/10 text-xs h-8" />
           <div className="flex items-center gap-2 border border-teal/30 bg-teal/5 px-3 py-1.5 rounded-lg">
             <span className="text-xs text-muted-foreground">Demo Mode</span>
             <Switch checked={demoMode} onCheckedChange={setDemoMode} />
