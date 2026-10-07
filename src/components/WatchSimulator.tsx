@@ -422,8 +422,8 @@ const WatchSimulator: React.FC<
 
   const [pairedWatches, setPairedWatches] = useState<any[]>(() => {try{return JSON.parse(localStorage.getItem('gcare_paired_watches') || '[]');}catch{return [];}});
   useEffect(()=>{const refresh=()=>{try{setPairedWatches(JSON.parse(localStorage.getItem('gcare_paired_watches')||'[]'));}catch{}};window.addEventListener('storage',refresh);refresh();return()=>window.removeEventListener('storage',refresh);},[open]);
-  const watchPatients = getStoredToken() ? demoElders : pairedWatches.length ? pairedWatches.map(w=>w.patient) : WATCH_EXAMPLE_PATIENTS;
-  const selectedElderId = watchPatients.some(p=>p.id===activeElderId) ? activeElderId : (watchPatients[0]?.id || 'elder-1');
+  const watchPatients = (getStoredToken() ? demoElders : pairedWatches.length ? pairedWatches.map(w=>w.patient) : WATCH_EXAMPLE_PATIENTS).filter(patient => /^usha$/i.test(patient.full_name.trim()));
+  const selectedElderId = watchPatients[0]?.id || '';
   useEffect(() => {
     if (!open || !getStoredToken()) return;
     // Save only the displayed watch patient, at most once per 30 seconds.
@@ -2290,7 +2290,7 @@ const WatchSimulator: React.FC<
                   Patient Watch:
                 </span>
                 <span className="text-xs font-semibold text-white">
-                  {activeElder?.full_name} {activeElder?.age != null && ('(' + activeElder.age + 'y)')}
+                  {activeElder?.full_name || 'Usha is not assigned to this account'} {activeElder?.age != null && ('(' + activeElder.age + 'y)')}
                 </span>
               </div>
             </div>
