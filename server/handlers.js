@@ -784,7 +784,7 @@ async function handleReports(req, res, pathName, user) {
     }
 
     if (!report.fileData) {
-      return sendJson(res, 404, { error: 'No attached document found for this report' }, req);
+      return sendJson(res, 404, { error: 'The attached document is unavailable. Ask the assigned doctor to upload the original file again.' }, req);
     }
 
     const buffer = Buffer.from(report.fileData, 'base64');

@@ -1,4 +1,3 @@
-import { saveReportFile } from './reportFiles.js';
 import crypto from 'node:crypto';
 import { getCanonicalAnomalyType, getAlertEpisodeKey, isPhysiologicalEpisode } from '../src/lib/alertEpisodeIdentity.js';
 const aliases = { passwordHash:'password_hash', createdAt:'created_at', ownerId:'owner_id', elderId:'elder_id', doctorId:'doctor_id', doctorName:'doctor_name', fileUrl:'file_url', fileName:'file_name', fileData:'file_data', fileType:'file_type', fileSize:'file_size', appointmentId:'appointment_id', appointmentDate:'appointment_date', appointmentTime:'appointment_time', isOneHourReminder:'is_one_hour_reminder', appointmentDetails:'appointment_details', userId:'user_id', entityId:'entity_id', entityType:'entity_type' };
@@ -27,7 +26,7 @@ export async function importData(pool, source) {
    counts[table] = 0;
    for (const original of data[key] || []) {
     const row = {}; for (const [name,value] of Object.entries(original)) { const col=aliases[name] || name; const info=columns.find(c=>c.column_name===col); if (info && value !== undefined) row[col]=info.data_type==='jsonb' ? JSON.stringify(value) : value; }
-    if (table === 'reports' && row.file_data && !(await client.query('SELECT 1 FROM reports WHERE id=$1',[row.id])).rows.length) { row.file_path=await saveReportFile(row.file_data); row.file_data=null; }
+    if (table === 'reports' && row.file_data) row.file_path = null;
     if (table === 'users') row.email=String(row.email).trim().toLowerCase();
     const keys=Object.keys(row); const result=await client.query(`INSERT INTO ${table} (${keys.join(',')}) VALUES (${keys.map((_,i)=>'$'+(i+1)).join(',')}) ON CONFLICT DO NOTHING`,Object.values(row)); counts[table]+=result.rowCount;
     if (row.id && !(await client.query(`SELECT 1 FROM ${table} WHERE id=$1`,[row.id])).rows.length) throw new Error('Import conflict: a source identity is already used by another account. Nothing imported.');

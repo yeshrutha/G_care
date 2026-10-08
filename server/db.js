@@ -1,5 +1,5 @@
 import { alertVisibleToRole } from '../src/lib/alertAudience.js';
-import { saveReportFile, loadReportFile } from './reportFiles.js';
+import { loadReportFile } from './reportFiles.js';
 import { hasApprovedAccess, isDemoAccount, DEMO_PATIENT_IDS, safeEditableProfile } from './accessPolicy.js';
 import { mkdir, readFile, writeFile, rename, unlink, copyFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -1303,10 +1303,11 @@ export const dbService = {
     };
 
     if (usePostgres) {
-      const filePath=fileData ? await saveReportFile(fileData) : null;
+      // Store document bytes with metadata so deployments cannot discard attachments.
+      const filePath = null;
       await pool.query(
         'INSERT INTO reports (id, elder_id, doctor_id, doctor_name, title, description, category, file_url, file_name, file_data, file_type, file_size, created_at, file_path) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)',
-        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.fileName, null, saved.fileType, saved.fileSize, saved.createdAt, filePath]
+        [saved.id, saved.elderId, saved.doctorId, saved.doctorName, saved.title, saved.description, saved.category, saved.fileUrl, saved.fileName, saved.fileData, saved.fileType, saved.fileSize, saved.createdAt, filePath]
       );
       const { fileData: _, ...meta } = saved;
       return meta;
@@ -1368,7 +1369,7 @@ export const dbService = {
         category: r.category,
         fileUrl: r.file_url,
         fileName: r.file_name,
-        fileData: r.file_path ? (await loadReportFile(r.file_path)).toString('base64') : r.file_data,
+        fileData: r.file_data || (r.file_path ? await loadReportFile(r.file_path).then(buffer => buffer.toString('base64')).catch(error => { if (error.code === 'ENOENT') return null; throw error; }) : null),
         fileType: r.file_type,
         fileSize: r.file_size,
         createdAt: r.created_at ? r.created_at.toISOString() : null,

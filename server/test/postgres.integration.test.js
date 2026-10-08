@@ -69,11 +69,12 @@ test('sample blood-test PDF metadata, file access, restart and patient isolation
  const pdf=Buffer.from('%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj\n4 0 obj << /Length 100 >> stream\nBT (Laboratory Blood Test Report Patient Usha Hemoglobin 12.5 g/dL CBC WBC 6000 Platelets 250000) Tj ET\nendstream endobj\ntrailer << /Root 1 0 R >>\n%%EOF');
  const upload=await api('/reports','POST',{elderId:'elder-1',title:'Blood Test Report',category:'Laboratory',fileName:'blood-test.pdf',fileData:pdf.toString('base64'),fileType:'application/pdf'});assert.equal(upload.status,201);
  const id=upload.data.id;assert.ok((await api('/reports?elderId=elder-1','GET',undefined,guardian)).data.some(r=>r.id===id));
- const row=(await pool.query('SELECT file_path,file_data FROM reports WHERE id=$1',[id])).rows[0];assert.ok(row.file_path);assert.equal(row.file_data,null);
+ const row=(await pool.query('SELECT file_path,file_data FROM reports WHERE id=$1',[id])).rows[0];assert.equal(row.file_path,null);assert.equal(row.file_data,pdf.toString('base64'));
  const file=await fetch(base+'/api/reports/'+id+'/file',{headers:{Authorization:'Bearer '+signToken(guardian)}});assert.equal(file.status,200);assert.deepEqual(Buffer.from(await file.arrayBuffer()),pdf);
  const other=await db.createReport(doctor,'elder-3','Other laboratory report','','Lab','','other.pdf',pdf.toString('base64'));
  assert.equal((await fetch(base+'/api/reports/'+other.id+'/file',{headers:{Authorization:'Bearer '+signToken(guardian)}})).status,403);
  const child=execFileSync(process.execPath,['--input-type=module','-e',"const {dbService,initDb,closeDb}=await import('./server/db.js');await initDb();console.log((await dbService.getReportById('"+id+"')).fileData);await closeDb();"],{env:process.env,encoding:'utf8'});assert.equal(child.trim().split('\n').at(-1),pdf.toString('base64'));
+ await pool.query('UPDATE reports SET file_data=NULL,file_path=$2 WHERE id=$1',[id,'00000000-0000-4000-8000-000000000001.pdf']);const missing=await fetch(base+'/api/reports/'+id+'/file',{headers:{Authorization:'Bearer '+signToken(guardian)}});assert.equal(missing.status,404);assert.match((await missing.json()).error,/upload the original/);
 });
 test('real approval/patient assignments and login cannot be forged',async()=>{
  const proof={proofId:'SYNTHETIC-ONLY',issuer:'Test organization',proofReference:'Synthetic automated evidence'};
