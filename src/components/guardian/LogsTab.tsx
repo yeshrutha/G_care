@@ -108,7 +108,7 @@ const LogsTab: React.FC = () => {
                 {[
                   { label: 'Avg Heart Rate', value: `${monthlyStats.avg_hr} bpm`, color: 'text-teal' },
                   { label: 'Avg Blood Pressure', value: `${monthlyStats.avg_bp_sys}/${monthlyStats.avg_bp_dia}`, color: 'text-destructive' },
-                  { label: 'Avg SpO₂', value: `${monthlyStats.avg_spo2}%`, color: 'text-blue-500' },
+                  { label: 'Avg SpO₂', value: monthlyStats.avg_spo2 == null ? 'Not available' : `${monthlyStats.avg_spo2}%`, color: 'text-blue-500' },
                   { label: 'Total Steps', value: monthlyStats.total_steps.toLocaleString(), color: 'text-gw-green' },
                 ].map(s => (
                   <Card key={s.label} className="rounded-xl">
@@ -134,7 +134,7 @@ const LogsTab: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-4 w-4 text-gw-green" />
-                      <span className="text-foreground">Average SpO₂: {monthlyStats.avg_spo2}% across available readings</span>
+                      <span className="text-foreground">Average SpO₂: {monthlyStats.avg_spo2 == null ? 'Not available' : `${monthlyStats.avg_spo2}% across available readings`}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {monthlyStats.fall_count > 0 ? (

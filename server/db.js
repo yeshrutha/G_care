@@ -1164,10 +1164,11 @@ export const dbService = {
       const client=await pool.connect();
       try {
         await client.query('BEGIN');
-        await client.query('SELECT id FROM elders WHERE id=$1 FOR UPDATE',[saved.elderId]);
+        const patient = await client.query('SELECT id FROM elders WHERE id=$1 FOR UPDATE',[saved.elderId]);
+        if (!patient.rows.length) throw Object.assign(new Error('Patient not found. Create or import the patient before sending vitals.'), { statusCode: 404 });
         const current=(await client.query('SELECT * FROM vitals_latest WHERE elder_id=$1',[saved.elderId])).rows[0];
         if(saved.source==='simulator' && current?.source==='device' && Date.now()-new Date(current.timestamp).getTime()<60000) {
-          await client.query('COMMIT');return {...current,elderId:saved.elderId,spo2:Number(current.spo2),skin_temp:Number(current.skin_temp)};
+          await client.query('COMMIT');return {...current,elderId:saved.elderId,spo2:current.spo2 == null ? null : Number(current.spo2),skin_temp:Number(current.skin_temp)};
         }
 
       await client.query(
@@ -1177,7 +1178,7 @@ export const dbService = {
         [saved.id, saved.elderId, saved.heart_rate, saved.systolic_bp, saved.diastolic_bp, saved.spo2, saved.stress, saved.hydration, saved.breathing_rate, saved.skin_temp, saved.shiver_detected, saved.panic_detected, saved.fall_detected, saved.source, saved.timestamp]
       );
         const previous=(await client.query('SELECT timestamp FROM vitals_readings WHERE elder_id=$1 ORDER BY timestamp DESC LIMIT 1',[saved.elderId])).rows[0];
-        const interval=Math.max(1000,Number(process.env.TELEMETRY_HISTORY_INTERVAL_MS || 10000));
+        const interval=Math.max(1000,Number(process.env.TELEMETRY_HISTORY_INTERVAL_MS || 1000));
         if (!previous || saved.fall_detected || new Date(saved.timestamp)-new Date(previous.timestamp)>=interval) {
       await client.query(
         `INSERT INTO vitals_readings (
@@ -1191,6 +1192,9 @@ export const dbService = {
       } catch(error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
     } else {
       const fileDb = await readDb();
+      if (!fileDb.elders.some((elder) => elder.id === saved.elderId)) {
+        throw Object.assign(new Error('Patient not found. Create or import the patient before sending vitals.'), { statusCode: 404 });
+      }
       fileDb.vitalsReadings = fileDb.vitalsReadings || [];
       fileDb.vitalsReadings.unshift(saved);
 
@@ -1215,7 +1219,7 @@ export const dbService = {
         heart_rate: v.heart_rate,
         systolic_bp: v.systolic_bp,
         diastolic_bp: v.diastolic_bp,
-        spo2: Number(v.spo2),
+        spo2: v.spo2 == null ? null : Number(v.spo2),
         stress: v.stress,
         hydration: v.hydration,
         breathing_rate: v.breathing_rate,

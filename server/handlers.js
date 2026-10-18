@@ -115,7 +115,7 @@ const vitalsSchema = z.object({
   heart_rate: z.coerce.number().int().min(0).max(300),
   systolic_bp: z.coerce.number().int().min(0).max(300),
   diastolic_bp: z.coerce.number().int().min(0).max(200),
-  spo2: z.coerce.number().min(0).max(100),
+  spo2: z.coerce.number().min(0).max(100).nullable(),
   stress: z.coerce.number().int().min(0).max(100),
   hydration: z.coerce.number().int().min(0).max(100),
   breathing_rate: z.coerce.number().int().min(0).max(100),
@@ -989,13 +989,25 @@ async function handleTts(req, res) {
 async function handleDevice(req, res, pathName, user) {
   if (req.method === 'POST' && (pathName === '/api/device/vitals' || pathName === '/api/device/telemetry')) {
     const body = await readJsonBody(req);
-    const elderId = body.elderId || body.elder_id || 'elder-1';
+    const elderId = body.elderId ?? body.elder_id ?? (user.role === 'device' ? user.deviceElderId : undefined);
+    if (typeof elderId !== 'string' || !elderId.trim()) {
+      return sendJson(res, 400, { error: 'elderId is required. Use the patient ID stored in the database.' }, req);
+    }
     const allowed = user.role === 'device' ? elderId === user.deviceElderId : await dbService.userOwnsElder(user, elderId);
     if (!allowed) return sendJson(res, 403, { error: 'Device or patient assignment required.' }, req);
+    if (!(await dbService.getElderById(elderId))) {
+      return sendJson(res, 404, { error: 'Patient not found. Create or import the patient, then set DEVICE_ELDER_ID and the wearable elderId to that patient ID.' }, req);
+    }
 
     // Parse hardware metrics (accepts camelCase and snake_case from ESP32)
     const heart_rate = Math.round(Number(body.heartRate ?? body.heart_rate ?? 75));
-    const spo2 = Number(body.spo2 ?? 98);
+    if (body.spo2Valid !== undefined && typeof body.spo2Valid !== 'boolean') {
+      return sendJson(res, 400, { error: 'spo2Valid must be a boolean.' }, req);
+    }
+    if (body.spo2 != null && typeof body.spo2 !== 'number') {
+      return sendJson(res, 400, { error: 'spo2 must be a number or null.' }, req);
+    }
+    const spo2 = body.spo2Valid === false || body.spo2 == null ? null : body.spo2;
     const skin_temp = Number(body.temperature ?? body.skin_temp ?? body.temp ?? 36.6);
     const systolic_bp = Math.round(Number(body.systolicBp ?? body.systolic_bp ?? 120));
     const diastolic_bp = Math.round(Number(body.diastolicBp ?? body.diastolic_bp ?? 80));

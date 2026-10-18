@@ -21,6 +21,10 @@ describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
   });
 
   describe('detectVitalsAnomalies()', () => {
+    it('does not turn unavailable oxygen into a hypoxemia alert', () => {
+      const vitals = { ...DEMO_VITALS[usha.id], spo2: null };
+      expect(detectVitalsAnomalies(usha, vitals).filter(anomaly => anomaly.metric === 'spo2')).toEqual([]);
+    });
     it('detects severe tachycardia when Heart Rate spikes above 120 bpm', () => {
       const vitals = { ...DEMO_VITALS[usha.id], heart_rate: 135 };
       const anomalies = detectVitalsAnomalies(usha, vitals);

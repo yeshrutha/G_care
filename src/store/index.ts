@@ -29,7 +29,7 @@ export interface DemoVitals {
   heart_rate: number;
   systolic_bp: number;
   diastolic_bp: number;
-  spo2: number;
+  spo2: number | null;
   stress: number;
   hydration: number;
   breathing_rate: number;

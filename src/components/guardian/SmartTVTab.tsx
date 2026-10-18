@@ -28,7 +28,7 @@ const SmartTVTab: React.FC = () => {
       setLiveVitals(prev => prev ? {
         ...prev,
         heart_rate: Math.round(prev.heart_rate + (Math.random() - 0.5) * 3),
-        spo2: Math.min(100, Math.round((prev.spo2 + (Math.random() - 0.5) * 0.5) * 10) / 10),
+        spo2: prev.spo2 == null ? null : Math.min(100, Math.round((prev.spo2 + (Math.random() - 0.5) * 0.5) * 10) / 10),
       } : prev);
     }, 4000);
     return () => clearInterval(interval);
@@ -60,7 +60,7 @@ const SmartTVTab: React.FC = () => {
             {[
               { label: 'Heart Rate', value: Math.round(liveVitals.heart_rate), unit: 'bpm', color: 'text-teal' },
               { label: 'Blood Pressure', value: `${Math.round(liveVitals.systolic_bp)}/${Math.round(liveVitals.diastolic_bp)}`, unit: 'mmHg', color: 'text-gw-amber' },
-              { label: 'SpO₂', value: liveVitals.spo2.toFixed(1), unit: '%', color: 'text-blue-400' },
+              { label: 'SpO₂', value: liveVitals.spo2 == null ? 'Not available' : liveVitals.spo2.toFixed(1), unit: liveVitals.spo2 == null ? '' : '%', color: 'text-blue-400' },
               { label: 'Stress', value: Math.round(liveVitals.stress), unit: '/100', color: 'text-gw-purple' },
               { label: 'Temperature', value: liveVitals.skin_temp, unit: '°C', color: 'text-gw-amber' },
               { label: 'Hydration', value: Math.round(liveVitals.hydration), unit: '%', color: 'text-teal' },

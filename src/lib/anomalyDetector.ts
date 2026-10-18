@@ -286,7 +286,7 @@ export function isConditionInSafeRange(metric: AnomalyMetric, vitals: DemoVitals
     case 'heart_rate':
       return vitals.heart_rate >= 60 && vitals.heart_rate <= 95;
     case 'spo2':
-      return vitals.spo2 >= 95.0;
+      return vitals.spo2 != null && vitals.spo2 >= 95.0;
     case 'systolic_bp':
     case 'diastolic_bp':
       return vitals.systolic_bp >= 96 && vitals.systolic_bp <= 134 && vitals.diastolic_bp >= 65 && vitals.diastolic_bp <= 84;
@@ -369,7 +369,7 @@ export function detectVitalsAnomalies(
   }
 
   // 2. Oxygen Saturation (SpO2)
-  if (vitals.spo2 < 90) {
+  if (vitals.spo2 != null && vitals.spo2 < 90) {
     anomalies.push({
       id: `anomaly-spo2-crit-${elder.id}-${Date.now()}`,
       elderId: elder.id,
@@ -383,7 +383,7 @@ export function detectVitalsAnomalies(
       clinicalRecommendation: 'Verify watch probe placement. Prepare supplemental O2 if symptomatic and alert on-call doctor immediately.',
       timestamp,
     });
-  } else if (vitals.spo2 < 93) {
+  } else if (vitals.spo2 != null && vitals.spo2 < 93) {
     anomalies.push({
       id: `anomaly-spo2-warn-${elder.id}-${Date.now()}`,
       elderId: elder.id,

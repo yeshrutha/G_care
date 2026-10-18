@@ -26,6 +26,13 @@ before(async()=>{
 });
 after(async()=>{if(server)await new Promise(r=>server.close(r));if(pool)await pool.end();await admin.query('DROP SCHEMA IF EXISTS '+schema+' CASCADE');await admin.end();if(dir)await rm(dir,{recursive:true,force:true});});
 const low=(id,value=91.7,elder='elder-3',type='low_spo2')=>({id,elder_id:elder,type,severity:'warning',message:'Oxygen '+value+'%'});
+test('missing telemetry patient returns 404 and leaves no readings in PostgreSQL', async () => {
+ await assert.rejects(db.createVitalsReading({elderId:'missing-usha',heart_rate:75,source:'device'}),error=>error.statusCode===404 && !error.code);
+ assert.equal((await pool.query("SELECT count(*) FROM vitals_latest WHERE elder_id='missing-usha'")).rows[0].count,'0');
+ assert.equal((await pool.query("SELECT count(*) FROM vitals_readings WHERE elder_id='missing-usha'")).rows[0].count,'0');
+ // The failed transaction must release the connection so a valid reading can follow.
+ assert.equal((await db.createVitalsReading({elderId:'elder-1',heart_rate:75,systolic_bp:120,diastolic_bp:80,spo2:98,stress:15,hydration:85,breathing_rate:16,skin_temp:36.6,source:'device'})).elderId,'elder-1');
+});
 test('real migrations and import idempotency; role assignments and login',async()=>{
  await runMigrations(pool);assert.deepEqual(await importData(pool,seed),{alreadyImported:true});assert.equal((await pool.query('SELECT count(*) FROM schema_migrations')).rows[0].count,'4');
  assert.equal((await api('/dashboard-data','GET',undefined,guardian)).data.elders.length,1);assert.equal((await api('/dashboard-data','GET',undefined,nurse)).data.elders.length,3);
@@ -41,8 +48,15 @@ test('acknowledgement, recovery, new episode and independent anomaly/patient key
  assert.notEqual((await db.createAlert(doctor,low('pg-hr',120,'elder-3','high_hr'))).id,(await db.createAlert(doctor,low('pg-usha',92,'elder-1'))).id);
 });
 test('decimal telemetry updates latest state; high-frequency history is sampled',async()=>{
- for(let i=0;i<10;i++)assert.equal((await api('/vitals','POST',{elderId:'elder-3',heart_rate:75,systolic_bp:120,diastolic_bp:80,spo2:91.5+i/10,stress:20,hydration:80,breathing_rate:16,skin_temp:36.5,timestamp:new Date(Date.now()+i*100).toISOString()})).status,201);
+ const start = Date.now();
+ for(let i=0;i<10;i++)assert.equal((await api('/vitals','POST',{elderId:'elder-3',heart_rate:75,systolic_bp:120,diastolic_bp:80,spo2:91.5+i/10,stress:20,hydration:80,breathing_rate:16,skin_temp:36.5,timestamp:new Date(start+i*100).toISOString()})).status,201);
  assert.equal((await db.getVitalsReadings('elder-3',1))[0].spo2,92.4);assert.equal((await pool.query("SELECT count(*) FROM vitals_readings WHERE elder_id='elder-3'")).rows[0].count,'1');
+});
+test('unavailable oxygen remains null through PostgreSQL and the dashboard', async()=>{
+ const reading={elderId:'elder-2',heart_rate:75,systolic_bp:120,diastolic_bp:80,spo2:null,stress:20,hydration:80,breathing_rate:16,skin_temp:36.5,source:'device'};
+ await db.createVitalsReading(reading);
+ assert.equal((await db.getVitalsReadings('elder-2',1))[0].spo2,null);
+ assert.equal((await api('/dashboard-data')).data.vitals['elder-2'].spo2,null);
 });
 test('medication schedules and Taken state survive retries and a separate backend process',async()=>{
  const med={id:'pg-med',elder_id:'elder-1',brand_name:'Test tablet',generic_name:'Test ingredient',category:'Test',dose_amount:5,dose_unit:'mg',frequency:'Daily',times:['08:00','20:00']};

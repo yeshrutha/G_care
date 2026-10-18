@@ -318,6 +318,57 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     expect((await request('/api/device/telemetry', 'POST', { elderId: 'elder-3' }, undefined, headers)).status).toBe(403);
     expect((await request('/api/dashboard-data', 'GET', undefined, undefined, headers)).status).toBe(401);
   });
+  it('stores measured oxygen and clears it when the sensor reports unavailable', async () => {
+    vi.stubEnv('DEVICE_API_KEY', 'synthetic-test-device-key');
+    vi.stubEnv('DEVICE_ELDER_ID', 'elder-1');
+    const headers = { 'x-device-key': 'synthetic-test-device-key' };
+    const measured = await request('/api/device/telemetry', 'POST', { heartRate: 76, spo2: 96, spo2Valid: true }, undefined, headers);
+    expect(measured.status).toBe(201);
+    expect(measured.data.reading).toMatchObject({ heart_rate: 76, spo2: 96, source: 'device' });
+    for (const oxygen of [{ spo2: null, spo2Valid: false }, {}, { spo2: 96, spo2Valid: false }]) {
+      const result = await request('/api/device/telemetry', 'POST', { heartRate: 77, ...oxygen }, undefined, headers);
+      expect(result.status).toBe(201);
+      expect(result.data.reading.spo2).toBeNull();
+      expect((await dbService.getVitalsReadings('elder-1', 1))[0].spo2).toBeNull();
+      const dashboard = await request('/api/dashboard-data', 'GET', undefined, signToken(doctor));
+      expect(dashboard.data.vitals['elder-1'].spo2).toBeNull();
+    }
+    expect((await request('/api/device/telemetry', 'POST', { spo2: 101, spo2Valid: true }, undefined, headers)).status).toBe(400);
+    expect((await request('/api/device/telemetry', 'POST', { spo2: 96, spo2Valid: 'false' }, undefined, headers)).status).toBe(400);
+    expect((await request('/api/device/telemetry', 'POST', { spo2: '' }, undefined, headers)).status).toBe(400);
+  });
+  it('uses the configured patient when hardware omits elderId, including Usha with a production ID', async () => {
+    const data = await readDb();
+    const usha = data.elders.find((elder: any) => elder.id === 'elder-1');
+    usha.id = 'usha-production-id';
+    await writeDb(data);
+    vi.stubEnv('DEVICE_API_KEY', 'synthetic-test-device-key');
+    vi.stubEnv('DEVICE_ELDER_ID', usha.id);
+    const headers = { 'x-device-key': 'synthetic-test-device-key' };
+    for (const route of ['/api/device/telemetry', '/api/device/vitals']) {
+      const result = await request(route, 'POST', { heartRate: 75, spo2: 98 }, undefined, headers);
+      expect(result.status).toBe(201);
+      expect(result.data.reading.elderId).toBe(usha.id);
+    }
+    expect((await dbService.getVitalsReadings(usha.id, 1))[0].heart_rate).toBe(75);
+    expect((await dbService.getVitalsReadings('elder-1', 1))).toEqual([]);
+  });
+  it('rejects a stale device patient mapping before writing telemetry', async () => {
+    vi.stubEnv('DEVICE_API_KEY', 'synthetic-test-device-key');
+    vi.stubEnv('DEVICE_ELDER_ID', 'missing-usha');
+    const headers = { 'x-device-key': 'synthetic-test-device-key' };
+    for (const route of ['/api/device/telemetry', '/api/device/vitals']) {
+      const result = await request(route, 'POST', { elderId: 'missing-usha', fallDetected: true }, undefined, headers);
+      expect(result.status).toBe(404);
+      expect(result.data.error).toContain('Patient not found');
+    }
+    expect((await readDb()).vitalsReadings).toEqual([]);
+    expect((await readDb()).alerts).toEqual([]);
+    await expect(dbService.createVitalsReading({ elderId: 'missing-usha' })).rejects.toMatchObject({ statusCode: 404 });
+  });
+  it('requires portal telemetry requests to select a patient explicitly', async () => {
+    expect((await request('/api/device/telemetry', 'POST', { heartRate: 75 }, signToken(doctor))).status).toBe(400);
+  });
   it('requires selected patients and a review note instead of approval with no verification record', async () => {
     const user = await applicant('guardian');
     await expect(reviewAccess(doctor, user.id, 'approved', [], 'Checked')).rejects.toMatchObject({ statusCode: 400 });

@@ -934,7 +934,7 @@ const DoctorPortal: React.FC = () => {
       if (elder.battery < 20) score += 15;
       
       if (vitals) {
-        if (vitals.spo2 < 94) score += 24;
+        if (vitals.spo2 != null && vitals.spo2 < 94) score += 24;
         if (vitals.systolic_bp >= 140 || vitals.diastolic_bp >= 90) score += 18;
         if (vitals.heart_rate > 95 || vitals.heart_rate < 55) score += 14;
         if (vitals.stress > 55) score += 12;
@@ -949,7 +949,7 @@ const DoctorPortal: React.FC = () => {
 
       let recommendation = 'Vitals are inside personal range. Keep routine monitoring active.';
       if (vitals) {
-        if (vitals.spo2 < 94) recommendation = 'Check breathing comfort and keep oxygen trend under review.';
+        if (vitals.spo2 != null && vitals.spo2 < 94) recommendation = 'Check breathing comfort and keep oxygen trend under review.';
         else if (vitals.systolic_bp >= 140 || vitals.diastolic_bp >= 90) recommendation = 'Repeat BP reading after rest and notify doctor if trend continues.';
         else if (vitals.stress > 55) recommendation = 'Schedule a short check-in and review sleep or anxiety triggers.';
       }

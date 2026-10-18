@@ -8,13 +8,15 @@ interface Props {
   compact?: boolean;
 }
 
-const getStatus = (val: number, min: number, max: number): 'normal' | 'elevated' | 'critical' => {
+const getStatus = (val: number | null, min: number, max: number): 'normal' | 'elevated' | 'critical' | 'unavailable' => {
+  if (val == null) return 'unavailable';
   if (val >= min && val <= max) return 'normal';
   if (val < min * 0.85 || val > max * 1.15) return 'critical';
   return 'elevated';
 };
 
 const statusColor = {
+  unavailable: 'bg-muted-foreground',
   normal: 'bg-gw-green',
   elevated: 'bg-gw-amber',
   critical: 'bg-gw-red',
@@ -26,7 +28,7 @@ export const VitalsGrid: React.FC<Props> = React.memo(({ vitals, compact }) => {
   const metrics = [
     { label: t('vitals.hr'), value: vitals.heart_rate, unit: t('vitals.bpm'), icon: Heart, status: getStatus(vitals.heart_rate, 55, 90) },
     { label: t('vitals.bp'), value: `${vitals.systolic_bp}/${vitals.diastolic_bp}`, unit: t('vitals.mmhg'), icon: Activity, status: getStatus(vitals.systolic_bp, 90, 140) },
-    { label: t('vitals.spo2'), value: vitals.spo2, unit: t('vitals.percent'), icon: Wind, status: getStatus(vitals.spo2, 94, 100) },
+    { label: t('vitals.spo2'), value: vitals.spo2 ?? 'Not available', unit: vitals.spo2 == null ? '' : t('vitals.percent'), icon: Wind, status: getStatus(vitals.spo2, 94, 100) },
     { label: t('vitals.stress'), value: vitals.stress, unit: '/100', icon: Brain, status: getStatus(100 - vitals.stress, 40, 100) },
     { label: t('vitals.hydration'), value: vitals.hydration, unit: t('vitals.percent'), icon: Droplets, status: getStatus(vitals.hydration, 60, 100) },
     { label: t('vitals.breathing'), value: vitals.breathing_rate, unit: t('vitals.brpm'), icon: Waves, status: getStatus(vitals.breathing_rate, 12, 20) },
