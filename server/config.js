@@ -25,7 +25,7 @@ export const CORS_ORIGIN = process.env.CORS_ORIGIN || 'http://127.0.0.1:8080,htt
 export const MAX_JSON_BODY_BYTES = Number(process.env.MAX_JSON_BODY_BYTES || 250000);
 export const MAX_UPLOAD_BODY_BYTES = Number(process.env.MAX_UPLOAD_BODY_BYTES || 15 * 1024 * 1024);
 export const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
-export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 120);
+export const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 300);
 export const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 export const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';

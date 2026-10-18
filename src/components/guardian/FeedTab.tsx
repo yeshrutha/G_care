@@ -10,13 +10,15 @@ import { useGuardianStore } from '@/store/guardianStore';
 import { useAppStore, type MotionState } from '@/store';
 import { apiFetch } from '@/lib/api';
 
-const statusColor = (val: number, low: number, high: number) => {
+const statusColor = (val: number | null, low: number, high: number) => {
+  if (val == null) return 'text-muted-foreground';
   if (val < low || val > high) return 'text-destructive';
   if (val < low * 1.05 || val > high * 0.95) return 'text-gw-amber';
   return 'text-gw-green';
 };
 
-const statusBg = (val: number, low: number, high: number) => {
+const statusBg = (val: number | null, low: number, high: number) => {
+  if (val == null) return 'bg-muted/10 border-border';
   if (val < low || val > high) return 'bg-destructive/10 border-destructive/20';
   if (val < low * 1.05 || val > high * 0.95) return 'bg-gw-amber/10 border-gw-amber/20';
   return 'bg-gw-green/10 border-gw-green/20';
@@ -46,7 +48,7 @@ const FeedTab: React.FC = () => {
     return getHourlyData(vitalsData, 6).map(r => ({
       time: r.timestamp.split('T')[1]?.substring(0, 5) || '',
       hr: Math.round(r.heart_rate),
-      spo2: Math.round(r.spo2 * 10) / 10,
+      spo2: r.spo2 == null ? null : Math.round(r.spo2 * 10) / 10,
       stress: Math.round(r.stress),
       bp: Math.round(r.systolic_bp),
     }));
@@ -76,7 +78,7 @@ const FeedTab: React.FC = () => {
   const vitalsCards = [
     { label: t('guardian.heart_rate'), value: `${Math.round(v.heart_rate)}`, unit: 'bpm', icon: Heart, low: 55, high: 100, current: v.heart_rate },
     { label: t('guardian.blood_pressure'), value: `${Math.round(v.systolic_bp)}/${Math.round(v.diastolic_bp)}`, unit: 'mmHg', icon: Activity, low: 90, high: 140, current: v.systolic_bp },
-    { label: 'SpO₂', value: `${v.spo2.toFixed(1)}`, unit: '%', icon: Wind, low: 93, high: 100, current: v.spo2 },
+    { label: 'SpO₂', value: v.spo2 == null ? 'Not available' : v.spo2.toFixed(1), unit: v.spo2 == null ? '' : '%', icon: Wind, low: 93, high: 100, current: v.spo2 },
     { label: t('guardian.stress'), value: `${Math.round(v.stress)}`, unit: '/100', icon: Brain, low: 0, high: 70, current: v.stress },
     { label: t('guardian.hydration'), value: `${Math.round(v.hydration)}`, unit: '%', icon: Droplets, low: 50, high: 100, current: v.hydration },
     { label: t('guardian.temperature'), value: `${typeof v.skin_temp === 'number' ? v.skin_temp.toFixed(1) : v.skin_temp}`, unit: '°C', icon: Thermometer, low: 35.5, high: 37.5, current: v.skin_temp },

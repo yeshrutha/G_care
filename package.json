@@ -17,6 +17,7 @@
     "db:import": "node server/database-cli.js import",
     "db:seed": "node server/database-cli.js seed",
     "db:status": "node server/database-cli.js status",
+    "db:patients": "node server/database-cli.js patients",
     "test:postgres": "node --test server/test/postgres.integration.test.js",
     "db:local": "node server/local-postgres.js",
     "build:owner": "vite build --mode owner && node scripts/owner-output.js",

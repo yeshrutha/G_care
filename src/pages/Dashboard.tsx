@@ -149,8 +149,8 @@ const getRiskScore = (elder: DemoElder, vitals?: DemoVitals) => {
   if (!vitals) return 0;
 
   let score = 8;
-  if (vitals.spo2 < 94) score += 24;
-  if (vitals.spo2 < 92) score += 18;
+  if (vitals.spo2 != null && vitals.spo2 < 94) score += 24;
+  if (vitals.spo2 != null && vitals.spo2 < 92) score += 18;
   if (vitals.systolic_bp >= 140 || vitals.diastolic_bp >= 90) score += 18;
   if (vitals.heart_rate > 95 || vitals.heart_rate < 55) score += 14;
   if (vitals.stress > 55) score += 12;
@@ -171,7 +171,7 @@ const getRiskLevel = (score: number) => {
 
 const getCareRecommendation = (elder: DemoElder, vitals?: DemoVitals) => {
   if (!vitals) return 'Waiting for latest vitals stream.';
-  if (vitals.spo2 < 94) return 'Check breathing comfort and keep oxygen trend under review.';
+  if (vitals.spo2 != null && vitals.spo2 < 94) return 'Check breathing comfort and keep oxygen trend under review.';
   if (vitals.systolic_bp >= 140 || vitals.diastolic_bp >= 90) return 'Repeat BP reading after rest and notify doctor if trend continues.';
   if (vitals.stress > 55) return 'Schedule a short check-in and review sleep or anxiety triggers.';
   if (vitals.hydration < 60) return 'Prompt fluids and recheck hydration within the hour.';

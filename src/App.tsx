@@ -141,7 +141,7 @@ const LiveVitalsSimulatorRunner = () => {
    hydrateAlertRecords(data.alerts||[]);
    if(signedInUser.accessStatus==='demo'&&state.simulationEnabled)state.updateLiveVitalsTick();
   }catch{}finally{active=false;}};
-  void cycle();const timer=setInterval(cycle,3000);return()=>{cancelled=true;clearInterval(timer);};
+  void cycle();const timer=setInterval(cycle,1000);return()=>{cancelled=true;clearInterval(timer);};
  },[signedInUser?.id]);
  return null;
 };

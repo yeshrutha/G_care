@@ -13,6 +13,9 @@ try {
  } else if (command === 'status') {
    const { rows } = await databasePool.query('SELECT current_database() AS database, version() AS version');
    console.log(JSON.stringify(rows));
- } else throw new Error('Use migrate, import <json-path>, seed, or status.');
+ } else if (command === 'patients') {
+   const { rows } = await databasePool.query('SELECT id, full_name FROM elders ORDER BY full_name, id');
+   console.table(rows);
+ } else throw new Error('Use migrate, import <json-path>, seed, status, or patients.');
 } catch (error) { console.error(error.code ? 'Database operation failed (' + error.code + '). Check connection, migration and input data.' : error.message); process.exitCode = 1; }
 finally { await closeDb(); }

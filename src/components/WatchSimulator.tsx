@@ -2825,7 +2825,7 @@ const WatchSimulator: React.FC<
                                 <span>SpO2</span>
                               </div>
                               <p className="text-base font-bold text-white tracking-tight">
-                                {typeof activeVitals.spo2 === 'number' ? activeVitals.spo2.toFixed(1) : activeVitals.spo2}%
+                                {activeVitals.spo2 == null ? 'Not available' : `${activeVitals.spo2.toFixed(1)}%`}
                               </p>
                               <p className="text-[10px] text-slate-400">oxygen</p>
                             </div>

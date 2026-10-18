@@ -3,7 +3,7 @@ export interface VitalsRow {
   heart_rate: number;
   systolic_bp: number;
   diastolic_bp: number;
-  spo2: number;
+  spo2: number | null;
   stress: number;
   hydration: number;
   breathing_rate: number;
@@ -57,7 +57,12 @@ export function getHourlyData(data: VitalsRow[], hours: number = 24): VitalsRow[
   return filtered.filter((_, i) => i % 10 === 0);
 }
 
-export function getWeeklyAverages(data: VitalsRow[]): Record<string, { avg_hr: number; avg_bp: number; avg_spo2: number; avg_stress: number; total_steps: number }> {
+function oxygenAverage(rows: VitalsRow[]): number | null {
+  const values = rows.map(row => row.spo2).filter((value): value is number => value != null && Number.isFinite(value));
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : null;
+}
+
+export function getWeeklyAverages(data: VitalsRow[]): Record<string, { avg_hr: number; avg_bp: number; avg_spo2: number | null; avg_stress: number; total_steps: number }> {
   const byDay: Record<string, VitalsRow[]> = {};
   data.forEach(row => {
     const day = row.timestamp.split('T')[0];
@@ -70,7 +75,7 @@ export function getWeeklyAverages(data: VitalsRow[]): Record<string, { avg_hr: n
     result[day] = {
       avg_hr: Math.round(rows.reduce((s, r) => s + r.heart_rate, 0) / rows.length),
       avg_bp: Math.round(rows.reduce((s, r) => s + r.systolic_bp, 0) / rows.length),
-      avg_spo2: Math.round(rows.reduce((s, r) => s + r.spo2, 0) / rows.length * 10) / 10,
+      avg_spo2: oxygenAverage(rows),
       avg_stress: Math.round(rows.reduce((s, r) => s + r.stress, 0) / rows.length),
       total_steps: rows.reduce((s, r) => s + r.steps, 0),
     };
@@ -85,7 +90,7 @@ export function getMonthlyAverages(data: VitalsRow[]) {
     avg_hr: Math.round(all.reduce((s, r) => s + r.heart_rate, 0) / all.length),
     avg_bp_sys: Math.round(all.reduce((s, r) => s + r.systolic_bp, 0) / all.length),
     avg_bp_dia: Math.round(all.reduce((s, r) => s + r.diastolic_bp, 0) / all.length),
-    avg_spo2: Math.round(all.reduce((s, r) => s + r.spo2, 0) / all.length * 10) / 10,
+    avg_spo2: oxygenAverage(all),
     avg_stress: Math.round(all.reduce((s, r) => s + r.stress, 0) / all.length),
     total_steps: all.reduce((s, r) => s + r.steps, 0),
     fall_count: all.filter(r => r.fall_detected).length,

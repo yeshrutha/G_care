@@ -26,6 +26,7 @@ lerna-debug.log*
 .env
 .env.*
 !.env.example
+**/GcareSecrets.local.h
 *.local
 
 # Test and coverage output
