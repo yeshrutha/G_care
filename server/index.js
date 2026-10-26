@@ -3,7 +3,9 @@ import { PORT } from './config.js';
 import { handleRequest } from './handlers.js';
 import { rateLimit, sendJson } from './http.js';
 import { serveStatic } from './static.js';
-import { initDb } from './db.js';
+import { initDb, dbService } from './db.js';
+import { startDemoTelemetry } from './demoTelemetry.js';
+import { DEMONSTRATION_PATIENT_IDS } from './demoPatientProfiles.js';
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -30,6 +32,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 initDb().then(() => {
+  startDemoTelemetry(dbService, DEMONSTRATION_PATIENT_IDS, () => console.error('Demonstration telemetry unavailable; retrying next cycle.'));
   server.listen(PORT, () => {
     console.log(`GuardianCare API running at http://127.0.0.1:${PORT}`);
   });
