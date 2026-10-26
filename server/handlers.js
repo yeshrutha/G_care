@@ -146,6 +146,7 @@ const reportSchema = z.object({
 });
 
 const assistantChatSchema = z.object({
+  surface: z.enum(['watch','chat']).default('watch'),
   message: z.string().trim().min(1).max(4000),
   elderId: z.string().min(1).max(160).nullish(),
   conversationHistory: z.array(z.object({
@@ -330,6 +331,7 @@ async function handleAssistantChat(req, res, user) {
       message: body.message,
       conversationHistory: body.conversationHistory,
       healthContext,
+      surface: body.surface,
     });
     if (user) {
       await dbService.addAuditLog(user, 'assistant_chat', 'assistant', body.elderId || 'general');

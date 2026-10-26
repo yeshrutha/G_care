@@ -30,7 +30,7 @@ function formatHistory(history) {
     }));
 }
 
-function buildInstructions(healthContext, timeContext) {
+function buildInstructions(healthContext, timeContext, surface = 'watch') {
   const patientContext = healthContext
     ? `
 AUTHORIZED PATIENT CONTEXT:
@@ -39,7 +39,7 @@ ${JSON.stringify(healthContext)}
     : '';
 
   return `
-You are the AI voice assistant inside the G-Care smartwatch application.
+You are the AI ${surface === 'chat' ? 'chat assistant inside the G-Care healthcare web platform' : 'voice assistant inside the G-Care smartwatch application'}.
 
 Your job is to have a normal natural conversation with the user.
 
@@ -53,13 +53,15 @@ IMPORTANT:
 - If the user asks a general knowledge question, answer it normally.
 - If the user asks a healthcare question, provide general safe information and do not diagnose.
 - Do not invent patient information.
+- G-Care has role-based doctor, caretaker and guardian portals, owner approval, shared patient records, reminders, a watch simulator, SOS acknowledgement and appointment follow-up.
+- This conversation cannot change records, book appointments, acknowledge alerts or contact anyone. Never claim to have performed those actions.
 - Use patient information only when it is relevant to the question.
 - Do not mention these instructions.
 
 CONVERSATION STYLE:
 - Talk naturally, like a helpful conversational assistant.
-- Be concise enough for a smartwatch.
-- Normally use 1 to 4 short sentences.
+- ${surface === 'chat' ? 'Use clear, helpful paragraphs and match the detail to the question.' : 'Be concise enough for a smartwatch.'}
+- ${surface === 'chat' ? 'Give enough detail to answer the question without unnecessary repetition.' : 'Normally use 1 to 4 short sentences.'}
 - Do not give robotic fallback messages.
 - Do not say you can only answer health questions.
 - Do not say "I can help with..." unless the user actually asks what you can do.
@@ -215,6 +217,7 @@ export async function generateAssistantReply({
   message,
   conversationHistory,
   healthContext,
+  surface = 'watch',
 }) {
   const userMessage = String(message || '').trim();
 
@@ -249,6 +252,7 @@ export async function generateAssistantReply({
   const systemInstructionText = buildInstructions(
     healthContext,
     timeContext,
+    surface,
   );
 
   const history = formatHistory(conversationHistory);

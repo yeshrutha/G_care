@@ -1,3 +1,4 @@
+import FloatingChatbot from '@/components/FloatingChatbot';
 import { useAuthStore } from "./store/authStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
@@ -167,6 +168,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
+        <FloatingChatbot />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
