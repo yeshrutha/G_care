@@ -3,11 +3,11 @@ import { useTranslation } from 'react-i18next';
 import React, { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Activity, Heart, Droplets, Wind, Thermometer, Brain, Footprints, Vibrate } from 'lucide-react';
+import { Activity, Heart, Droplets, Wind, Thermometer, Brain, Footprints } from 'lucide-react';
 import { LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ComposedChart } from 'recharts';
 import { loadVitalsCSV, getHourlyData, getLatestVitals, type VitalsRow } from '@/lib/csvLoader';
 import { useGuardianStore } from '@/store/guardianStore';
-import { useAppStore, type MotionState } from '@/store';
+import { useAppStore } from '@/store';
 import { apiFetch } from '@/lib/api';
 
 const statusColor = (val: number | null, low: number, high: number) => {
@@ -22,13 +22,6 @@ const statusBg = (val: number | null, low: number, high: number) => {
   if (val < low || val > high) return 'bg-destructive/10 border-destructive/20';
   if (val < low * 1.05 || val > high * 0.95) return 'bg-gw-amber/10 border-gw-amber/20';
   return 'bg-gw-green/10 border-gw-green/20';
-};
-
-const MOTION_LABELS: Record<MotionState, { label: string; color: string }> = {
-  walking: { label: '🚶 Walking', color: 'text-gw-green' },
-  sitting: { label: '🪑 Sitting', color: 'text-teal' },
-  standing: { label: '🧍 Standing', color: 'text-blue-500' },
-  lying_down: { label: '🛏️ Lying Down', color: 'text-gw-purple' },
 };
 
 const FeedTab: React.FC = () => {
@@ -64,9 +57,6 @@ const FeedTab: React.FC = () => {
 
   if(!storeVitals)return <div className="p-6 text-muted-foreground">No readings yet for this patient.</div>;
   const v = storeVitals;
-  const motionState = (v?.motion_state as MotionState) || 'sitting';
-  const motionInfo = MOTION_LABELS[motionState] || MOTION_LABELS['sitting'];
-  const isShivering = Boolean(v?.shiver_detected);
   const isFalling = Boolean(v?.fall_detected);
 
   const elderName = patient?.full_name || guardianUser?.elderName || 'Registered elder';
@@ -104,32 +94,6 @@ const FeedTab: React.FC = () => {
           </CardContent>
         </Card>
       )}
-
-      {/* Motion & Shiver Monitors */}
-      <div className="grid grid-cols-2 gap-3">
-        <Card className="rounded-xl border bg-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Footprints className="h-4 w-4 text-teal" />
-              <span className="text-xs text-muted-foreground font-medium">{t('guardian.motion')}</span>
-            </div>
-            <span className={`text-lg font-bold ${motionInfo.color}`}>{motionInfo.label}</span>
-            <p className="text-xs text-muted-foreground mt-1">Accelerometer + Gyroscope</p>
-          </CardContent>
-        </Card>
-        <Card className={`rounded-xl border ${isShivering ? 'bg-gw-amber/10 border-gw-amber/30' : 'bg-card'}`}>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Vibrate className="h-4 w-4 text-gw-purple" />
-              <span className="text-xs text-muted-foreground font-medium">{t('guardian.shiver')}</span>
-            </div>
-            <span className={`text-lg font-bold ${isShivering ? 'text-gw-amber' : 'text-gw-green'}`}>
-              {isShivering ? '⚠️ Shivering Detected' : '✅ Normal'}
-            </span>
-            <p className="text-xs text-muted-foreground mt-1">Micro-tremor analysis</p>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Vitals Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">

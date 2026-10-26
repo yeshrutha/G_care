@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { DemoVitals } from '@/store';
-import { Heart, Droplets, Wind, Thermometer, Activity, Brain, Waves, AlertTriangle } from 'lucide-react';
+import { Heart, Droplets, Wind, Thermometer, Activity, Brain, Waves } from 'lucide-react';
 
 interface Props {
   vitals: DemoVitals;
@@ -33,7 +33,6 @@ export const VitalsGrid: React.FC<Props> = React.memo(({ vitals, compact }) => {
     { label: t('vitals.hydration'), value: vitals.hydration, unit: t('vitals.percent'), icon: Droplets, status: getStatus(vitals.hydration, 60, 100) },
     { label: t('vitals.breathing'), value: vitals.breathing_rate, unit: t('vitals.brpm'), icon: Waves, status: getStatus(vitals.breathing_rate, 12, 20) },
     { label: t('vitals.temp'), value: vitals.skin_temp, unit: t('vitals.celsius'), icon: Thermometer, status: getStatus(vitals.skin_temp, 35.5, 37.5) },
-    { label: t('vitals.shiver'), value: vitals.shiver_detected ? '⚠️' : '—', unit: '', icon: AlertTriangle, status: vitals.shiver_detected ? 'critical' as const : 'normal' as const },
   ];
 
   if (compact) {
