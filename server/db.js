@@ -1,3 +1,4 @@
+import { patientAlertMessage } from './alertText.js';
 import { withUshaDemonstrationVitals } from './hybridVitals.js';
 import { alertVisibleToRole } from '../src/lib/alertAudience.js';
 import { loadReportFile } from './reportFiles.js';
@@ -1008,7 +1009,7 @@ export const dbService = {
         ownerId: a.owner_id,
         type: a.type,
         severity: a.severity,
-        message: a.message,
+        message: patientAlertMessage(a.message, a.elder_id, a.elder_name),
         location: a.location,
         resolved: a.resolved,
         anomaly_type: a.anomaly_type,
@@ -1023,7 +1024,7 @@ export const dbService = {
         if (alert.elder_id && elderIds.includes(alert.elder_id)) return true;
         if (alert.elderId && elderIds.includes(alert.elderId)) return true;
         return false;
-      });
+      }).map(a => { const patient = fileDb.elders.find(e => e.id === (a.elder_id || a.elderId)); return {...a, elderName:patient?.full_name || a.elderName, elder_name:patient?.full_name || a.elder_name, message:patientAlertMessage(a.message,a.elder_id || a.elderId,patient?.full_name)}; });
     }
   },
 
@@ -1046,7 +1047,7 @@ export const dbService = {
         ownerId: a.owner_id,
         type: a.type,
         severity: a.severity,
-        message: a.message,
+        message: patientAlertMessage(a.message, a.elder_id, a.elder_name),
         location: a.location,
         resolved: a.resolved,
         anomaly_type: a.anomaly_type,
@@ -1555,7 +1556,7 @@ export const dbService = {
         return elders.some((elder) => elder.full_name === elderName);
       }).map((a) => {
         const elder = fileDb.elders.find((e) => e.id === (a.elderId || a.elder_id));
-        return { ...a, elderName: elder?.full_name || '', elder_name: elder?.full_name || '' };
+        return { ...a, elderName: elder?.full_name || '', elder_name: elder?.full_name || '', message:patientAlertMessage(a.message,a.elderId || a.elder_id,elder?.full_name) };
       });
 
       // Fetch latest vitals for each elder

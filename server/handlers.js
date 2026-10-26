@@ -998,7 +998,8 @@ async function handleDevice(req, res, pathName, user) {
     }
     const allowed = user.role === 'device' ? elderId === user.deviceElderId : await dbService.userOwnsElder(user, elderId);
     if (!allowed) return sendJson(res, 403, { error: 'Device or patient assignment required.' }, req);
-    if (!(await dbService.getElderById(elderId))) {
+    const devicePatient = await dbService.getElderById(elderId);
+    if (!devicePatient) {
       return sendJson(res, 404, { error: 'Patient not found. Create or import the patient, then set DEVICE_ELDER_ID and the wearable elderId to that patient ID.' }, req);
     }
 
@@ -1049,7 +1050,7 @@ async function handleDevice(req, res, pathName, user) {
         elder_id: elderId,
         type: 'fall',
         severity: 'critical',
-        message: `Wearable fall detected for elder ${elderId}!`,
+        message: `Wearable fall detected for ${devicePatient.full_name}!`,
       });
     }
 

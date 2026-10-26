@@ -1,0 +1,3 @@
+import {it,expect} from 'vitest';import {patientAlertMessage} from '../../server/alertText.js';
+it('replaces legacy fall alert identifiers with the actual patient name',()=>{expect(patientAlertMessage('Wearable fall detected for elder elder-abc!','elder-abc','Usha')).toBe('Wearable fall detected for Usha!');expect(patientAlertMessage('Wearable fall detected for Shekar!','id','Shekar')).toBe('Wearable fall detected for Shekar!');});
+it('does not guess names or change unrelated text',()=>{expect(patientAlertMessage('Alert for elder id','id',undefined)).toBe('Alert for elder id');expect(patientAlertMessage('Heart rate 45 bpm','id','Usha')).toBe('Heart rate 45 bpm');});
