@@ -1,3 +1,4 @@
+import { withUshaDemonstrationVitals, USHA_DEVICE_PATIENT_ID } from './hybridVitals.js';
 import {saveReminderResponse} from './reminderResponse.js';
 import { handleWatchSimulator, authenticatePairedWatch } from './watchSimulator.js';
 import { handleProofTransfer } from './proofTransfer.js';
@@ -1000,6 +1001,7 @@ async function handleDevice(req, res, pathName, user) {
     }
 
     // Parse hardware metrics (accepts camelCase and snake_case from ESP32)
+    if (elderId === USHA_DEVICE_PATIENT_ID && body.heartRate == null && body.heart_rate == null) return sendJson(res,400,{error:'A measured heart rate is required for Usha hardware telemetry.'},req);
     const heart_rate = Math.round(Number(body.heartRate ?? body.heart_rate ?? 75));
     if (body.spo2Valid !== undefined && typeof body.spo2Valid !== 'boolean') {
       return sendJson(res, 400, { error: 'spo2Valid must be a boolean.' }, req);
@@ -1036,7 +1038,7 @@ async function handleDevice(req, res, pathName, user) {
     };
 
     const previousReading=(await dbService.getVitalsReadings(elderId,1))[0];
-    const validatedReading=parseBody(vitalsSchema,reading,res,req);
+    const validatedReading=parseBody(vitalsSchema,withUshaDemonstrationVitals(reading),res,req);
     if (!validatedReading) return;
     const saved = await dbService.createVitalsReading(validatedReading);
 

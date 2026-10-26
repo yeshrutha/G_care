@@ -16,7 +16,7 @@ const demoIds=process.env.OWNER_SIMULATION_ENABLED==='true'?JSON.parse(process.e
 if(!Array.isArray(demoIds)||demoIds.length>20||demoIds.some(id=>typeof id!=='string'))throw Error('Invalid private simulation patient list.');
 const activeDemoIds=[...new Set([...demoIds.filter(id=>id!=='elder-c2770349-ccb7-44ae-abf7-598cea661ccb'),...DEMONSTRATION_PATIENT_IDS])];
 const stopSimulation=startDemoTelemetry(dbService,activeDemoIds,()=>console.error('Demo telemetry update unavailable; retrying next cycle.'));
-if(activeDemoIds.length)console.log('Synthetic demo telemetry enabled for '+activeDemoIds.length+' selected patients (5-second interval).');
+if(activeDemoIds.length)console.log('Synthetic demo telemetry enabled for '+activeDemoIds.length+' selected patients (1-second interval).');
 const server=http.createServer(async(req,res)=>{try{if(!rateLimit(req,res))return;const pathname=new URL(req.url,'http://localhost').pathname;if(pathname==='/api/owner/connection')return sendJson(res,200,{mode:'Live G-Care database',localPortal:true},req);if(!pathname.startsWith('/api/owner/'))return sendJson(res,404,{error:'Not found'},req);return await handleOwner(req,res,pathname);}catch{sendJson(res,503,{error:'Owner connection unavailable. Check the private database settings.'},req);}});
 server.listen(8788,'127.0.0.1',()=>console.log('Local owner backend connected to live G-Care on 127.0.0.1:8788.'));
 async function stop(){stopSimulation();server.close();await closeDb();process.exit(0);}process.on('SIGTERM',stop);process.on('SIGINT',stop);

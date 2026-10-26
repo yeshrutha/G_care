@@ -1,3 +1,4 @@
+import { withUshaDemonstrationVitals } from './hybridVitals.js';
 import { alertVisibleToRole } from '../src/lib/alertAudience.js';
 import { loadReportFile } from './reportFiles.js';
 import { hasApprovedAccess, isDemoAccount, DEMO_PATIENT_IDS, safeEditableProfile } from './accessPolicy.js';
@@ -1213,7 +1214,7 @@ export const dbService = {
         limit === 1 ? 'SELECT * FROM vitals_latest WHERE elder_id = $1 ORDER BY timestamp DESC LIMIT $2' : 'SELECT * FROM vitals_readings WHERE elder_id = $1 ORDER BY timestamp DESC LIMIT $2',
         [elderId, limit]
       );
-      return rows.map((v) => ({
+      const readings = rows.map((v) => ({
         id: v.id,
         elderId: v.elder_id,
         heart_rate: v.heart_rate,
@@ -1230,11 +1231,12 @@ export const dbService = {
         source: v.source,
         timestamp: v.timestamp ? v.timestamp.toISOString() : null,
       }));
+      return limit === 1 ? readings.map(r => withUshaDemonstrationVitals(r)) : readings;
     } else {
       const fileDb = await readDb();
       return (fileDb.vitalsReadings || [])
         .filter((r) => r.elderId === elderId)
-        .slice(0, limit);
+        .slice(0, limit).map(r => limit === 1 ? withUshaDemonstrationVitals(r) : r);
     }
   },
 
@@ -1533,7 +1535,7 @@ export const dbService = {
       for (const eId of elderIds) {
         const readings = await dbService.getVitalsReadings(eId, 1);
         if (readings.length > 0) {
-          vitals[eId] = readings[0];
+          vitals[eId] = withUshaDemonstrationVitals(readings[0]);
         }
       }
 
@@ -1563,7 +1565,7 @@ export const dbService = {
           .filter((r) => r.elderId === eId)
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         if (readings.length > 0) {
-          vitals[eId] = readings[0];
+          vitals[eId] = withUshaDemonstrationVitals(readings[0]);
         }
       }
 

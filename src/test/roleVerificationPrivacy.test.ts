@@ -101,6 +101,13 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     expect((await request('/api/watch-simulator/reminder-response','POST',{...body,reminderId:'med-taken-med-1'},undefined,headers)).status).toBe(200);
     expect((await request('/api/watch-simulator/state','GET',undefined,undefined,headers)).data.alerts.filter((a:any)=>a.type==='medication_taken')).toHaveLength(2);
   });
+  it('combines Usha device heart rate and fall with demonstration fields across the watch and portal',async()=>{
+    const id='elder-c2770349-ccb7-44ae-abf7-598cea661ccb';const data=await readDb();data.elders.push({...data.elders[0],id,full_name:'Usha'});data.users.find((u:any)=>u.id===doctor.id).assignedElderIds.push(id);await writeDb(data);
+    const token=signToken(doctor);expect((await request('/api/device/vitals','POST',{elderId:id,fallDetected:true},token)).status).toBe(400);const sent=await request('/api/device/vitals','POST',{elderId:id,heartRate:47,fallDetected:true,spo2:null,temperature:0,systolicBp:0},token);
+    expect(sent.status).toBe(201);expect(sent.data.reading.heart_rate).toBe(47);expect(sent.data.reading.fall_detected).toBe(true);expect(sent.data.reading.spo2).toBeGreaterThan(90);
+    const dashboard=await request('/api/dashboard-data','GET',undefined,token);expect(dashboard.data.vitals[id].heart_rate).toBe(47);expect(dashboard.data.vitals[id].measured_fields).toEqual(['heart_rate','fall_detected']);
+    const pair=await request('/api/watch-simulator/pair','POST',{},token);const key=pair.data.find((p:any)=>p.patient.id===id).token;const state=await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key});expect(state.data.vitals.heart_rate).toBe(47);expect(state.data.vitals.fall_detected).toBe(true);expect(state.data.vitals.simulated_fields).toContain('spo2');
+  });
   it('persists editable profile details when the account is fetched again', async () => {
     const token = signToken(doctor);
     const saved = await request('/api/auth/profile', 'PUT', {

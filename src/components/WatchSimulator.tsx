@@ -432,7 +432,7 @@ const WatchSimulator: React.FC<
     const timer=window.setInterval(async()=>{
       if(inFlight || !getStoredToken()) return;
       const state=useAppStore.getState(); const reading=state.demoVitals[selectedElderId];
-      if(!state.simulationEnabled || !reading || !state.demoElders.some(e=>e.id===selectedElderId))return;
+      if(selectedElderId==='elder-c2770349-ccb7-44ae-abf7-598cea661ccb' || reading?.source==='device' || !state.simulationEnabled || !reading || !state.demoElders.some(e=>e.id===selectedElderId))return;
       inFlight=true;
       try {await apiFetch('/vitals',{method:'POST',body:JSON.stringify({...reading,elderId:selectedElderId,source:'simulator',timestamp:new Date().toISOString()})});} catch {} finally {inFlight=false;}
     },30000);
@@ -528,7 +528,7 @@ const WatchSimulator: React.FC<
         }
         if((data.alerts||[]).some((a:any)=>a.type==='sos'&&a.resolved) && !(data.alerts||[]).some((a:any)=>a.type==='sos'&&!a.resolved))stopAlertLoop('sos');
       }catch{}finally{busy=false;}
-    };poll();const interval=window.setInterval(poll,3000);return()=>{cancelled=true;window.clearInterval(interval);};
+    };poll();const interval=window.setInterval(poll,1000);return()=>{cancelled=true;window.clearInterval(interval);};
   },[open,activeElder?.id,pairedWatches]);
 
   const activeVitals = useMemo(() => {

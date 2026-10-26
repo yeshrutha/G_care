@@ -187,3 +187,11 @@ test('owner PostgreSQL review and read-only records enforce separate authenticat
  assert.equal((await request('logout','POST')).status,200);assert.equal((await request('records')).status,401);
  delete process.env.OWNER_EMAIL;delete process.env.OWNER_PASSWORD_HASH;
 });
+
+test('Usha hybrid display keeps the actual device record intact in PostgreSQL',async()=>{
+ const id='elder-c2770349-ccb7-44ae-abf7-598cea661ccb';
+ await pool.query("INSERT INTO elders(id,full_name,age,medical_conditions) VALUES ($1,'Usha',45,'[\"Breast cancer\"]') ON CONFLICT DO NOTHING",[id]);
+ const saved=await db.createVitalsReading({elderId:id,source:'device',heart_rate:43,fall_detected:true,spo2:null,systolic_bp:120,diastolic_bp:80,stress:0,hydration:0,breathing_rate:16,skin_temp:36.6});
+ const current=(await db.getVitalsReadings(id,1))[0];assert.equal(current.heart_rate,43);assert.equal(current.fall_detected,true);assert.equal(current.timestamp,saved.timestamp);assert.ok(current.spo2>90);assert.ok(current.simulated_fields.includes('spo2'));
+ const raw=(await pool.query('SELECT * FROM vitals_latest WHERE elder_id=$1',[id])).rows[0];assert.equal(raw.heart_rate,43);assert.equal(raw.spo2,null);assert.equal(raw.source,'device');
+});
