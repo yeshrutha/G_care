@@ -2773,159 +2773,36 @@ const WatchSimulator: React.FC<
                       )}
 
                       {watchScreenMode === 'main' ? (
-                        <>
-                          {/* Motion & Shiver Monitor Live Banner */}
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1 font-medium">
-                                <Footprints className="h-3 w-3 text-teal" /> Motion
-                              </span>
-                              <span className="font-semibold text-emerald-300 capitalize">
-                                {activeVitals.motion_state === 'walking'
-                                  ? '🚶 Walking'
-                                  : activeVitals.motion_state === 'standing'
-                                    ? '🧍 Standing'
-                                    : activeVitals.motion_state === 'lying_down'
-                                      ? '🛏️ Resting'
-                                      : '🪑 Sitting'}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1 font-medium">
-                                <Vibrate className="h-3 w-3 text-purple-300" /> Shiver
-                              </span>
-                              <span
-                                className={cn(
-                                  'font-semibold',
-                                  activeVitals.shiver_detected
-                                    ? 'text-amber-400 animate-pulse'
-                                    : 'text-emerald-300',
-                                )}
-                              >
-                                {activeVitals.shiver_detected ? '⚠️ Tremor' : '✅ Normal'}
-                              </span>
-                            </div>
+                        <section aria-label="Main heart rate" className="rounded-[1.6rem] border border-teal/25 bg-teal/10 px-4 py-4 text-center">
+                          <div className="mb-2 flex items-center justify-center gap-2 text-xs text-slate-300">
+                            <HeartPulse className="h-5 w-5 text-rose-400 animate-pulse" />
+                            <span>Heart Rate</span>
                           </div>
-
-                          <div className="grid grid-cols-3 gap-1.5">
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
-                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                                <HeartPulse className="h-3.5 w-3.5 text-rose-400 animate-pulse" />
-                                <span>HR</span>
-                              </div>
-                              <p className="text-base font-bold text-white tracking-tight">
-                                {Math.round(activeVitals.heart_rate)}
-                              </p>
-                              <p className="text-[10px] text-slate-400">bpm</p>
-                            </div>
-
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
-                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                                <Activity className="h-3.5 w-3.5 text-cyan-300" />
-                                <span>SpO2</span>
-                              </div>
-                              <p className="text-base font-bold text-white tracking-tight">
-                                {activeVitals.spo2 == null ? 'Not available' : `${activeVitals.spo2.toFixed(1)}%`}
-                              </p>
-                              <p className="text-[10px] text-slate-400">oxygen</p>
-                            </div>
-
-                            <div className="rounded-[1.4rem] border border-white/10 bg-white/5 p-2 text-center">
-                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                                <Footprints className="h-3.5 w-3.5 text-emerald-300" />
-                                <span>Steps</span>
-                              </div>
-                              <p className="text-base font-bold text-white tracking-tight">
-                                {stepCount}
-                              </p>
-                              <p className="text-[10px] text-slate-400">walked</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1">
-                                <Activity className="h-3 w-3 text-teal" /> BP
-                              </span>
-                              <span className="font-semibold text-white">
-                                {Math.round(activeVitals.systolic_bp)}/{Math.round(activeVitals.diastolic_bp)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1">
-                                <Thermometer className="h-3 w-3 text-amber-300" /> Temp
-                              </span>
-                              <span className="font-semibold text-white">
-                                {typeof activeVitals.skin_temp === 'number' ? activeVitals.skin_temp.toFixed(1) : activeVitals.skin_temp}°C
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1">
-                                <Brain className="h-3 w-3 text-purple-300" /> Stress
-                              </span>
-                              <span className="font-semibold text-white">
-                                {Math.round(activeVitals.stress)}/100
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.04] px-2.5 py-1 text-[10px]">
-                              <span className="text-slate-400 flex items-center gap-1">
-                                <Droplets className="h-3 w-3 text-blue-300" /> Hydration
-                              </span>
-                              <span className="font-semibold text-white">
-                                {Math.round(activeVitals.hydration)}%
-                              </span>
-                            </div>
-                          </div>
-                        </>
+                          <p className="text-4xl font-bold tracking-tight text-white">{Math.round(activeVitals.heart_rate)}</p>
+                          <p className="mt-1 text-xs text-slate-400">bpm</p>
+                        </section>
                       ) : (
-                        <div className="grid grid-cols-2 gap-1.5">
-                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
-                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                              <Activity className="h-3 w-3 text-teal" />
-                              <span>Blood Pressure</span>
+                        <section aria-label="Clinical readings" className="grid grid-cols-2 gap-1.5">
+                          {[
+                            {label:'SpO2',Icon:Activity,value:activeVitals.spo2 == null ? 'Not available' : activeVitals.spo2.toFixed(1)+'%',unit:'oxygen'},
+                            {label:'Steps',Icon:Footprints,value:stepCount,unit:'walked'},
+                            {label:'Blood Pressure',Icon:Activity,value:Math.round(activeVitals.systolic_bp)+'/'+Math.round(activeVitals.diastolic_bp),unit:'mmHg'},
+                            {label:'Temperature',Icon:Thermometer,value:typeof activeVitals.skin_temp === 'number' ? activeVitals.skin_temp.toFixed(1) : activeVitals.skin_temp,unit:'°C'},
+                            {label:'Stress Index',Icon:Brain,value:Math.round(activeVitals.stress),unit:'/100'},
+                            {label:'Hydration',Icon:Droplets,value:Math.round(activeVitals.hydration)+'%',unit:'level'},
+                            {label:'Respiration',Icon:Waves,value:Math.round(activeVitals.breathing_rate),unit:'brpm'},
+                            {label:'Motion',Icon:Footprints,value:activeVitals.motion_state === 'walking' ? 'Walking' : activeVitals.motion_state === 'standing' ? 'Standing' : activeVitals.motion_state === 'lying_down' ? 'Resting' : 'Sitting',unit:'activity'},
+                            {label:'Shiver',Icon:Vibrate,value:activeVitals.shiver_detected ? 'Tremor' : 'Normal',unit:'status'},
+                          ].map(({label,Icon,value,unit}) => (
+                            <div key={label} className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
+                              <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
+                                <Icon className="h-3 w-3 text-teal" /><span>{label}</span>
+                              </div>
+                              <p className={cn('text-sm font-bold',label === 'Shiver' && activeVitals.shiver_detected ? 'text-amber-400 animate-pulse' : 'text-white')}>{value}</p>
+                              <p className="text-[9px] text-slate-400">{unit}</p>
                             </div>
-                            <p className="text-sm font-bold text-white">
-                              {Math.round(activeVitals.systolic_bp)}/{Math.round(activeVitals.diastolic_bp)}
-                            </p>
-                            <p className="text-[9px] text-slate-400">mmHg</p>
-                          </div>
-
-                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
-                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                              <Waves className="h-3 w-3 text-sky-300" />
-                              <span>Respiration</span>
-                            </div>
-                            <p className="text-sm font-bold text-white">
-                              {Math.round(activeVitals.breathing_rate)}
-                            </p>
-                            <p className="text-[9px] text-slate-400">brpm</p>
-                          </div>
-
-                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
-                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                              <Brain className="h-3 w-3 text-purple-300" />
-                              <span>Stress Index</span>
-                            </div>
-                            <p className="text-sm font-bold text-white">
-                              {Math.round(activeVitals.stress)}
-                            </p>
-                            <p className="text-[9px] text-slate-400">/100</p>
-                          </div>
-
-                          <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 text-center">
-                            <div className="mb-1 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-                              <Droplets className="h-3 w-3 text-blue-300" />
-                              <span>Hydration</span>
-                            </div>
-                            <p className="text-sm font-bold text-white">
-                              {Math.round(activeVitals.hydration)}%
-                            </p>
-                            <p className="text-[9px] text-slate-400">level</p>
-                          </div>
-                        </div>
+                          ))}
+                        </section>
                       )}
 
                       {/* -------------------------------- */}
