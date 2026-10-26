@@ -1,0 +1,10 @@
+import {it,expect,vi,afterEach} from 'vitest';
+vi.mock('../../server/config.js',()=>({GEMINI_API_KEY:'synthetic-test-key',GEMINI_MODEL:'gemini-3.6-flash'}));
+afterEach(()=>{vi.unstubAllGlobals();vi.useRealTimers();vi.resetModules();});
+const ok=()=>({ok:true,json:async()=>({candidates:[{content:{parts:[{text:'Hello'}]}}]})});
+it('uses minimal reasoning and reuses a working model instead of repeating missing models',async()=>{
+ const fetch=vi.fn().mockResolvedValueOnce({ok:false,status:404,json:async()=>({error:{message:'Not found'}})}).mockResolvedValue(ok());vi.stubGlobal('fetch',fetch);const {generateAssistantReply}=await import('../../server/ai.js');
+ expect(await generateAssistantReply({message:'Hello',conversationHistory:[],healthContext:null,surface:'chat'})).toBe('Hello');expect(await generateAssistantReply({message:'Again',conversationHistory:[],healthContext:null,surface:'chat'})).toBe('Hello');expect(fetch).toHaveBeenCalledTimes(3);expect(fetch.mock.calls[2][0]).toContain('gemini-3.5-flash');expect(JSON.parse(fetch.mock.calls[0][1].body).generationConfig.thinkingConfig).toEqual({thinkingLevel:'minimal'});
+});
+it('does not repeat failed authentication across all fallback models',async()=>{const fetch=vi.fn().mockResolvedValue({ok:false,status:403,json:async()=>({error:{message:'Forbidden'}})});vi.stubGlobal('fetch',fetch);const {generateAssistantReply}=await import('../../server/ai.js');await expect(generateAssistantReply({message:'Hello'})).rejects.toThrow('authentication');expect(fetch).toHaveBeenCalledTimes(1);});
+it('caps timeout retries at twenty seconds total',async()=>{vi.useFakeTimers();const fetch=vi.fn((_url,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(Object.assign(new Error('Aborted'),{name:'AbortError'})))));vi.stubGlobal('fetch',fetch);const {generateAssistantReply}=await import('../../server/ai.js');const result=generateAssistantReply({message:'Hello'}).catch(e=>e);await vi.advanceTimersByTimeAsync(20000);expect((await result).statusCode).toBe(504);expect(fetch).toHaveBeenCalledTimes(2);});

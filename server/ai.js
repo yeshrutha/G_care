@@ -1,4 +1,6 @@
 import { GEMINI_API_KEY, GEMINI_MODEL } from './config.js';
+let preferredModel = null;
+const unavailableModels = new Set();
 
 export class AssistantServiceError extends Error {
   constructor(message, statusCode = 502) {
@@ -101,7 +103,7 @@ async function callGeminiAPI(
   apiKey,
   systemInstructionText,
   contents,
-  timeoutMs = 30000,
+  timeoutMs = 10000,
 ) {
   const controller = new AbortController();
 
@@ -147,6 +149,7 @@ async function callGeminiAPI(
           // Gemini 3.x does not use the old temperature/top_p/top_k
           // sampling parameters.
           maxOutputTokens: 500,
+          ...(/^gemini-3.*flash/.test(cleanModel) ? {thinkingConfig:{thinkingLevel:'minimal'}} : /^gemini-2\.5-flash/.test(cleanModel) ? {thinkingConfig:{thinkingBudget:0}} : {}),
         },
       }),
       signal: controller.signal,
@@ -270,20 +273,24 @@ export async function generateAssistantReply({
   ];
 
   const modelsToTry = [
+    preferredModel,
     GEMINI_MODEL,
     'gemini-3.6-flash',
     'gemini-3.5-flash',
     'gemini-3.5-flash-lite',
     'gemini-3.1-flash-lite',
-  ].filter(Boolean);
+  ].filter(model => model && !unavailableModels.has(model));
 
   const uniqueModels = [
     ...new Set(modelsToTry),
   ];
 
   let lastError = null;
+  const deadline = Date.now() + 20000;
 
   for (const model of uniqueModels) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     try {
       console.log(
         `[G-Care AI] Trying Gemini model: ${model}`,
@@ -294,15 +301,20 @@ export async function generateAssistantReply({
         GEMINI_API_KEY,
         systemInstructionText,
         contents,
+        Math.min(10000, remaining),
       );
 
       console.log(
         `[G-Care AI] Gemini response received from ${model}`,
       );
 
+      preferredModel = model;
       return answer;
     } catch (error) {
       lastError = error;
+      if(error?.statusCode === 404) unavailableModels.add(model);
+      if(model === preferredModel) preferredModel = null;
+      if([400,401,403].includes(error?.statusCode)) break;
 
       console.error(
         `[G-Care AI] Model ${model} failed:`,
