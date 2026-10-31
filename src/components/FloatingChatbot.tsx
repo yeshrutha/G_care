@@ -49,7 +49,7 @@ export default function FloatingChatbot() {
   {open && <section role="dialog" aria-label="G-Care AI chat" onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();close();}}} className="fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100dvh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl sm:right-6">
    <header className="flex items-center gap-3 bg-teal px-4 py-3 text-white"><Bot className="h-6 w-6"/><div className="flex-1"><h2 className="font-semibold">G-Care AI</h2><p className="text-xs text-white/85">Powered by Gemini</p></div><button type="button" aria-label="New conversation" onClick={reset} className="rounded-lg p-2 hover:bg-white/15"><RotateCcw className="h-4 w-4"/></button><button type="button" aria-label="Close chat" onClick={close} className="rounded-lg p-2 hover:bg-white/15"><X className="h-5 w-5"/></button></header>
    <details className="shrink-0 border-b border-border bg-background px-4 py-2">
-    <summary className="cursor-pointer text-sm font-medium text-teal focus-visible:outline-none focus-visible:underline">What can you answer?</summary>
+    <summary className="cursor-pointer text-sm font-medium text-teal focus-visible:outline-none focus-visible:underline">What I can answer</summary>
     <div className="mt-2 max-h-44 overflow-y-auto text-xs leading-relaxed text-muted-foreground">
      <ul className="list-disc space-y-1 pl-4">
       <li>How to use G-Care portals, reminders, SOS alerts and appointment follow-ups.</li>
