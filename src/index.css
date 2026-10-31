@@ -114,3 +114,11 @@ input::-webkit-credentials-auto-fill-button {
 }
 
 html.high-contrast { filter: contrast(1.35); }
+
+@keyframes gcare-pulse-beat {
+  0%, 100% { transform: scaleY(0.25); opacity: 0.4; }
+  35% { transform: scaleY(1); opacity: 1; }
+  65% { transform: scaleY(0.4); opacity: 0.6; }
+}
+.gcare-pulse-bar { animation-name: gcare-pulse-beat; animation-timing-function: ease-in-out; animation-iteration-count: infinite; }
+@media (prefers-reduced-motion: reduce) { .gcare-pulse-bar { animation: none !important; } }

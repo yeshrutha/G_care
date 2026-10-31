@@ -1,3 +1,4 @@
+import HeartRatePulse from '@/components/HeartRatePulse';
 import {buildWatchReminders} from '@/lib/watchReminders.js';
 import {answerWatchQuestion} from '@/lib/watchLocalAnswers.js';
 import {hasAppointmentReceipt,recordAppointmentReceipt} from '@/lib/watchAppointmentReceipts.js';
@@ -2773,13 +2774,14 @@ const WatchSimulator: React.FC<
                       )}
 
                       {watchScreenMode === 'main' ? (
-                        <section aria-label="Main heart rate" className="rounded-[1.6rem] border border-teal/25 bg-teal/10 px-4 py-4 text-center">
-                          <div className="mb-2 flex items-center justify-center gap-2 text-xs text-slate-300">
-                            <HeartPulse className="h-5 w-5 text-rose-400 animate-pulse" />
+                        <section aria-label="Main heart rate" className="rounded-[1.6rem] border border-teal/25 bg-teal/10 px-4 py-2 text-center">
+                          <div className="mb-1 flex items-center justify-center gap-2 text-xs text-slate-300">
+                            <HeartPulse className="h-5 w-5 text-rose-400" />
                             <span>Heart Rate</span>
                           </div>
-                          <p className="text-4xl font-bold tracking-tight text-white">{Math.round(activeVitals.heart_rate)}</p>
+                          <p className="text-4xl font-bold leading-none tracking-tight text-white">{Math.round(activeVitals.heart_rate)}</p>
                           <p className="mt-1 text-xs text-slate-400">bpm</p>
+                          <HeartRatePulse reading={activeVitals} now={currentTime.getTime()} />
                         </section>
                       ) : (
                         <section aria-label="Clinical readings" className="grid grid-cols-2 gap-1.5">
