@@ -2,7 +2,7 @@ import {liveDisplayReading} from '@/lib/liveDisplayVitals.js';
 import FloatingChatbot from '@/components/FloatingChatbot';
 import { useAuthStore } from "./store/authStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -154,6 +154,13 @@ const LiveVitalsSimulatorRunner = () => {
  return null;
 };
 
+const AuthenticatedChatbot = () => {
+ const user = useAuthStore(s => s.user);
+ const {pathname} = useLocation();
+ const inPortal = ['/dashboard','/doctor','/guardian/dashboard','/settings','/access-review'].includes(pathname) || pathname.startsWith('/elder/');
+ return user && inPortal ? <FloatingChatbot key={user.id} /> : null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -175,7 +182,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
-        <FloatingChatbot />
+        <AuthenticatedChatbot />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

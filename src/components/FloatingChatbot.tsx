@@ -44,6 +44,7 @@ export default function FloatingChatbot() {
    if(version===requestVersion.current){setBusy(false);pending.current=null;inputRef.current?.focus();}
   }
  };
+ if (!userId) return null;
  return <>
   {open && <section role="dialog" aria-label="G-Care AI chat" onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();close();}}} className="fixed bottom-24 right-4 z-40 flex h-[min(560px,calc(100dvh-8rem))] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl sm:right-6">
    <header className="flex items-center gap-3 bg-teal px-4 py-3 text-white"><Bot className="h-6 w-6"/><div className="flex-1"><h2 className="font-semibold">G-Care AI</h2><p className="text-xs text-white/85">Powered by Gemini</p></div><button type="button" aria-label="New conversation" onClick={reset} className="rounded-lg p-2 hover:bg-white/15"><RotateCcw className="h-4 w-4"/></button><button type="button" aria-label="Close chat" onClick={close} className="rounded-lg p-2 hover:bg-white/15"><X className="h-5 w-5"/></button></header>
