@@ -1,3 +1,4 @@
+import { liveDisplayReading } from './liveVitals.js';
 import { patientAlertMessage } from './alertText.js';
 import { withUshaDemonstrationVitals } from './hybridVitals.js';
 import { alertVisibleToRole } from '../src/lib/alertAudience.js';
@@ -1531,13 +1532,15 @@ export const dbService = {
 
       const alerts = await dbService.getAlerts(user);
 
-      // Fetch latest vitals for each elder
-      const vitals = {};
-      for (const eId of elderIds) {
-        const readings = await dbService.getVitalsReadings(eId, 1);
-        if (readings.length > 0) {
-          vitals[eId] = withUshaDemonstrationVitals(readings[0]);
-        }
+      // One latest-readings query keeps refresh time independent of patient count.
+      const {rows:latestReadings}=await pool.query('SELECT * FROM vitals_latest WHERE elder_id=ANY($1)',[elderIds]);
+      const latestByPatient=new Map(latestReadings.map(v=>[v.elder_id,v]));
+      const vitals={};const displayTime=Date.now();
+      for(const patient of elders){
+        const raw=latestByPatient.get(patient.id);
+        const reading=raw?{...raw,elderId:raw.elder_id,spo2:raw.spo2==null?null:Number(raw.spo2),skin_temp:Number(raw.skin_temp),timestamp:raw.timestamp?.toISOString()}:undefined;
+        const current=liveDisplayReading(reading,patient,displayTime);
+        if(current)vitals[patient.id]=current;
       }
 
       return { elders, medications: cleanMedications, alarms: cleanAlarms, alerts, vitals, reminderAcknowledgements: await dbService.getReminderAcknowledgements(user) };
@@ -1566,7 +1569,7 @@ export const dbService = {
           .filter((r) => r.elderId === eId)
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         if (readings.length > 0) {
-          vitals[eId] = withUshaDemonstrationVitals(readings[0]);
+          vitals[eId] = liveDisplayReading(readings[0],elders.find(e=>e.id===eId));
         }
       }
 
