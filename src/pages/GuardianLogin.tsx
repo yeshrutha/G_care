@@ -74,9 +74,6 @@ const GuardianLogin: React.FC = () => {
             </div>
           </div>
           <h1 className="font-display text-4xl">Guardian Portal</h1>
-          <p className="text-xl text-primary-foreground/80 max-w-sm">
-            Monitor, protect, and care for your loved ones — every second, every day.
-          </p>
           <div className="grid grid-cols-3 gap-6 pt-8">
             {[
               { icon: Heart, label: '24/7 Monitoring', value: '10 vitals' },

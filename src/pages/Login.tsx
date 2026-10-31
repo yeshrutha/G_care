@@ -145,11 +145,6 @@ const Login: React.FC = () => {
           <h2 className="font-display text-2xl text-foreground mb-2">
             {isSignup ? t('login.create_account') : t('login.welcome')}
           </h2>
-          {role === 'guardian' && (
-            <p className="text-sm text-muted-foreground mb-4">
-              Monitor, protect, and care for your loved ones in real time.
-            </p>
-          )}
 
           {success && <p role="status" className="mb-4 rounded-lg bg-teal/10 p-3 text-sm">{success}</p>}
           {error && (
