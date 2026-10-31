@@ -109,8 +109,8 @@ const DoctorPortal: React.FC = () => {
     medications, setMedications, addMedication, updateMedication, deleteMedication,
     alarms, setAlarms, addAlarm, updateAlarm, deleteAlarm,
   } = useAppStore();
-  const activeAlerts = allActiveAlerts.filter(isDoctorAlert);
   const { user: authUser, logout } = useAuthStore();
+  const activeAlerts = allActiveAlerts.filter(alert => isDoctorAlert(alert) && authUser?.assignedElderIds?.includes(alert.elder_id || ''));
   const setReminders = useGuardianStore((state) => state.setReminders);
   const addGuardianAlert = useGuardianStore((state) => state.addGuardianAlert);
   const addGuardianReminder = useGuardianStore((state) => state.addReminder);
@@ -226,7 +226,7 @@ const DoctorPortal: React.FC = () => {
     }
   };
 
-  const elders = demoElders;
+  const elders = useMemo(() => demoElders.filter(patient => authUser?.assignedElderIds?.includes(patient.id)), [demoElders, authUser?.assignedElderIds]);
 
   // Initialize selected patient in clinical space
   useEffect(() => {
@@ -1369,9 +1369,10 @@ const DoctorPortal: React.FC = () => {
               
               <div className="space-y-6">
                 <Card className="rounded-xl border border-gw-purple/30 bg-gw-purple/5">
-                  <CardHeader><CardTitle className="font-display text-sm flex items-center gap-2">🤖 AI Mood Insight</CardTitle></CardHeader>
+                  <CardHeader><CardTitle className="font-display text-sm flex items-center gap-2">Assigned Patient Overview</CardTitle></CardHeader>
                   <CardContent className="text-sm text-muted-foreground">
-                    Usha has reported feeling Anxious 3 of the last 5 days. Consider checking in.
+                    {elders.length === 0 ? 'No patients are currently assigned to you.' : 'Health insights are shown only for your assigned patients.'}
+                    {elders.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{elders.map(patient => <Badge key={patient.id} variant="outline">{patient.full_name}</Badge>)}</div>}
                   </CardContent>
                 </Card>
               </div>
