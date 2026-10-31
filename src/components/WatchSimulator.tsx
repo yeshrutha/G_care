@@ -1,3 +1,4 @@
+import {liveDisplayReading} from '@/lib/liveDisplayVitals.js';
 import HeartRatePulse from '@/components/HeartRatePulse';
 import {buildWatchReminders} from '@/lib/watchReminders.js';
 import {answerWatchQuestion} from '@/lib/watchLocalAnswers.js';
@@ -533,14 +534,10 @@ const WatchSimulator: React.FC<
   },[open,activeElder?.id,pairedWatches]);
 
   const activeVitals = useMemo(() => {
-    if (!activeElder) return demoVitals['elder-1'] || DEMO_VITALS['elder-1'];
-    return (
-      demoVitals[activeElder.id] ||
-      demoVitals['elder-1'] ||
-      DEMO_VITALS[activeElder.id] ||
-      getElderBaseline(activeElder)
-    );
-  }, [demoVitals, activeElder]);
+    const baseline = !activeElder ? demoVitals['elder-1'] || DEMO_VITALS['elder-1'] :
+      demoVitals[activeElder.id] || demoVitals['elder-1'] || DEMO_VITALS[activeElder.id] || getElderBaseline(activeElder);
+    return liveDisplayReading(baseline,activeElder,currentTime.getTime(),true) || baseline;
+  }, [demoVitals,activeElder,currentTime]);
 
   interface WatchAppointmentNotice {
     date: string;
@@ -2779,7 +2776,7 @@ const WatchSimulator: React.FC<
                             <HeartPulse className="h-5 w-5 text-rose-400" />
                             <span>Heart Rate</span>
                           </div>
-                          <p className="text-4xl font-bold leading-none tracking-tight text-white">{Math.round(activeVitals.heart_rate)}</p>
+                          <p className="text-4xl font-bold leading-none tracking-tight text-white">{activeVitals.heart_rate > 0 ? Math.round(activeVitals.heart_rate) : '—'}</p>
                           <p className="mt-1 text-xs text-slate-400">bpm</p>
                           <HeartRatePulse reading={activeVitals} now={currentTime.getTime()} />
                         </section>

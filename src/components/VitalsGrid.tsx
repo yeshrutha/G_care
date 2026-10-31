@@ -26,7 +26,7 @@ export const VitalsGrid: React.FC<Props> = React.memo(({ vitals, compact }) => {
   const { t } = useTranslation();
 
   const metrics = [
-    { label: t('vitals.hr'), value: vitals.heart_rate, unit: t('vitals.bpm'), icon: Heart, status: getStatus(vitals.heart_rate, 55, 90) },
+    { label: t('vitals.hr'), value: vitals.heart_rate > 0 ? vitals.heart_rate : 'Not available', unit: vitals.heart_rate > 0 ? t('vitals.bpm') : '', icon: Heart, status: getStatus(vitals.heart_rate > 0 ? vitals.heart_rate : null, 55, 90) },
     { label: t('vitals.bp'), value: `${vitals.systolic_bp}/${vitals.diastolic_bp}`, unit: t('vitals.mmhg'), icon: Activity, status: getStatus(vitals.systolic_bp, 90, 140) },
     { label: t('vitals.spo2'), value: vitals.spo2 ?? 'Not available', unit: vitals.spo2 == null ? '' : t('vitals.percent'), icon: Wind, status: getStatus(vitals.spo2, 94, 100) },
     { label: t('vitals.stress'), value: vitals.stress, unit: '/100', icon: Brain, status: getStatus(100 - vitals.stress, 40, 100) },

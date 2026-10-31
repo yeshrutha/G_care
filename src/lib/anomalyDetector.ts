@@ -338,7 +338,7 @@ export function detectVitalsAnomalies(
       clinicalRecommendation: 'Monitor resting pulse, verify hydration, and check for physical exertion or stress triggers.',
       timestamp,
     });
-  } else if (vitals.heart_rate < 48) {
+  } else if (vitals.heart_rate > 0 && vitals.heart_rate < 48) {
     anomalies.push({
       id: `anomaly-hr-low-${elder.id}-${Date.now()}`,
       elderId: elder.id,
@@ -352,7 +352,7 @@ export function detectVitalsAnomalies(
       clinicalRecommendation: 'Check consciousness and perfusion immediately. Review antiarrhythmic / digoxin / beta-blocker dosing.',
       timestamp,
     });
-  } else if (vitals.heart_rate < 55) {
+  } else if (vitals.heart_rate > 0 && vitals.heart_rate < 55) {
     anomalies.push({
       id: `anomaly-hr-brady-${elder.id}-${Date.now()}`,
       elderId: elder.id,

@@ -66,7 +66,7 @@ const FeedTab: React.FC = () => {
   const elderPhone = guardianUser?.elderPhone || 'Not added';
   const elderAddress = guardianUser?.elderAddress || 'Not added';
   const vitalsCards = [
-    { label: t('guardian.heart_rate'), value: `${Math.round(v.heart_rate)}`, unit: 'bpm', icon: Heart, low: 55, high: 100, current: v.heart_rate },
+    { label: t('guardian.heart_rate'), value: v.heart_rate > 0 ? `${Math.round(v.heart_rate)}` : 'Not available', unit: 'bpm', icon: Heart, low: 55, high: 100, current: v.heart_rate > 0 ? v.heart_rate : null },
     { label: t('guardian.blood_pressure'), value: `${Math.round(v.systolic_bp)}/${Math.round(v.diastolic_bp)}`, unit: 'mmHg', icon: Activity, low: 90, high: 140, current: v.systolic_bp },
     { label: 'SpO₂', value: v.spo2 == null ? 'Not available' : v.spo2.toFixed(1), unit: v.spo2 == null ? '' : '%', icon: Wind, low: 93, high: 100, current: v.spo2 },
     { label: t('guardian.stress'), value: `${Math.round(v.stress)}`, unit: '/100', icon: Brain, low: 0, high: 70, current: v.stress },

@@ -1,3 +1,4 @@
+import {liveDisplayReading} from '@/lib/liveDisplayVitals.js';
 import FloatingChatbot from '@/components/FloatingChatbot';
 import { useAuthStore } from "./store/authStore";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -138,11 +139,17 @@ const LiveVitalsSimulatorRunner = () => {
    if(cancelled||useAuthStore.getState().user?.id!==signedInUser.id)return;
    const elders=Array.isArray(data.elders)?data.elders:[];const ids=elders.map((e:any)=>e.id);
    const state=useAppStore.getState();
-   useAppStore.setState({demoElders:elders,demoVitals:Object.fromEntries(Object.entries(data.vitals||{}).filter(([id])=>ids.includes(id))),activeElderId:ids.includes(state.activeElderId)?state.activeElderId:(ids[0]||'')});
+   useAppStore.setState({demoElders:elders,demoVitals:Object.fromEntries(elders.map((patient:any)=>[patient.id,liveDisplayReading(data.vitals?.[patient.id],patient)]).filter(([,reading]:any)=>!!reading)),activeElderId:ids.includes(state.activeElderId)?state.activeElderId:(ids[0]||'')});
    hydrateAlertRecords(data.alerts||[]);
    if(signedInUser.accessStatus==='demo'&&state.simulationEnabled)state.updateLiveVitalsTick();
   }catch{}finally{active=false;}};
-  void cycle();const timer=setInterval(cycle,1000);return()=>{cancelled=true;clearInterval(timer);};
+  const displayTick=()=>{
+   if(cancelled||useAuthStore.getState().user?.id!==signedInUser.id)return;
+   const state=useAppStore.getState();const now=Date.now();
+   const vitals=Object.fromEntries(state.demoElders.map(patient=>[patient.id,liveDisplayReading(state.demoVitals[patient.id],patient,now)]).filter(([,reading])=>!!reading));
+   useAppStore.setState({demoVitals:vitals});
+  };
+  void cycle();const timer=setInterval(()=>{displayTick();void cycle();},1000);return()=>{cancelled=true;clearInterval(timer);};
  },[signedInUser?.id]);
  return null;
 };

@@ -21,6 +21,7 @@ describe('Vitals Anomaly Detection & Multi-Role Alert Routing', () => {
   });
 
   describe('detectVitalsAnomalies()', () => {
+    it('does not turn unavailable heart-rate placeholders into low-pulse alerts',()=>{const vitals={...DEMO_VITALS[usha.id],heart_rate:0};expect(detectVitalsAnomalies(usha,vitals).filter(a=>a.metric==='heart_rate')).toEqual([]);});
     it('does not turn unavailable oxygen into a hypoxemia alert', () => {
       const vitals = { ...DEMO_VITALS[usha.id], spo2: null };
       expect(detectVitalsAnomalies(usha, vitals).filter(anomaly => anomaly.metric === 'spo2')).toEqual([]);
