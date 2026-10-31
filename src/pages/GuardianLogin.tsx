@@ -18,7 +18,7 @@ const GuardianLogin: React.FC = () => {
   const [verification, setVerification] = useState(emptyVerification);
   const [success, setSuccess] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [form, setForm] = useState({ email: '', password: '', name: '', phone: '', elderName: '' });
+  const [form, setForm] = useState({ email: '', password: '', name: '', phone: '' });
   const [isSignup, setIsSignup] = useState(false);
   const [error, setError] = useState('');
   const [newPassword,setNewPassword]=useState('');const [changeRequired,setChangeRequired]=useState(false);
@@ -37,7 +37,6 @@ const GuardianLogin: React.FC = () => {
             role: 'guardian',
             ...verification,
             phone: form.phone,
-            elderName: form.elderName,
           })
         : await login(form.email, form.password, 'guardian', changeRequired?newPassword:undefined);
 
@@ -125,11 +124,6 @@ const GuardianLogin: React.FC = () => {
                     <Label htmlFor="g-phone">Phone Number</Label>
                     <Input id="g-phone" placeholder="+91 98765 43210" value={form.phone}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="g-elder">Elder's Name</Label>
-                    <Input id="g-elder" placeholder="Name of elder you're caring for" value={form.elderName}
-                      onChange={(e) => setForm({ ...form, elderName: e.target.value })} />
                   </div>
                 </>
               )}

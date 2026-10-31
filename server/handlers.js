@@ -399,7 +399,7 @@ async function handleAuth(req, res, pathName) {
     }
 
     if (role === 'caretaker' && !parsed.staffKind) return sendJson(res, 400, { error: 'Choose Nurse or Doctor’s assistant.' }, req);
-    if (role === 'guardian' && (!parsed.relationship || !parsed.elderName.trim())) return sendJson(res, 400, { error: 'Provide your relationship and the patient name for review.' }, req);
+    if (role === 'guardian' && !parsed.relationship) return sendJson(res, 400, { error: 'Provide your relationship for review.' }, req);
     if (role !== 'doctor' && parsed.supervisingDoctorId) {
       const doctor = await dbService.findUserById(parsed.supervisingDoctorId);
       if (doctor?.role !== 'doctor' || !hasApprovedAccess(doctor)) return sendJson(res, 400, { error: 'Select a listed supervising doctor.' }, req);

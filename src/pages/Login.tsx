@@ -42,7 +42,6 @@ const Login: React.FC = () => {
   const [name, setName] = useState('');
   const [countryCode, setCountryCode] = useState('+91');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [elderName, setElderName] = useState('');
   const [hospital, setHospital] = useState('');
   const [specialization, setSpecialization] = useState('');
   const [error, setError] = useState('');
@@ -72,7 +71,6 @@ const Login: React.FC = () => {
             role,
             ...verification,
             phone: fullPhone,
-            elderName: role === 'guardian' ? elderName : undefined,
             hospital: role === 'doctor' ? hospital : undefined,
             specialization: role === 'doctor' ? specialization : undefined,
           })
@@ -254,11 +252,6 @@ const Login: React.FC = () => {
                     </div>
                   </div>
                 )}
-                <div>
-                  <Label htmlFor="g-elder">Elder's Name</Label>
-                  <Input id="g-elder" placeholder="Name of elder you're caring for" value={elderName}
-                    onChange={(e) => setElderName(e.target.value)} className="mt-1" />
-                </div>
               </>
             )}
 

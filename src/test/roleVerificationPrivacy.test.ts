@@ -108,6 +108,7 @@ describe('Verified role registration and patient privacy (real isolated HTTP/JSO
     const dashboard=await request('/api/dashboard-data','GET',undefined,token);expect(dashboard.data.vitals[id].heart_rate).toBe(47);expect(dashboard.data.vitals[id].measured_fields).toEqual(['heart_rate','fall_detected']);
     const pair=await request('/api/watch-simulator/pair','POST',{},token);const key=pair.data.find((p:any)=>p.patient.id===id).token;const state=await request('/api/watch-simulator/state','GET',undefined,undefined,{'x-watch-token':key});expect(state.data.vitals.heart_rate).toBe(47);expect(state.data.vitals.fall_detected).toBe(true);expect(state.data.vitals.simulated_fields).toContain('spo2');expect(state.data.alerts.find((a:any)=>a.type==='fall').message).toBe('Wearable fall detected for Usha!');
   });
+  it('accepts a guardian application without a patient-name field and grants no patient access',async()=>{const {elderName,...body}=payload('guardian');const result=await request('/api/auth/register','POST',body);expect(result.status).toBe(201);expect(result.data.pending).toBe(true);expect(result.data.user.assignedElderIds).toEqual([]);expect(result.data.token).toBeUndefined();});
   it('persists editable profile details when the account is fetched again', async () => {
     const token = signToken(doctor);
     const saved = await request('/api/auth/profile', 'PUT', {
