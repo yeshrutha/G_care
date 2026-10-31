@@ -97,17 +97,20 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
         : 'http://127.0.0.1:8787');
   const fullUrl = endpoint.startsWith('http') ? endpoint : `${origin}${endpoint}`;
 
-  const response = await fetch(fullUrl, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(fullUrl, { ...options, headers });
+  } catch (error) {
+    if (options.signal?.aborted || (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError')) throw error;
+    throw new ApiError('Cannot reach the G-Care server. The service may be unavailable. Please try again after it is restored.', 503);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && token && typeof window !== 'undefined') {
       window.dispatchEvent(new Event('gcare:session-invalid'));
     }
-    throw new ApiError(data.error || `Request failed (${response.status})`, response.status);
+    throw new ApiError(data.error || (response.status === 503 ? 'The G-Care server is temporarily unavailable. Please try again after the service is restored.' : `Request failed (${response.status})`), response.status);
   }
 
   return data as T;
