@@ -957,7 +957,10 @@ const DoctorPortal: React.FC = () => {
       return { elder, vitals, riskScore: score, risk: { label, color, border }, recommendation };
     });
 
-    const sorted = [...profiles].sort((a, b) => b.riskScore - a.riskScore);
+    const sorted = profiles.filter(({vitals}) => vitals && (
+      (vitals.spo2 != null && vitals.spo2 < 94) || vitals.systolic_bp >= 140 || vitals.diastolic_bp >= 90 ||
+      vitals.heart_rate > 95 || (vitals.heart_rate > 0 && vitals.heart_rate < 55) || vitals.stress > 55
+    )).sort((a, b) => b.riskScore - a.riskScore);
     return {
       topPriority: sorted[0]?.riskScore > 0 ? sorted[0] : null,
       profiles: sorted,
@@ -1295,8 +1298,8 @@ const DoctorPortal: React.FC = () => {
 
           {/* DASHBOARD SECTION */}
           {activeSection === 'dashboard' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-6">
+            <div className="space-y-6">
+              <div className="space-y-6">
                 {!demoAppointmentVisible && !careIntelligence.topPriority && (
                   <Card className="rounded-xl border border-teal/20 bg-teal/5">
                     <CardHeader className="pb-2">
@@ -1367,15 +1370,7 @@ const DoctorPortal: React.FC = () => {
                 )}
               </div>
               
-              <div className="space-y-6">
-                <Card className="rounded-xl border border-gw-purple/30 bg-gw-purple/5">
-                  <CardHeader><CardTitle className="font-display text-sm flex items-center gap-2">Assigned Patient Overview</CardTitle></CardHeader>
-                  <CardContent className="text-sm text-muted-foreground">
-                    {elders.length === 0 ? 'No patients are currently assigned to you.' : 'Health insights are shown only for your assigned patients.'}
-                    {elders.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{elders.map(patient => <Badge key={patient.id} variant="outline">{patient.full_name}</Badge>)}</div>}
-                  </CardContent>
-                </Card>
-              </div>
+
             </div>
           )}
 
